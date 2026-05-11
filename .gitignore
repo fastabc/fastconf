@@ -1,0 +1,84 @@
+# -----------------------------------------------------------------
+# .gitignore — what never goes into source control
+# -----------------------------------------------------------------
+
+# ---- OS noise ---------------------------------------------------
+.DS_Store
+
+# ---- IDE / editor -----------------------------------------------
+.idea/
+.vscode/
+.omm
+
+# ---- AI / graph tools -------------------------------------------
+.claude/
+.code-review-graph/
+.github/copilot*.md
+.graphify-out/
+graphify-out/
+pkg/graphify-out/
+.mcp.json
+.codegraph/
+
+# ---- Tool version managers --------------------------------------
+.tool-versions
+.mailmap
+
+# ---- Environment ------------------------------------------------
+.env
+!.envrc
+
+# ---- Local overrides (not team-shared) --------------------------
+AGENTS.md
+CLAUDE.md
+CLAUDE.local.md
+.tokeignore
+
+# ---- Build outputs ----------------------------------------------
+build/
+.worktrees/
+*debug_bin*
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.tar.gz
+*.swp
+coverage.*
+*.coverprofile
+profile.cov
+mock/
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Build & local artifacts
+/bin/
+/dist/
+/docs/graph/
+
+# Tooling caches
+.golangci-cache/
+
+# Logs
+/logs
+
+# Docs
+/docs/superpowers
+/docs/plans
+
+/fastconfd
+/fastconfgen
+/fastconfctl
+
+# Built CLI binaries inside per-binary sub-modules (Phase 83 SPEC-83)
+cmd/fastconfctl/fastconfctl
+cmd/fastconfgen/fastconfgen
+
