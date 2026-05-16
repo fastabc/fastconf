@@ -1,0 +1,44 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'   # root module tag (e.g. v0.9.0); sub-module path-prefixed
+               # tags such as `cmd/fastconfctl/v0.9.0` do NOT match this
+               # pattern, so this workflow runs exactly once per release.
+
+permissions:
+  contents: write   # required for GitHub Release asset upload
+
+jobs:
+  build-dist:
+    name: cross-compile + publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # for `git describe` inside Makefile
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install zip (for windows zip artefacts)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends zip
+
+      - name: Cross-compile dist matrix
+        run: make dist VERSION=${{ github.ref_name }}
+
+      - name: Verify SHA256SUMS
+        run: make dist-verify
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS
+          generate_release_notes: true
+          body_path: CHANGELOG.md

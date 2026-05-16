@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Root module — build, test (race), budget guards
+  # -----------------------------------------------------------------------
+  test:
+    name: test / go ${{ matrix.go }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ["1.26.x"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go ${{ matrix.go }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test (race)
+        run: go test -race -count=1 -timeout=5m ./...
+
+      - name: LOC budget – main package
+        run: bash tools/loc-budget.sh
+
+      - name: LOC budget – full tree
+        run: bash tools/total-loc-budget.sh
+
+  # -----------------------------------------------------------------------
+  # Independent CLI sub-modules (have their own go.mod)
+  # -----------------------------------------------------------------------
+  test-submodules:
+    name: test / ${{ matrix.module }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - cmd/fastconfctl
+          - cmd/fastconfgen
+          - observability/metrics/prometheus
+          - observability/otel
+          - policy/cue
+          - policy/opa
+          - validate/cue/cuelang
+          - validate/playground
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: Test ${{ matrix.module }} (race)
+        working-directory: ${{ matrix.module }}
+        run: go test -race -count=1 -timeout=3m ./...
+
+  # -----------------------------------------------------------------------
+  # Lint (golangci-lint) — root module only (sub-modules share the same rules)
+  # -----------------------------------------------------------------------
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m ./...
+
+      - name: Inter-package dependency whitelist
+        run: bash tools/check-deps.sh
+
+      - name: Layout guard
+        run: bash tools/check-layout.sh
+
+      - name: Documentation symbol guard
+        run: bash tools/check-doc-symbols.sh
+
+  # -----------------------------------------------------------------------
+  # Phase-comment audit guard (zero stale phase comments allowed)
+  # -----------------------------------------------------------------------
+  audit:
+    name: audit / phase comments
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit phase comments
+        run: bash tools/audit-phase-comments.sh --strict

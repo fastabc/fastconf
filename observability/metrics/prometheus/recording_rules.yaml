@@ -1,0 +1,27 @@
+# Phase 28 — Prometheus Recording Rules
+# Drop into your Prometheus config under `rule_files:` to expose
+# convenient SLI views derived from raw fastconf series.
+groups:
+  - name: fastconf.sli
+    interval: 30s
+    rules:
+      - record: fastconf:reload_success_ratio_5m
+        expr: |
+          sum(rate(fastconf_reload_total{result="ok"}[5m]))
+            / clamp_min(sum(rate(fastconf_reload_total[5m])), 1e-9)
+
+      - record: fastconf:reload_p99_5m
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(fastconf_reload_duration_seconds_bucket[5m])))
+
+      - record: fastconf:stage_p99_5m
+        expr: |
+          histogram_quantile(0.99,
+            sum by (stage, le) (rate(fastconf_stage_duration_seconds_bucket[5m])))
+
+      - record: fastconf:provider_error_rate_5m
+        expr: sum by (provider) (rate(fastconf_provider_error_total[5m]))
+
+      - record: fastconf:event_dropped_rate_5m
+        expr: sum by (provider) (rate(fastconf_event_dropped_total[5m]))

@@ -1,0 +1,130 @@
+package fastconf
+
+import (
+	"context"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/fastabc/fastconf/internal/debounce"
+	"github.com/fastabc/fastconf/internal/watcher"
+)
+
+// startWatcher arms the fsnotify-backed watcher when WithWatch(true) is set.
+//
+// fsnotify operates on real filesystems only — when the manager runs on an
+// in-memory fs.FS (testing/fstest), startWatcher silently no-ops because
+// there is nothing to observe.
+func (m *Manager[T]) startWatcher(ctx context.Context) error {
+	if m.opts.fsys != nil {
+		m.opts.log.Debug().Msg("watch: skipped (virtual fs in use)")
+		return nil
+	}
+	paths := collectWatchPaths(m.opts)
+	// Also watch directories that contain the active layer files.
+	// After the first Load(), m.state holds the real sources; these may live
+	// in profile-specific or axis-specific sub-directories that the static
+	// scan above misses.
+	for _, p := range collectWatchPathsFromState(m.state.Load()) {
+		paths = appendUnique(paths, p)
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	deb := debounce.New(m.opts.watchInterval, func(reason string) {
+		select {
+		case <-m.closed:
+			return
+		default:
+		}
+		if m.watchPaused.Load() {
+			m.opts.log.Debug().Str("reason", reason).Msg("watch: event ignored (paused)")
+			return
+		}
+		if err := m.requestReload(context.Background(), reason); err != nil {
+			m.opts.log.Warn().Str("reason", reason).Err(err).Msg("watch: reload failed")
+		}
+	})
+	w, err := watcher.New(paths, deb.Trigger)
+	if err != nil {
+		return err
+	}
+	m.bgWG.Go(func() {
+		defer deb.Stop()
+		defer func() { _ = w.Close() }()
+		runCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		go func() {
+			select {
+			case <-m.closed:
+				cancel()
+			case <-runCtx.Done():
+			}
+		}()
+		w.Run(runCtx)
+	})
+	m.opts.log.Info().Strs("paths", paths).Msg("watch: started")
+	return nil
+}
+
+func collectWatchPaths(o options) []string {
+	seen := map[string]struct{}{}
+	out := []string{}
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			abs = p
+		}
+		if _, ok := seen[abs]; ok {
+			return
+		}
+		seen[abs] = struct{}{}
+		out = append(out, abs)
+	}
+	// Watch the configured root and the conventional base/overlay subtrees so
+	// that K8s ConfigMap parent-dir swaps reach us regardless of whether the
+	// user mounted the bundle at `conf.d` or at one level deeper.
+	add(o.dir)
+	add(filepath.Join(o.dir, "base"))
+	add(filepath.Join(o.dir, "overlays"))
+	for _, p := range o.watchPaths {
+		add(p)
+	}
+	return out
+}
+
+// collectWatchPathsFromState returns the unique parent directories of every
+// active layer in s.Sources. These are the directories that actually contribute
+// to the loaded config and must be watched for hot-reload to fire on profile-
+// or axis-specific overlay changes.
+func collectWatchPathsFromState[T any](s *State[T]) []string {
+	if s == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	for _, src := range s.Sources {
+		// Skip virtual sources (bytes://, provider://, ...).
+		if src.Path == "" || strings.Contains(src.Path, "://") {
+			continue
+		}
+		dir := filepath.Dir(src.Path)
+		if _, ok := seen[dir]; ok {
+			continue
+		}
+		seen[dir] = struct{}{}
+		out = append(out, dir)
+	}
+	return out
+}
+
+// appendUnique appends p to dst only if it is not already present.
+func appendUnique(dst []string, p string) []string {
+	if slices.Contains(dst, p) {
+		return dst
+	}
+	return append(dst, p)
+}
