@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/internal/coalesce"
 	"github.com/fastabc/fastconf/pkg/decoder"
 	"github.com/fastabc/fastconf/pkg/feature"
 	"github.com/fastabc/fastconf/pkg/flog"
@@ -47,10 +48,10 @@ type options struct {
 	log         *flog.Logger // zerolog-style fluent wrapper over logger; refreshed in New() after all options apply.
 	providers   []contracts.Provider
 
-	watch         bool
-	watchInterval time.Duration
-	watchPaths    []string
-	overlayAxes   []OverlayAxis // multi-axis overlay configuration
+	watch       bool
+	coalesce    coalesce.Options // watcher event-burst coalescer windows
+	watchPaths  []string
+	overlayAxes []OverlayAxis // multi-axis overlay configuration
 
 	metrics        metricsBridge
 	validators     []validatorEntry
@@ -106,12 +107,12 @@ func defaultOptions() options {
 		// override it when WithProfileEnv is not used.
 		profileEnv:    "",
 		defaultProf:   "",
-		strict:        false,
-		logger:        base,
-		log:           flog.New(base),
-		watchInterval: DefaultDebounceInterval,
-		metrics:       newMetricsBridge(noopMetrics{}),
-		tracer:        noopTracer{},
+		strict:   false,
+		logger:   base,
+		log:      flog.New(base),
+		coalesce: coalesce.ProfileK8s.Apply(),
+		metrics:  newMetricsBridge(noopMetrics{}),
+		tracer:   noopTracer{},
 	}
 }
 
@@ -231,15 +232,41 @@ func WithLogger(l *slog.Logger) Option {
 }
 
 // ---------------------------------------------------------------------
-// Watcher + debounce
+// Watcher + coalescer
 // ---------------------------------------------------------------------
 
 // WithWatch enables file-system driven reloads.
 func WithWatch(enabled bool) Option { return func(o *options) { o.watch = enabled } }
 
-// WithDebounceInterval sets the watch debounce window. Default: DefaultDebounceInterval.
-func WithDebounceInterval(d time.Duration) Option {
-	return func(o *options) { o.watchInterval = d }
+// WithCoalesceQuiet sets the silent-window after which a watcher event
+// burst on a single parent directory fires a reload. Default:
+// DefaultCoalesceQuiet (30 ms). The window is reset by every new event
+// in the same burst, subject to MaxLag.
+func WithCoalesceQuiet(d time.Duration) Option {
+	return func(o *options) { o.coalesce.Quiet = d }
+}
+
+// WithCoalesceMaxLag sets the absolute upper bound on a watcher event
+// burst's lifetime. Once exceeded the burst is force-flushed even if new
+// events keep arriving. Default: DefaultCoalesceMaxLag (250 ms).
+func WithCoalesceMaxLag(d time.Duration) Option {
+	return func(o *options) { o.coalesce.MaxLag = d }
+}
+
+// WithCoalesceSwapHint sets the much shorter quiet window applied once a
+// Kubernetes ConfigMap atomic-swap commit is detected (CREATE/RENAME on
+// "..data" or "..data_tmp_*"). Trailing CHMOD events on inner symlinks do
+// not extend the window further. Default: DefaultCoalesceSwapHint (5 ms).
+// Clamped to <= Quiet.
+func WithCoalesceSwapHint(d time.Duration) Option {
+	return func(o *options) { o.coalesce.SwapHint = d }
+}
+
+// WithCoalesceProfile applies all three coalescer windows from a preset.
+// Use ProfileK8s (default) in production and ProfileLocalDev when
+// iterating against editors that write via unlink-rename cascades.
+func WithCoalesceProfile(p coalesce.Profile) Option {
+	return func(o *options) { o.coalesce = p.Apply() }
 }
 
 // WithWatchPaths appends additional paths to watch.
@@ -379,6 +406,31 @@ func WithProvider(p contracts.Provider) Option {
 	}
 }
 
+// WithSource registers a byte-stream Source paired with a Parser.
+// Internally Bind composes them into a Provider, so a Source is a
+// first-class participant of the merge order alongside Provider.
+//
+// Use this for byte-blob sources (file, http, inline bytes) where
+// the decoder is named at the call site for discoverability:
+//
+//	fastconf.WithSource(file.New("/etc/app/config.yaml"), yaml.Parser())
+//
+// Pass a nil Parser to defer parser selection to the registry: the
+// content-type hint returned by Source.Read picks the parser
+// automatically (file extension for FileSource, Content-Type header
+// for HTTPSource, the contentType ctor argument for BytesSource).
+//
+// For already-structured sources (env, cli, kv-with-one-key-per-setting)
+// continue to use WithProvider directly; there is no Parser to attach.
+func WithSource(src contracts.Source, p contracts.Parser) Option {
+	return func(o *options) {
+		if src == nil {
+			return
+		}
+		o.providers = append(o.providers, Bind(src, p))
+	}
+}
+
 // WithProviderOrdered is a let-me-keep-it-simple helper for users who prefer
 // the Viper "last call wins" mental model over FastConf's explicit Priority()
 // integers. It wraps each supplied provider in a thin priorityOverride that
@@ -441,11 +493,9 @@ func wrapWithPriority(p contracts.Provider, prio int) contracts.Provider {
 // works correctly. The prefix is stashed and resolved once just before
 // New() builds its Manager. This is the one Option whose mechanics cannot
 // be replaced by a single WithProvider call (because it needs the final
-// o.dir value); other env / .env / label / CLI / bytes sugars were removed
-// in v0.14 — use WithProvider(provider.NewEnv(...)), WithProvider(
-// provider.NewDotEnv(...)), WithProvider(provider.NewLabels(...)),
-// WithProvider(provider.NewCLI(...)), WithProvider(provider.NewBytes(...))
-// directly.
+// o.dir value). For structured contributors use WithProvider with
+// provider.NewEnv / NewDotEnv / NewLabels / NewCLI; for byte-blob layers
+// use WithSource with source.NewFile / NewHTTP / NewBytes.
 func WithDotEnvAuto(prefix string) Option {
 	return func(o *options) {
 		o.dotEnvAutoPrefixes = append(o.dotEnvAutoPrefixes, prefix)

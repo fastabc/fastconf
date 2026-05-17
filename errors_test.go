@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/fastabc/fastconf/pkg/provider"
+	"github.com/fastabc/fastconf/pkg/source"
 )
 
 func TestErrFastConfHierarchy(t *testing.T) {
@@ -44,7 +44,7 @@ func TestOrigin_LookupStrictNoOrigin(t *testing.T) {
 	type cfg struct{}
 	mgr, err := New[cfg](context.Background(),
 		WithFS(emptyFS()),
-		WithProvider(provider.NewBytes("inline", "yaml", []byte("{}"))),
+		WithSource(source.NewBytes("inline", "yaml", []byte("{}")), nil),
 	)
 	if err != nil {
 		t.Fatalf("new: %v", err)

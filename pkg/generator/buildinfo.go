@@ -1,7 +1,7 @@
 // Package generator hosts FastConf's built-in contracts.Generator
 // implementations. Generators synthesise configuration layers
 // dynamically at assemble time. They are first-class peers of
-// Provider but produce []contracts.Source instead of one
+// Provider but produce []contracts.RawLayer instead of one
 // map[string]any.
 package generator
 
@@ -43,7 +43,7 @@ func (b *BuildInfo) Name() string {
 }
 
 // Generate implements contracts.Generator.
-func (b *BuildInfo) Generate(_ context.Context) ([]contracts.Source, error) {
+func (b *BuildInfo) Generate(_ context.Context) ([]contracts.RawLayer, error) {
 	if len(b.Keys) == 0 {
 		return nil, nil
 	}
@@ -55,7 +55,7 @@ func (b *BuildInfo) Generate(_ context.Context) ([]contracts.Source, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []contracts.Source{{
+	return []contracts.RawLayer{{
 		Name:  "info",
 		Codec: "json",
 		Data:  data,

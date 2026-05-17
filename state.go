@@ -109,6 +109,11 @@ type ReloadCause struct {
 	// Tenant, when non-empty, identifies which logical tenant this
 	// commit belongs to. For single-tenant deployments this is always "".
 	Tenant string
+	// Key, when non-empty, identifies the watched parent directory whose
+	// fsnotify event burst triggered this reload. Populated only for
+	// file-system driven reloads (the coalescer keys bursts by parent
+	// dir); empty for manual, provider-driven, and initial reloads.
+	Key string
 }
 
 // Origins returns the per-field origin index; nil when provenance is

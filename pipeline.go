@@ -267,6 +267,13 @@ func loadProviderSnapshot(ctx context.Context, p contracts.Provider) (contracts.
 // pipeline.go; commit() retains only the terminal "publish" duties:
 // hash, swap, history, audit, watches.
 func (m *Manager[T]) commit(ctx context.Context, staged []stagedLayer, appendSlices bool, reason string) error {
+	return m.commitWithKey(ctx, staged, appendSlices, reason, "")
+}
+
+// commitWithKey is the variant used by the file-system watcher, which
+// supplies a parent-directory key so audit fan-out can attribute the
+// reload to the specific watched dir whose burst triggered it.
+func (m *Manager[T]) commitWithKey(ctx context.Context, staged []stagedLayer, appendSlices bool, reason, key string) error {
 	pc := &pipelineCtx[T]{
 		reason:       reason,
 		staged:       staged,
@@ -311,6 +318,7 @@ func (m *Manager[T]) commit(ctx context.Context, staged []stagedLayer, appendSli
 		Reason:    reason,
 		At:        time.Now().UnixNano(),
 		Revisions: collectRevisions(pc.sources),
+		Key:       key,
 	}
 	ns := &State[T]{
 		Value:      pc.target,
@@ -354,6 +362,12 @@ func (m *Manager[T]) commit(ctx context.Context, staged []stagedLayer, appendSli
 
 // reload runs the full pipeline. On any failure, state is preserved.
 func (m *Manager[T]) reload(ctx context.Context, reason string) error {
+	return m.reloadWithKey(ctx, reason, "")
+}
+
+// reloadWithKey is the file-system-watcher variant; key is the parent
+// dir whose burst triggered this reload (stamped into ReloadCause).
+func (m *Manager[T]) reloadWithKey(ctx context.Context, reason, key string) error {
 	start := time.Now()
 	m.opts.metrics.ReloadStarted()
 	m.opts.log.Debug().Str("reason", reason).Msg("fastconf reload start")
@@ -380,7 +394,7 @@ func (m *Manager[T]) reload(ctx context.Context, reason string) error {
 
 	cmtCtx, cmtSp := m.startSpan(ctx, "fastconf.commit")
 	commitStart := time.Now()
-	if err := m.commit(cmtCtx, staged, appendSlices, reason); err != nil {
+	if err := m.commitWithKey(cmtCtx, staged, appendSlices, reason, key); err != nil {
 		cmtSp.RecordError(err)
 		cmtSp.End()
 		root.RecordError(err)

@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/fastabc/fastconf/internal/debounce"
+	"github.com/fastabc/fastconf/internal/coalesce"
 	"github.com/fastabc/fastconf/internal/watcher"
 )
 
@@ -31,26 +31,26 @@ func (m *Manager[T]) startWatcher(ctx context.Context) error {
 	if len(paths) == 0 {
 		return nil
 	}
-	deb := debounce.New(m.opts.watchInterval, func(reason string) {
+	co := coalesce.New(m.opts.coalesce, func(key, reason string) {
 		select {
 		case <-m.closed:
 			return
 		default:
 		}
 		if m.watchPaused.Load() {
-			m.opts.log.Debug().Str("reason", reason).Msg("watch: event ignored (paused)")
+			m.opts.log.Debug().Str("key", key).Str("reason", reason).Msg("watch: event ignored (paused)")
 			return
 		}
-		if err := m.requestReload(context.Background(), reason); err != nil {
-			m.opts.log.Warn().Str("reason", reason).Err(err).Msg("watch: reload failed")
+		if err := m.requestReloadWithKey(context.Background(), reason, key); err != nil {
+			m.opts.log.Warn().Str("key", key).Str("reason", reason).Err(err).Msg("watch: reload failed")
 		}
 	})
-	w, err := watcher.New(paths, deb.Trigger)
+	w, err := watcher.New(paths, co)
 	if err != nil {
 		return err
 	}
 	m.bgWG.Go(func() {
-		defer deb.Stop()
+		defer co.Stop()
 		defer func() { _ = w.Close() }()
 		runCtx, cancel := context.WithCancel(ctx)
 		defer cancel()

@@ -25,7 +25,10 @@
 //   - priority.go  — PriorityStatic .. PriorityCLI constants
 package contracts
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Codec decodes a byte stream of a specific encoding (yaml, json, toml, ...)
 // into a generic map[string]any used by the merge stage. Implementations
@@ -55,16 +58,65 @@ type Event struct {
 	At time.Time
 }
 
-// Source is a self-describing in-memory contributor: the union of
-// (name, codec, bytes). It is the lowest-friction way to inject inline
-// configuration in tests, examples and bootstrap code without writing a
-// full Provider. Typical usage:
+// RawLayer is a self-describing in-memory contributor: the union of
+// (name, codec, bytes). It is the carrier the Generator contract uses
+// to emit synthetic configuration layers (see pkg/generator). For
+// dynamic byte-stream contributors that the framework polls or watches,
+// use the Source interface instead.
 //
-//	contracts.Source{Name: "inline", Codec: "yaml", Data: []byte("a: 1")}
-type Source struct {
+//	contracts.RawLayer{Name: "inline", Codec: "yaml", Data: []byte("a: 1")}
+type RawLayer struct {
 	Name  string
 	Codec string
 	Data  []byte
+}
+
+// Source is a byte-stream configuration contributor — the koanf-style
+// counterpart to Provider. Whereas Provider.Load returns a structured
+// map[string]any directly (env, cli, KV with one key per setting),
+// Source.Read returns raw bytes plus a content-type hint, which the
+// framework pairs with a Parser to obtain the map.
+//
+// Pair a Source with a Parser via the top-level Bind helper, or use
+// the WithSource option which does the Bind internally.
+//
+// Implementations MUST be safe for concurrent use. The framework calls
+// Read from the single reload goroutine but third parties may inspect
+// Name / Priority concurrently.
+type Source interface {
+	// Name is used for diagnostics and dedupe; stable across reads.
+	Name() string
+
+	// Priority controls merge order during assemble; higher wins. Use
+	// the Priority* constants in this package for well-known bands.
+	Priority() int
+
+	// Read returns the current bytes plus a content-type hint (".yaml",
+	// "application/yaml", "yaml" — all accepted) and an opaque revision
+	// string for change detection. Implementations MAY return an empty
+	// contentType when extension/header inference is not possible — the
+	// caller is then required to bind an explicit Parser.
+	Read(ctx context.Context) (data []byte, contentType string, rev string, err error)
+
+	// Watch optionally streams change events. Returning (nil, nil) means
+	// "rely on the global file-watcher / external poll". Same shape as
+	// Provider.Watch.
+	Watch(ctx context.Context) (<-chan Event, error)
+}
+
+// Parser turns raw bytes into a map[string]any. Every Parser SHOULD
+// also declare which content-types it answers to, so Bind can pick a
+// Parser automatically when the Source supplies a content-type hint.
+//
+// Parser is a strict superset of Codec; the same value satisfies both.
+type Parser interface {
+	Codec
+	// ContentTypes returns the canonical file extensions and / or MIME
+	// types this Parser handles ("yaml", ".yaml", ".yml",
+	// "application/yaml"). Used by Bind to auto-select a Parser when
+	// the caller passes nil and the Source returned a non-empty
+	// contentType hint.
+	ContentTypes() []string
 }
 
 // Span is the minimal tracing-span contract used by FastConf's

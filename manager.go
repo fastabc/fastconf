@@ -316,6 +316,7 @@ func (m *Manager[T]) Errors() <-chan ReloadError { return m.errsCh }
 type reloadRequest struct {
 	ctx     context.Context
 	reason  string
+	key     string                       // optional: parent dir for fs-driven reloads (audit dim)
 	applyFn func(context.Context) error // if non-nil, called instead of m.reload (e.g. rollback)
 	doneCh  chan error
 }
@@ -327,12 +328,19 @@ type reloadRequest struct {
 // The caller's ctx is attached to the request so the pipeline itself
 // (not just the wait) can be cancelled.
 func (m *Manager[T]) requestReload(ctx context.Context, reason string) error {
+	return m.requestReloadWithKey(ctx, reason, "")
+}
+
+// requestReloadWithKey is the variant used by the file-system watcher,
+// where "key" is the parent directory whose burst triggered this reload.
+// The key is surfaced in ReloadCause for audit fan-out.
+func (m *Manager[T]) requestReloadWithKey(ctx context.Context, reason, key string) error {
 	select {
 	case <-m.closed:
 		return ErrClosed
 	default:
 	}
-	req := reloadRequest{ctx: ctx, reason: reason, doneCh: make(chan error, 1)}
+	req := reloadRequest{ctx: ctx, reason: reason, key: key, doneCh: make(chan error, 1)}
 	select {
 	case m.reloadCh <- req:
 	case <-m.closed:
@@ -393,7 +401,7 @@ func (m *Manager[T]) reloadLoop() {
 			if req.applyFn != nil {
 				err = req.applyFn(pipeCtx)
 			} else {
-				err = m.reload(pipeCtx, req.reason)
+				err = m.reloadWithKey(pipeCtx, req.reason, req.key)
 			}
 			if err != nil {
 				m.publishReloadError(req.reason, err)

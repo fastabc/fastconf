@@ -13,18 +13,18 @@ for f in \
   manager.go options.go errors.go state.go defaults.go secret.go presets.go \
   registry.go tenant.go pipeline.go pipeline_stages.go provider_watch.go \
   obs_audit.go obs_metrics.go obs_tracer.go watch.go watcher.go doc.go feature.go introspect.go \
-  field_meta.go secret_resolver.go
+  field_meta.go secret_resolver.go bind.go
 do
   [ -f "$ROOT/$f" ] || error "root/$f"
 done
 
 # pkg/ packages
-for d in decoder discovery mappath merger migration profile provider transform validate; do
+for d in decoder discovery mappath merger migration parser profile provider source transform validate; do
   [ -d "$ROOT/pkg/$d" ] || error "pkg/$d"
 done
 
 # internal/ packages
-for d in debounce obs typeinfo watcher; do
+for d in coalesce obs typeinfo watcher; do
   [ -d "$ROOT/internal/$d" ] || error "internal/$d"
 done
 

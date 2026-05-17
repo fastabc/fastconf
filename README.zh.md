@@ -389,8 +389,15 @@ last-write-wins 应用。
 | Option | 说明 | 默认值 |
 |---|---|---|
 | `WithWatch(bool)` | 启用 fsnotify | `false` |
-| `WithDebounceInterval(d)` | 去抖动窗口 | `500ms` |
+| `WithCoalesceQuiet(d)` | 每个父目录 burst 触发前的静默窗口 | `30ms` |
+| `WithCoalesceMaxLag(d)` | burst 生命周期的硬上限 | `250ms` |
+| `WithCoalesceSwapHint(d)` | 检测到 K8s `..data` 原子 swap 后压缩的窗口 | `5ms` |
+| `WithCoalesceProfile(p)` | 应用预设：`ProfileK8s`（默认）或 `ProfileLocalDev` | `ProfileK8s` |
 | `WithWatchPaths(paths...)` | 额外监视路径 | — |
+
+Watcher 在 **父目录粒度** 做事件合并，多个独立 ConfigMap 互不阻塞。
+检测到 `..data` rename/create（K8s 原子 swap 完成信号）时窗口压到
+`swapHint`（5ms）而非等满 `quiet` —— 典型 reload 延迟从旧版全局 500ms 降到 ~5–35ms。
 
 ### Profile
 
@@ -402,32 +409,47 @@ last-write-wins 应用。
 | `WithDefaultProfile(p string)` | 环境变量为空时的 fallback |
 | `WithProfileExpr(expr string)` | 全局 profile 匹配表达式（覆盖每个 overlay 的默认 membership 逻辑） |
 
-### Provider
+### Source × Parser × Provider
+
+FastConf 把扩展面拆成两条：
+
+- **`Source`**（`pkg/source`）—— 字节流贡献者（file / http / inline bytes）。
+  在调用处以 koanf 风格与 **`Parser`**（`pkg/parser`）显式配对，codec 一眼可见。
+- **`Provider`**（`pkg/provider`）—— 已结构化的贡献者（env / cli / 一键一值的 KV）。
+  无需 Parser。
 
 | Option | 说明 |
 |---|---|
-| `WithProvider(p)` | 注册外部 provider（核心入口） |
+| `WithSource(src, parser)` | 绑定 byte-blob Source 与 Parser。Parser 传 `nil` 时按内容类型自动选择 |
+| `WithProvider(p)` | 注册已结构化的 provider（核心入口） |
 | `WithProviderOrdered(p...)` | 按调用顺序自动分配 `CLI+100, +101, ...`；输入已有非零 Priority 时报错 |
-| `WithProviderByName(name, cfg)` | 通过 Factory Registry 按名称构造 provider；解析在所有 Option 应用完之后做（与 `WithProviderRegistry` 顺序无关） |
-| `WithProviderRegistry(r)` | 注入 Manager-local `*ProviderRegistry`；解析时**先 local，后全局默认**，便于多租户/测试隔离 |
-| `WithGenerator(g)` | assemble 阶段动态合成 layer（如 BuildInfo） |
+| `WithProviderByName(name, cfg)` | 通过 Factory Registry 按名称构造 provider；解析在所有 Option 应用完之后做 |
+| `WithProviderRegistry(r)` | 注入 Manager-local `*ProviderRegistry`；先 local，后全局默认 |
+| `WithGenerator(g)` | assemble 阶段动态合成 `[]RawLayer`（如 BuildInfo） |
 | `WithDotEnvAuto(prefix)` | 在 `WithDir` 终值上自动发现 `.env` |
 
-`pkg/provider` 的工厂函数：
+`pkg/source` + `pkg/parser` + `pkg/provider` 的工厂函数：
 
 ```go
 import (
     "github.com/fastabc/fastconf"
+    "github.com/fastabc/fastconf/pkg/parser"
     "github.com/fastabc/fastconf/pkg/provider"
+    "github.com/fastabc/fastconf/pkg/source"
     "github.com/fastabc/fastconf/pkg/transform"
 )
 
 fastconf.New[Cfg](ctx,
+    // byte-blob 层：显式 Source × Parser 配对
+    fastconf.WithSource(source.NewFile("/etc/app/config.yaml"), parser.YAML()),
+    fastconf.WithSource(source.NewHTTP("https://kv/config"), parser.JSON()),
+    fastconf.WithSource(source.NewBytes("inline", "yaml", data), nil), // nil → 内容类型自动绑定
+
+    // 已结构化的 provider —— 无 Parser 槽位：
     fastconf.WithProvider(provider.NewEnv("APP_")),                              // APP_DATABASE__DSN → database.dsn
     fastconf.WithProvider(provider.NewEnvReplacer("APP_", provider.DotReplacer)),// APP_DATABASE_DSN → database.dsn
     fastconf.WithProvider(provider.NewCLI(cliMap)),                              // 解析过的 CLI 标志
     fastconf.WithProvider(provider.NewDotEnv("APP_", ".env")),                   // 显式 .env 路径
-    fastconf.WithProvider(provider.NewBytes("inline", "yaml", data)),            // 内存 layer
     fastconf.WithProvider(provider.NewLabels(labels, provider.LabelOptions{})),  // Traefik/Docker 标签
     fastconf.WithTransformers(transform.ExpandLabels(at, to, opts)),
 )
@@ -603,18 +625,39 @@ mgr, err := fastconf.New[AppConfig](ctx,
 
 ## Provider 系统
 
-### 内置 Provider（`pkg/provider`）
+### 内置 byte-blob Source（`pkg/source`）
+
+每个 Source 通过 `WithSource(src, parser)` 与 Parser 配对。Parser 传 `nil`
+时按内容类型提示自动绑定（文件扩展名 / HTTP `Content-Type` / `ContentType` 构造参数）。
+
+| Source | 构造 | 说明 |
+|---|---|---|
+| File  | `source.NewFile(path)` | load 时读文件；内容类型来自扩展名 |
+| HTTP  | `source.NewHTTP(url)` | 带 ETag 条件 GET 短路；内容类型来自 `Content-Type` 头 |
+| Bytes | `source.NewBytes(name, contentType, data)` | 内存 layer（测试最常用） |
+
+### 内置 Parser（`pkg/parser`）
+
+| Parser | 声明的 content-type |
+|---|---|
+| `parser.YAML()` | `yaml` / `.yaml` / `.yml` / `application/yaml` / `application/x-yaml` / `text/yaml` |
+| `parser.JSON()` | `json` / `.json` / `application/json` / `text/json` |
+| `parser.TOML()` | `toml` / `.toml` / `application/toml` / `text/toml` |
+
+第三方 Parser 通过 `parser.Register` 注册自己的 content-type。
+
+### 内置结构化 Provider（`pkg/provider`）
+
+它们直接返回 `map[string]any` —— 无需 Parser。
 
 | Provider | 构造 | 说明 |
 |---|---|---|
 | Env         | `provider.NewEnv("APP_")` | `APP_FOO__BAR` → `foo.bar`（双下划线分隔） |
 | EnvReplacer | `provider.NewEnvReplacer("APP_", provider.DotReplacer)` | Viper 风格单下划线 → 点 |
 | CLI         | `provider.NewCLI(map[string]any)` | 命令行 flag 解析后的 map |
-| Bytes       | `provider.NewBytes(name, codec, data)` | 内存 layer；测试 / fixture 最常用 |
 | DotEnv      | `provider.NewDotEnv("APP_", paths...)` | 显式 `.env` 文件路径 |
 | Labels      | `provider.NewLabels(labels, provider.LabelOptions{})` | Traefik / Docker 风格 `key=value` 字符串列表 |
 | LabelMap    | `provider.NewLabelMap(labels, provider.LabelOptions{})` | K8s annotation 风格 `map[string]string` |
-| File        | `provider.NewFile(path, codec)` | 读取单个文件 |
 
 ### 内置 KV Provider（`providers/{vault,consul,http}`，主模块内）
 
@@ -919,9 +962,12 @@ fastconf.WithMigrations(func(root map[string]any) error {
 mgr, _ := fastconf.New[AppConfig](ctx,
     fastconf.WithDir("conf.d"),
     fastconf.WithWatch(true),
-    fastconf.WithDebounceInterval(500*time.Millisecond),
+    // 默认 ProfileK8s（quiet=30ms / maxLag=250ms / swapHint=5ms）。
+    // 本地开发可换 ProfileLocalDev 或单独覆盖某一项：
+    fastconf.WithCoalesceQuiet(50*time.Millisecond),
 )
 // K8s ConfigMap 的 ..data symlink 原子交换由父目录 fsnotify 正确处理。
+// 检测到 swap commit 时窗口压到 swapHint（5ms），多 ConfigMap 互不阻塞。
 ```
 
 ### 字段订阅（`Subscribe`）

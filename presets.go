@@ -2,7 +2,8 @@ package fastconf
 
 import (
 	"io/fs"
-	"time"
+
+	"github.com/fastabc/fastconf/internal/coalesce"
 )
 
 // Preset constructors compose the most common
@@ -18,6 +19,17 @@ import (
 //	    fastconf.WithStrict(false), // override the Preset default
 //	)
 
+// CoalesceProfile is the public re-export of the coalescer preset
+// selector. Use ProfileK8s in production and ProfileLocalDev when
+// iterating against editors that write via unlink-rename cascades.
+type CoalesceProfile = coalesce.Profile
+
+// CoalesceProfile values mirroring the internal/coalesce constants.
+const (
+	ProfileK8s      = coalesce.ProfileK8s
+	ProfileLocalDev = coalesce.ProfileLocalDev
+)
+
 // K8sOpts captures the common knobs for a Kubernetes deployment that
 // reads ConfigMaps mounted at a known directory and selects a profile
 // from an environment variable populated by the Pod spec.
@@ -26,7 +38,9 @@ type K8sOpts struct {
 	ProfileEnv string // env var to read profile from (default DefaultProfileEnv)
 	Default    string // default profile if env empty (default "default")
 	Watch      bool   // enable fsnotify (recommended)
-	Debounce   time.Duration
+	// CoalesceProfile selects watcher event-burst windows. Zero value
+	// is ProfileK8s, which matches ConfigMap atomic-swap latencies.
+	CoalesceProfile CoalesceProfile
 }
 
 // PresetK8s returns the canonical option bundle for K8s side-by-side
@@ -51,9 +65,7 @@ func PresetK8s(p K8sOpts) Option {
 		WithDefaultProfile(def)(o)
 		WithWatch(p.Watch)(o)
 		WithStrict(true)(o)
-		if p.Debounce > 0 {
-			WithDebounceInterval(p.Debounce)(o)
-		}
+		WithCoalesceProfile(p.CoalesceProfile)(o)
 	}
 }
 
@@ -114,12 +126,14 @@ func PresetTesting(p TestingOpts) Option {
 // base + regions/<r> + zones/<z> + hosts/<h> directory layout driven by
 // environment variables.
 type HierarchicalOpts struct {
-	Dir      string        // config root directory (default DefaultDir)
-	RegionEnv string       // env var for region axis (default "REGION")
-	ZoneEnv  string        // env var for zone axis (default "ZONE")
-	HostEnv  string        // env var for host axis (default "HOST")
-	Watch    bool          // enable fsnotify hot-reload
-	Debounce time.Duration // debounce interval (0 = DefaultDebounceInterval)
+	Dir       string // config root directory (default DefaultDir)
+	RegionEnv string // env var for region axis (default "REGION")
+	ZoneEnv   string // env var for zone axis (default "ZONE")
+	HostEnv   string // env var for host axis (default "HOST")
+	Watch     bool   // enable fsnotify hot-reload
+	// CoalesceProfile selects watcher event-burst windows. Zero value
+	// is ProfileK8s.
+	CoalesceProfile CoalesceProfile
 }
 
 // PresetHierarchical returns options for the standard multi-axis deployment
@@ -166,8 +180,6 @@ func PresetHierarchical(p HierarchicalOpts) Option {
 			OverlayAxis{Dir: "hosts", EnvVar: hostEnv, Priority: 3200, DefaultFromHostname: true},
 		)(o)
 		WithWatch(p.Watch)(o)
-		if p.Debounce > 0 {
-			WithDebounceInterval(p.Debounce)(o)
-		}
+		WithCoalesceProfile(p.CoalesceProfile)(o)
 	}
 }

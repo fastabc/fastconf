@@ -7,11 +7,11 @@ import (
 
 	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/contracts"
-
-	"github.com/fastabc/fastconf/pkg/provider"
+	"github.com/fastabc/fastconf/pkg/parser"
+	"github.com/fastabc/fastconf/pkg/source"
 )
 
-type externalProviderExampleConfig struct {
+type externalSourceExampleConfig struct {
 	Server struct {
 		Addr string `yaml:"addr" json:"addr"`
 	} `yaml:"server" json:"server"`
@@ -20,6 +20,9 @@ type externalProviderExampleConfig struct {
 	} `yaml:"feature" json:"feature"`
 }
 
+// staticExampleProvider implements contracts.Provider directly because
+// its data is already structured (no bytes → decode required). The Source
+// contract is the alternative used by byte-blob layers (see seed below).
 type staticExampleProvider struct {
 	name     string
 	priority int
@@ -41,8 +44,14 @@ func (p *staticExampleProvider) Watch(context.Context) (<-chan contracts.Event, 
 	return nil, nil
 }
 
-// Example_externalProvider demonstrates plugging a third-party provider into fastconf.
-func Example_externalProvider() {
+// Example_externalSource demonstrates the two complementary extension
+// points for fastconf:
+//
+//   - WithSource(Source, Parser) for byte-blob layers (file / http /
+//     inline bytes) where the decoder is named at the call site;
+//   - WithProvider for already-structured contributors (env / cli /
+//     KV with one key per setting).
+func Example_externalSource() {
 	demo := &staticExampleProvider{
 		name:     "demo-static",
 		priority: contracts.PriorityKV,
@@ -52,16 +61,18 @@ func Example_externalProvider() {
 		},
 	}
 
-	// NewBytes default priority is 9000 (high); to let `demo` (PriorityKV=30)
-	// supply the override, push the seed bytes below it.
-	seed := provider.NewBytes("seed", "yaml", []byte("server:\n  addr: \":8080\"\nfeature:\n  betaEnabled: false\n")).
-		WithPriority(contracts.PriorityStatic)
+	// Inline byte-blob layer paired with an explicit Parser. To let
+	// `demo` (PriorityKV=30) supply the override, push the seed below
+	// it via WithPriority.
+	seed := source.NewBytes("seed", "yaml",
+		[]byte("server:\n  addr: \":8080\"\nfeature:\n  betaEnabled: false\n"),
+	).WithPriority(contracts.PriorityStatic)
 
-	mgr, err := fastconf.New[externalProviderExampleConfig](context.Background(),
+	mgr, err := fastconf.New[externalSourceExampleConfig](context.Background(),
 		fastconf.WithFS(fstest.MapFS{
 			"conf.d/base/.keep": &fstest.MapFile{Data: []byte("")},
 		}),
-		fastconf.WithProvider(seed),
+		fastconf.WithSource(seed, parser.YAML()),
 		fastconf.WithProvider(demo),
 	)
 	if err != nil {

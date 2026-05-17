@@ -7,7 +7,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/fastabc/fastconf/pkg/provider"
+	"github.com/fastabc/fastconf/pkg/source"
 )
 
 func TestProfile_ProfilesMatchExpression(t *testing.T) {
@@ -106,7 +106,7 @@ func TestProfile_LegacySingleProfile(t *testing.T) {
 func TestProfile_InvalidExprFailsAtNew(t *testing.T) {
 	_, err := New[struct{}](context.Background(),
 		WithFS(emptyFS()),
-		WithProvider(provider.NewBytes("inline", "yaml", []byte("{}"))),
+		WithSource(source.NewBytes("inline", "yaml", []byte("{}")), nil),
 		WithProfileExpr("prod & ("),
 	)
 	if err == nil || !strings.Contains(err.Error(), "WithProfileExpr") {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/fastabc/fastconf/pkg/provider"
+	"github.com/fastabc/fastconf/pkg/source"
 )
 
 func reflectTypeOf(v any) reflect.Type { return reflect.TypeOf(v) }
@@ -39,7 +39,7 @@ func TestSecret_PathScan(t *testing.T) {
 func TestState_Redact(t *testing.T) {
 	mgr, err := New[phase8Cfg](context.Background(),
 		WithFS(emptyFS()),
-		WithProvider(provider.NewBytes("a", "yaml", []byte("name: app\ndb:\n  dsn: real-dsn\n  password: hunter2\ntoken: tok-abc\n"))),
+		WithSource(source.NewBytes("a", "yaml", []byte("name: app\ndb:\n  dsn: real-dsn\n  password: hunter2\ntoken: tok-abc\n")), nil),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestState_Redact(t *testing.T) {
 func TestRedactor_CustomFn(t *testing.T) {
 	mgr, err := New[phase8Cfg](context.Background(),
 		WithFS(emptyFS()),
-		WithProvider(provider.NewBytes("a", "yaml", []byte("name: app\ndb:\n  dsn: x\n  password: hunter2\ntoken: t\n"))),
+		WithSource(source.NewBytes("a", "yaml", []byte("name: app\ndb:\n  dsn: x\n  password: hunter2\ntoken: t\n")), nil),
 		WithSecretRedactor(func(path string, _ any) any { return "<" + path + ">" }),
 	)
 	if err != nil {
@@ -122,7 +122,7 @@ func TestSecret_TaggedAnonymousEmbedUsesTaggedPath(t *testing.T) {
 
 	mgr, err := New[taggedSecretCfg](context.Background(),
 		WithFS(emptyFS()),
-		WithProvider(provider.NewBytes("a", "yaml", []byte("creds:\n  token: hunter2\n"))),
+		WithSource(source.NewBytes("a", "yaml", []byte("creds:\n  token: hunter2\n")), nil),
 	)
 	if err != nil {
 		t.Fatal(err)

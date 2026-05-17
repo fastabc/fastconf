@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/fastabc/fastconf/internal/coalesce"
 	"github.com/fastabc/fastconf/internal/typeinfo"
 )
 
@@ -27,9 +27,16 @@ const (
 	defaultSidecarDir = "/etc/fastconfd"
 )
 
-// DefaultDebounceInterval is the file-watcher debounce window. Events
-// arriving within this window are coalesced into a single reload.
-const DefaultDebounceInterval = 500 * time.Millisecond
+// Default coalescer windows for the file-system watcher. Events on a
+// single watched parent directory are collapsed into a single reload
+// using these timings. See the internal/coalesce package and the
+// WithCoalesceQuiet / WithCoalesceMaxLag / WithCoalesceSwapHint options
+// for the runtime overrides.
+const (
+	DefaultCoalesceQuiet    = coalesce.DefaultQuiet
+	DefaultCoalesceMaxLag   = coalesce.DefaultMaxLag
+	DefaultCoalesceSwapHint = coalesce.DefaultSwapHint
+)
 
 // DefaultSidecarHistoryCap is the history ring capacity used by
 // PresetSidecar when SidecarOpts.HistoryN is not set.

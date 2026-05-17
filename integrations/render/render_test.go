@@ -11,7 +11,7 @@ import (
 
 	"github.com/fastabc/fastconf"
 
-	"github.com/fastabc/fastconf/pkg/provider"
+	"github.com/fastabc/fastconf/pkg/source"
 )
 
 type cfg struct {
@@ -70,7 +70,7 @@ func TestWire_AtomicWriteAndHook(t *testing.T) {
 	// Trigger reload via a bytes patch source.
 	mgr2, err := fastconf.New[cfg](context.Background(),
 		fastconf.WithFS(mfs), fastconf.WithDir("conf.d"),
-		fastconf.WithProvider(provider.NewBytes("override", "yaml", []byte("port: 9090\n"))),
+		fastconf.WithSource(source.NewBytes("override", "yaml", []byte("port: 9090\n")), nil),
 	)
 	if err != nil {
 		t.Fatalf("manager 2: %v", err)

@@ -49,7 +49,7 @@ database:
 	mgr, err := fastconf.New[appCfg](context.Background(),
 		fastconf.WithDir(conf),
 		fastconf.WithWatch(true),
-		fastconf.WithDebounceInterval(50*time.Millisecond),
+		fastconf.WithCoalesceQuiet(20*time.Millisecond),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ database:
 	mgr, err := fastconf.New[appCfg](context.Background(),
 		fastconf.WithDir(conf),
 		fastconf.WithWatch(true),
-		fastconf.WithDebounceInterval(50*time.Millisecond),
+		fastconf.WithCoalesceQuiet(20*time.Millisecond),
 		fastconf.WithStrict(true),
 	)
 	if err != nil {
@@ -202,7 +202,7 @@ func TestWatcher_HotReloadOnOverlayProfileChange(t *testing.T) {
 		fastconf.WithDir(conf),
 		fastconf.WithProfile("production"),
 		fastconf.WithWatch(true),
-		fastconf.WithDebounceInterval(50*time.Millisecond),
+		fastconf.WithCoalesceQuiet(20*time.Millisecond),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +243,7 @@ func TestWatcher_HotReloadOnHierarchicalAxisChange(t *testing.T) {
 			fastconf.OverlayAxis{Dir: "regions", EnvVar: "FASTCONF_TEST_REGION", Priority: 3000},
 		),
 		fastconf.WithWatch(true),
-		fastconf.WithDebounceInterval(50*time.Millisecond),
+		fastconf.WithCoalesceQuiet(20*time.Millisecond),
 	)
 	if err != nil {
 		t.Fatal(err)

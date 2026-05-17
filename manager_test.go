@@ -8,7 +8,7 @@ import (
 
 	"github.com/fastabc/fastconf"
 
-	"github.com/fastabc/fastconf/pkg/provider"
+	"github.com/fastabc/fastconf/pkg/source"
 )
 
 type dbCfg struct {
@@ -161,7 +161,7 @@ func TestBytesSource_HighestPriority(t *testing.T) {
 	mgr, err := fastconf.New[appCfg](context.Background(),
 		fastconf.WithFS(mfs),
 		fastconf.WithDir("conf.d"),
-		fastconf.WithProvider(provider.NewBytes("override", "yaml", []byte("database:\n  dsn: from-bytes\n"))),
+		fastconf.WithSource(source.NewBytes("override", "yaml", []byte("database:\n  dsn: from-bytes\n")), nil),
 	)
 	if err != nil {
 		t.Fatal(err)

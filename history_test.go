@@ -6,7 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/fastabc/fastconf/pkg/provider"
+	"github.com/fastabc/fastconf/pkg/source"
 )
 
 type phase7Cfg struct {
@@ -27,8 +27,8 @@ func emptyFS() fstest.MapFS {
 
 func TestProvenance_FullExplain(t *testing.T) {
 	mgr, err := New[phase7Cfg](context.Background(),
-		WithFS(emptyFS()), WithProvider(provider.NewBytes("base", "yaml", []byte("name: from-base\ndb:\n  dsn: base-dsn\n  pool: 4\n"))),
-		WithProvider(provider.NewBytes("override", "yaml", []byte("name: from-override\ndb:\n  pool: 16\n"))),
+		WithFS(emptyFS()), WithSource(source.NewBytes("base", "yaml", []byte("name: from-base\ndb:\n  dsn: base-dsn\n  pool: 4\n")), nil),
+		WithSource(source.NewBytes("override", "yaml", []byte("name: from-override\ndb:\n  pool: 16\n")), nil),
 		WithProvenance(ProvenanceFull),
 	)
 	if err != nil {
@@ -55,7 +55,7 @@ func TestProvenance_FullExplain(t *testing.T) {
 
 func TestProvenance_OffByDefault(t *testing.T) {
 	mgr, err := New[phase7Cfg](context.Background(),
-		WithFS(emptyFS()), WithProvider(provider.NewBytes("a", "yaml", []byte("name: x\n"))),
+		WithFS(emptyFS()), WithSource(source.NewBytes("a", "yaml", []byte("name: x\n")), nil),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestProvenance_OffByDefault(t *testing.T) {
 
 func TestHistory_RingAndRollback(t *testing.T) {
 	mgr, err := New[phase7Cfg](context.Background(),
-		WithFS(emptyFS()), WithProvider(provider.NewBytes("a", "yaml", []byte("name: gen1\n"))),
+		WithFS(emptyFS()), WithSource(source.NewBytes("a", "yaml", []byte("name: gen1\n")), nil),
 		WithHistory(3),
 	)
 	if err != nil {
@@ -92,7 +92,7 @@ func TestHistory_RingAndRollback(t *testing.T) {
 
 func TestHistory_Disabled(t *testing.T) {
 	mgr, err := New[phase7Cfg](context.Background(),
-		WithFS(emptyFS()), WithProvider(provider.NewBytes("a", "yaml", []byte("name: x\n"))),
+		WithFS(emptyFS()), WithSource(source.NewBytes("a", "yaml", []byte("name: x\n")), nil),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +109,7 @@ func TestHistory_Disabled(t *testing.T) {
 
 func TestPauseResumeWatch(t *testing.T) {
 	mgr, err := New[phase7Cfg](context.Background(),
-		WithFS(emptyFS()), WithProvider(provider.NewBytes("a", "yaml", []byte("name: x\n"))),
+		WithFS(emptyFS()), WithSource(source.NewBytes("a", "yaml", []byte("name: x\n")), nil),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -130,14 +130,14 @@ func TestPauseResumeWatch(t *testing.T) {
 
 func TestState_Diff(t *testing.T) {
 	a, err := New[phase7Cfg](context.Background(),
-		WithFS(emptyFS()), WithProvider(provider.NewBytes("a", "yaml", []byte("name: alpha\ndb:\n  dsn: x\n  pool: 5\n"))),
+		WithFS(emptyFS()), WithSource(source.NewBytes("a", "yaml", []byte("name: alpha\ndb:\n  dsn: x\n  pool: 5\n")), nil),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a.Close()
 	b, err := New[phase7Cfg](context.Background(),
-		WithFS(emptyFS()), WithProvider(provider.NewBytes("b", "yaml", []byte("name: beta\ndb:\n  dsn: x\n  pool: 9\n"))),
+		WithFS(emptyFS()), WithSource(source.NewBytes("b", "yaml", []byte("name: beta\ndb:\n  dsn: x\n  pool: 9\n")), nil),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -196,8 +196,8 @@ func TestProvenance_DepthGuard(t *testing.T) {
 func TestLookup_PerLayerValues(t *testing.T) {
 	mgr, err := New[map[string]any](context.Background(),
 		WithFS(emptyFS()),
-		WithProvider(provider.NewBytes("base", "yaml", []byte("k: 1\n"))),
-		WithProvider(provider.NewBytes("over", "yaml", []byte("k: 2\n"))),
+		WithSource(source.NewBytes("base", "yaml", []byte("k: 1\n")), nil),
+		WithSource(source.NewBytes("over", "yaml", []byte("k: 2\n")), nil),
 		WithProvenance(ProvenanceFull),
 	)
 	if err != nil {

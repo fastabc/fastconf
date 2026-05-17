@@ -9,7 +9,7 @@ import (
 
 	"github.com/fastabc/fastconf"
 
-	"github.com/fastabc/fastconf/pkg/provider"
+	"github.com/fastabc/fastconf/pkg/source"
 )
 
 // emptyConfFS returns an FS with one placeholder file under conf.d/base
@@ -34,8 +34,14 @@ func TestDefaultsAreStable(t *testing.T) {
 	if fastconf.DefaultProfileEnv != "APP_PROFILE" {
 		t.Errorf("DefaultProfileEnv = %q, want %q", fastconf.DefaultProfileEnv, "APP_PROFILE")
 	}
-	if fastconf.DefaultDebounceInterval != 500*time.Millisecond {
-		t.Errorf("DefaultDebounceInterval = %v, want 500ms", fastconf.DefaultDebounceInterval)
+	if fastconf.DefaultCoalesceQuiet != 30*time.Millisecond {
+		t.Errorf("DefaultCoalesceQuiet = %v, want 30ms", fastconf.DefaultCoalesceQuiet)
+	}
+	if fastconf.DefaultCoalesceMaxLag != 250*time.Millisecond {
+		t.Errorf("DefaultCoalesceMaxLag = %v, want 250ms", fastconf.DefaultCoalesceMaxLag)
+	}
+	if fastconf.DefaultCoalesceSwapHint != 5*time.Millisecond {
+		t.Errorf("DefaultCoalesceSwapHint = %v, want 5ms", fastconf.DefaultCoalesceSwapHint)
 	}
 	if fastconf.DefaultSidecarHistoryCap != 16 {
 		t.Errorf("DefaultSidecarHistoryCap = %d, want 16", fastconf.DefaultSidecarHistoryCap)
@@ -57,7 +63,7 @@ type defaultsCfg struct {
 func TestStructDefaults_FillsZeroFields(t *testing.T) {
 	mgr, err := fastconf.New[defaultsCfg](context.Background(),
 		fastconf.WithFS(emptyConfFS()),
-		fastconf.WithProvider(provider.NewBytes("over", "yaml", []byte("port: 9090\n"))),
+		fastconf.WithSource(source.NewBytes("over", "yaml", []byte("port: 9090\n")), nil),
 		fastconf.WithStructDefaults[defaultsCfg](),
 	)
 	if err != nil {
@@ -91,7 +97,7 @@ type defaultsSliceCfg struct {
 func TestStructDefaults_DoesNotPlanSliceElementDefaults(t *testing.T) {
 	mgr, err := fastconf.New[defaultsSliceCfg](context.Background(),
 		fastconf.WithFS(emptyConfFS()),
-		fastconf.WithProvider(provider.NewBytes("over", "yaml", []byte("items: []\n"))),
+		fastconf.WithSource(source.NewBytes("over", "yaml", []byte("items: []\n")), nil),
 		fastconf.WithStructDefaults[defaultsSliceCfg](),
 	)
 	if err != nil {
@@ -111,7 +117,7 @@ type defaulterFuncCfg struct {
 func TestDefaulterFunc_RunsAfterStructDefaultsBeforeValidator(t *testing.T) {
 	mgr, err := fastconf.New[defaulterFuncCfg](context.Background(),
 		fastconf.WithFS(emptyConfFS()),
-		fastconf.WithProvider(provider.NewBytes("over", "yaml", []byte("{}\n"))),
+		fastconf.WithSource(source.NewBytes("over", "yaml", []byte("{}\n")), nil),
 		fastconf.WithStructDefaults[defaulterFuncCfg](),
 		fastconf.WithDefaulterFunc(func(c *defaulterFuncCfg) {
 			c.Derived = c.Seed + "-derived"
@@ -135,7 +141,7 @@ func TestDefaulterFunc_RunsAfterStructDefaultsBeforeValidator(t *testing.T) {
 func TestDefaulterFunc_NilIsNoop(t *testing.T) {
 	mgr, err := fastconf.New[defaulterFuncCfg](context.Background(),
 		fastconf.WithFS(emptyConfFS()),
-		fastconf.WithProvider(provider.NewBytes("over", "yaml", []byte("seed: explicit\n"))),
+		fastconf.WithSource(source.NewBytes("over", "yaml", []byte("seed: explicit\n")), nil),
 		fastconf.WithDefaulterFunc[defaulterFuncCfg](nil),
 	)
 	if err != nil {

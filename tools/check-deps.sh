@@ -14,6 +14,7 @@ ALLOWED=(
   "pkg/provider:pkg/decoder"
   "pkg/provider:pkg/mappath"
   "pkg/transform:pkg/mappath"
+  "pkg/parser:pkg/decoder"
 )
 
 is_allowed() {

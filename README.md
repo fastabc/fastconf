@@ -350,8 +350,18 @@ when passed to `New[T]`. Later calls win for duplicates.
 | Option | Purpose | Default |
 |---|---|---|
 | `WithWatch(bool)` | Enable fsnotify | `false` |
-| `WithDebounceInterval(d)` | Debounce window | `500ms` |
+| `WithCoalesceQuiet(d)` | Quiet window after which a per-dir burst fires | `30ms` |
+| `WithCoalesceMaxLag(d)` | Hard upper bound on burst lifetime | `250ms` |
+| `WithCoalesceSwapHint(d)` | Tightened window once a K8s `..data` swap is detected | `5ms` |
+| `WithCoalesceProfile(p)` | Apply a preset: `ProfileK8s` (default) or `ProfileLocalDev` | `ProfileK8s` |
 | `WithWatchPaths(paths...)` | Additional watch paths | — |
+
+The watcher debounces fsnotify events per **parent directory** rather than
+globally, so independent ConfigMaps (or watched dirs) never block each
+other. When a K8s atomic-swap commit (`..data` rename/create) is observed,
+the coalescer tightens the window to `swapHint` (5ms) instead of waiting
+the full `quiet` window — typical reload latency drops from ~500ms (the
+prior global debouncer default) to ~5–35ms.
 
 ### Profile
 
@@ -363,32 +373,48 @@ when passed to `New[T]`. Later calls win for duplicates.
 | `WithDefaultProfile(p string)` | Fallback when the env var is empty |
 | `WithProfileExpr(expr string)` | Global profile-matching expression |
 
-### Provider
+### Source × Parser × Provider
+
+FastConf splits the extension surface in two:
+
+- **`Source`** (`pkg/source`) — a byte-stream contributor (file, http,
+  inline bytes). Paired with a **`Parser`** (`pkg/parser`) at the call
+  site, koanf-style, so the codec is named where the layer is declared.
+- **`Provider`** (`pkg/provider`) — an already-structured contributor
+  (env, cli, KV with one key per setting). No Parser needed.
 
 | Option | Purpose |
 |---|---|
-| `WithProvider(p)` | Register an external provider |
+| `WithSource(src, parser)` | Bind a byte-blob Source with a Parser. Pass `nil` Parser to auto-pick via content-type hint |
+| `WithProvider(p)` | Register an already-structured provider |
 | `WithProviderOrdered(p...)` | Auto-assigns `CLI+100, +101, ...` in call order; errors if input has non-zero priority |
 | `WithProviderByName(name, cfg)` | Construct via factory registry (resolved after all options applied) |
 | `WithProviderRegistry(r)` | Manager-local `*ProviderRegistry` — local wins, then global default |
-| `WithGenerator(g)` | Synthesise a layer in the assemble stage (e.g. BuildInfo) |
+| `WithGenerator(g)` | Synthesise a `[]RawLayer` in the assemble stage (e.g. BuildInfo) |
 | `WithDotEnvAuto(prefix)` | Auto-discover a `.env` file under `WithDir` |
 
-`pkg/provider` factory functions:
+`pkg/source` and `pkg/parser` factory functions:
 
 ```go
 import (
     "github.com/fastabc/fastconf"
+    "github.com/fastabc/fastconf/pkg/parser"
     "github.com/fastabc/fastconf/pkg/provider"
+    "github.com/fastabc/fastconf/pkg/source"
     "github.com/fastabc/fastconf/pkg/transform"
 )
 
 fastconf.New[Cfg](ctx,
+    // Byte-blob layers — explicit Source × Parser pairing:
+    fastconf.WithSource(source.NewFile("/etc/app/config.yaml"), parser.YAML()),
+    fastconf.WithSource(source.NewHTTP("https://kv/config"), parser.JSON()),
+    fastconf.WithSource(source.NewBytes("inline", "yaml", data), nil), // nil = auto-bind by content-type
+
+    // Structured providers — no Parser slot:
     fastconf.WithProvider(provider.NewEnv("APP_")),                              // APP_DATABASE__DSN → database.dsn
     fastconf.WithProvider(provider.NewEnvReplacer("APP_", provider.DotReplacer)),// APP_DATABASE_DSN → database.dsn
     fastconf.WithProvider(provider.NewCLI(cliMap)),                              // parsed CLI flag map
     fastconf.WithProvider(provider.NewDotEnv("APP_", ".env")),                   // explicit .env paths
-    fastconf.WithProvider(provider.NewBytes("inline", "yaml", data)),            // in-memory layer
     fastconf.WithProvider(provider.NewLabels(labels, provider.LabelOptions{})),  // Traefik / Docker labels
     fastconf.WithTransformers(transform.ExpandLabels(at, to, opts)),
 )
@@ -569,18 +595,40 @@ mode each overlay's `_meta.yaml.match` decides whether it applies.
 
 ## Provider system
 
-### Built-in providers (`pkg/provider`)
+### Built-in byte-blob sources (`pkg/source`)
+
+Pair each Source with a Parser via `WithSource(src, parser)`. Passing
+`nil` Parser auto-binds via the content-type hint (file extension,
+HTTP `Content-Type` header, or `ContentType` ctor argument).
+
+| Source | Constructor | Notes |
+|---|---|---|
+| File  | `source.NewFile(path)` | Reads the file at load time; content-type from extension |
+| HTTP  | `source.NewHTTP(url)` | Conditional GET with ETag short-circuit; content-type from `Content-Type` header |
+| Bytes | `source.NewBytes(name, contentType, data)` | In-memory layer (most common in tests) |
+
+### Built-in parsers (`pkg/parser`)
+
+| Parser | Content-types claimed |
+|---|---|
+| `parser.YAML()` | `yaml` / `.yaml` / `.yml` / `application/yaml` / `application/x-yaml` / `text/yaml` |
+| `parser.JSON()` | `json` / `.json` / `application/json` / `text/json` |
+| `parser.TOML()` | `toml` / `.toml` / `application/toml` / `text/toml` |
+
+Third-party parsers register their content-types via `parser.Register`.
+
+### Built-in structured providers (`pkg/provider`)
+
+These contribute `map[string]any` directly — no Parser needed.
 
 | Provider | Constructor | Notes |
 |---|---|---|
 | Env         | `provider.NewEnv("APP_")` | `APP_FOO__BAR` → `foo.bar` (double underscore separator) |
 | EnvReplacer | `provider.NewEnvReplacer("APP_", provider.DotReplacer)` | Viper-style single underscore → dot |
 | CLI         | `provider.NewCLI(map[string]any)` | Parsed CLI flag map |
-| Bytes       | `provider.NewBytes(name, codec, data)` | In-memory layer (most common in tests) |
 | DotEnv      | `provider.NewDotEnv("APP_", paths...)` | Explicit `.env` paths |
 | Labels      | `provider.NewLabels(labels, provider.LabelOptions{})` | Traefik / Docker-style `key=value` strings |
 | LabelMap    | `provider.NewLabelMap(labels, provider.LabelOptions{})` | Kubernetes annotation-style `map[string]string` |
-| File        | `provider.NewFile(path, codec)` | Single file |
 
 ### First-party KV providers in the root module (`providers/{vault,consul,http}`)
 
@@ -923,10 +971,14 @@ fastconf.WithMigrations(func(root map[string]any) error {
 mgr, _ := fastconf.New[AppConfig](ctx,
     fastconf.WithDir("conf.d"),
     fastconf.WithWatch(true),
-    fastconf.WithDebounceInterval(500*time.Millisecond),
+    // Defaults to ProfileK8s (quiet=30ms / maxLag=250ms / swapHint=5ms).
+    // Switch presets, or tweak one knob:
+    fastconf.WithCoalesceQuiet(50*time.Millisecond),
 )
 // Kubernetes ConfigMap ..data symlink atomic swaps are handled correctly
-// by watching the parent directory.
+// by watching the parent directory; swap-commit detection tightens the
+// burst window to swapHint (5ms), and per-dir keying prevents multiple
+// ConfigMaps from blocking each other.
 ```
 
 ### Field-level Subscribe

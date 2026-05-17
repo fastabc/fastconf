@@ -6,7 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/fastabc/fastconf/pkg/provider"
+	"github.com/fastabc/fastconf/pkg/source"
 )
 
 func TestPlan_ProducesDiff(t *testing.T) {
@@ -15,7 +15,7 @@ func TestPlan_ProducesDiff(t *testing.T) {
 	}
 	mgr, err := New[cfg](context.Background(),
 		WithFS(emptyFS()),
-		WithProvider(provider.NewBytes("base", "yaml", []byte("port: 8080\n"))),
+		WithSource(source.NewBytes("base", "yaml", []byte("port: 8080\n")), nil),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -24,8 +24,8 @@ func TestPlan_ProducesDiff(t *testing.T) {
 
 	dryMgr, err := New[cfg](context.Background(),
 		WithFS(emptyFS()),
-		WithProvider(provider.NewBytes("base", "yaml", []byte("port: 8080\n"))),
-		WithProvider(provider.NewBytes("over", "yaml", []byte("port: 9090\n"))),
+		WithSource(source.NewBytes("base", "yaml", []byte("port: 8080\n")), nil),
+		WithSource(source.NewBytes("over", "yaml", []byte("port: 9090\n")), nil),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestPlan_CollectsValidatorErrors(t *testing.T) {
 	}
 	mgr, err := New[cfg](context.Background(),
 		WithFS(emptyFS()),
-		WithProvider(provider.NewBytes("base", "yaml", []byte("port: 8080\n"))),
+		WithSource(source.NewBytes("base", "yaml", []byte("port: 8080\n")), nil),
 		WithValidator(func(c *cfg) error {
 			if c.Port < 1024 {
 				return errPortTooLow
