@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
-# tag-release.sh — create (and optionally push) release tags for all FastConf modules.
+# tag-release.sh — create, retag, or delete release tags for all FastConf modules.
 #
 # Usage:
-#   ./tools/tag-release.sh <version> [--push] [--force]
+#   ./tools/tag-release.sh <version> [--push] [--force|--retag] [--delete]
 #
 # Examples:
 #   ./tools/tag-release.sh v0.8.1                    # create tags locally (skip existing)
 #   ./tools/tag-release.sh v0.8.1 --push             # create + push to origin
 #   ./tools/tag-release.sh v0.8.1 --force            # delete & recreate existing local tags
 #   ./tools/tag-release.sh v0.8.1 --force --push     # delete remote + local, then recreate & push
+#   ./tools/tag-release.sh v0.8.1 --delete           # delete local tags
+#   ./tools/tag-release.sh v0.8.1 --delete --push    # delete local + remote tags
 #
 # Flags:
-#   --push    Push newly created tags to origin.
+#   --push    Push newly created tags to origin, or delete matching remote tags with --delete.
 #   --force   Delete existing local tags before recreating (alias: --retag).
 #             When combined with --push, also deletes the remote tags before pushing.
+#   --delete  Delete matching tags instead of creating them.
+#             When combined with --push, also deletes the matching remote tags.
 #
 # The script honours the Go multi-module tag convention:
 #   root module      → vX.Y.Z
@@ -26,9 +30,10 @@ set -euo pipefail
 VERSION="${1:-}"
 PUSH=false
 FORCE=false
+DELETE=false
 
 if [[ -z "$VERSION" ]]; then
-  echo "Usage: $0 <version> [--push] [--force|--retag]" >&2
+  echo "Usage: $0 <version> [--push] [--force|--retag] [--delete]" >&2
   exit 1
 fi
 
@@ -41,9 +46,15 @@ for arg in "${@:2}"; do
   case "$arg" in
     --push) PUSH=true ;;
     --force|--retag) FORCE=true ;;
+    --delete) DELETE=true ;;
     *) echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
 done
+
+if [[ "$DELETE" == true && "$FORCE" == true ]]; then
+  echo "error: --delete cannot be combined with --force/--retag." >&2
+  exit 1
+fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -72,7 +83,20 @@ declare -a MODULES=(
 TAGS_CREATED=()
 TAGS_SKIPPED=()
 TAGS_RETAGGED=()
+TAGS_DELETED=()
 TAGS_REMOTE_DELETED=()
+
+remote_tag_exists() {
+  local tag="$1"
+  local refs
+
+  if ! refs="$(git ls-remote --tags origin "refs/tags/${tag}")"; then
+    echo "error: failed to inspect remote tag ${tag} on origin." >&2
+    exit 1
+  fi
+
+  [[ -n "$refs" ]]
+}
 
 for entry in "${MODULES[@]}"; do
   prefix="${entry%%:*}"
@@ -84,11 +108,29 @@ for entry in "${MODULES[@]}"; do
     tag="${prefix}/${VERSION}"
   fi
 
+  if [[ "$DELETE" == true ]]; then
+    if git rev-parse "$tag" >/dev/null 2>&1; then
+      git tag -d "$tag"
+      echo "  del   $tag  (local)"
+      TAGS_DELETED+=("$tag")
+    else
+      echo "  skip  $tag  (missing local)"
+      TAGS_SKIPPED+=("$tag")
+    fi
+
+    if [[ "$PUSH" == true ]] && remote_tag_exists "$tag"; then
+      git push origin ":refs/tags/${tag}"
+      echo "  del   $tag  (remote)"
+      TAGS_REMOTE_DELETED+=("$tag")
+    fi
+    continue
+  fi
+
   if git rev-parse "$tag" >/dev/null 2>&1; then
     if [[ "$FORCE" == true ]]; then
       # Delete remote tag first if we will be pushing (to avoid push rejection).
       if [[ "$PUSH" == true ]]; then
-        if git ls-remote --tags origin "refs/tags/${tag}" | grep -q .; then
+        if remote_tag_exists "$tag"; then
           git push origin ":refs/tags/${tag}"
           echo "  del   $tag  (remote)"
           TAGS_REMOTE_DELETED+=("$tag")
@@ -110,6 +152,12 @@ for entry in "${MODULES[@]}"; do
   echo "  tag   $tag"
   TAGS_CREATED+=("$tag")
 done
+
+if [[ "$DELETE" == true ]]; then
+  echo ""
+  echo "Deleted ${#TAGS_DELETED[@]} local tag(s), ${#TAGS_REMOTE_DELETED[@]} remote tag(s); skipped ${#TAGS_SKIPPED[@]} missing local."
+  exit 0
+fi
 
 echo ""
 echo "Created ${#TAGS_CREATED[@]} tag(s) (${#TAGS_RETAGGED[@]} retagged), skipped ${#TAGS_SKIPPED[@]} existing."

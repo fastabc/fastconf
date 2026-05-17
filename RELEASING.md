@@ -57,6 +57,9 @@ git switch main && git pull
 
 # To overwrite existing tags (retag):
 ./tools/tag-release.sh v0.x.y --force --push
+
+# To remove an accidental release tag set:
+./tools/tag-release.sh v0.x.y --delete --push
 ```
 
 Pushing the root tag (`vX.Y.Z`) triggers

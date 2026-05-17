@@ -1323,6 +1323,7 @@ Tag every sub-module at once via `tools/tag-release.sh`:
 ./tools/tag-release.sh vX.Y.Z          # local tags only
 ./tools/tag-release.sh vX.Y.Z --push   # push and trigger release.yml
 ./tools/tag-release.sh vX.Y.Z --force --push
+./tools/tag-release.sh vX.Y.Z --delete --push
 ```
 
 ---
