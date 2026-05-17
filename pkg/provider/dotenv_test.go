@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"os"
 	"testing"
 )
 
@@ -105,6 +106,70 @@ func TestDotEnvProvider_MissingFile(t *testing.T) {
 	if len(got) != 0 {
 		t.Errorf("expected empty map for missing file, got %v", got)
 	}
+}
+
+// Default DotReplacer end-to-end: APP_DATABASE_DSN nests under "database".
+func TestDotEnvProvider_DotReplacerLoad(t *testing.T) {
+	path := writeTempDotEnv(t, "APP_DATABASE_DSN=postgres://x\nAPP_PORT=8080\n")
+	p := NewDotEnv("APP_", path).withGetenv(func(string) string { return "" })
+	got, err := p.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := got["port"]; v != "8080" {
+		t.Errorf("port = %v want \"8080\"", v)
+	}
+	db, _ := got["database"].(map[string]any)
+	if db["dsn"] != "postgres://x" {
+		t.Errorf("database.dsn = %v want postgres://x", db["dsn"])
+	}
+}
+
+// DoubleUnderscoreReplacer keeps single "_" inside keys.
+func TestDotEnvProvider_DoubleUnderscoreReplacer(t *testing.T) {
+	path := writeTempDotEnv(t, "APP_DATABASE__POOL=20\nAPP_FEATURE_FLAGS=on\n")
+	p := NewDotEnv("APP_", path).
+		WithReplacer(DoubleUnderscoreReplacer).
+		withGetenv(func(string) string { return "" })
+	got, err := p.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := got["feature_flags"]; v != "on" {
+		t.Errorf("feature_flags = %v", v)
+	}
+	db, _ := got["database"].(map[string]any)
+	if db["pool"] != "20" {
+		t.Errorf("database.pool = %v", db["pool"])
+	}
+}
+
+// At() grafts the dotenv tree under a dotted path.
+func TestDotEnvProvider_AtNamespaces(t *testing.T) {
+	path := writeTempDotEnv(t, "APP_DATABASE_DSN=postgres://x\n")
+	p := NewDotEnv("APP_", path).
+		At("config.runtime").
+		withGetenv(func(string) string { return "" })
+	got, err := p.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := got["config"].(map[string]any)
+	rt, _ := cfg["runtime"].(map[string]any)
+	db, _ := rt["database"].(map[string]any)
+	if db["dsn"] != "postgres://x" {
+		t.Errorf("expected grafted config.runtime.database.dsn, got %#v", got)
+	}
+}
+
+func writeTempDotEnv(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := dir + "/.env"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestParseDotEnv_Escapes(t *testing.T) {

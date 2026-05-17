@@ -14,10 +14,13 @@ import (
 )
 
 // DotEnvProvider reads one or more .env files and emits a nested map using
-// the same key convention as EnvProvider: an optional prefix is stripped and
-// "__" (double underscore) introduces a nesting level. Actual process
-// environment variables take precedence over .env values for the same key,
-// matching the classic dotenv contract.
+// the same key convention as EnvProvider: an optional prefix is stripped
+// and the active EnvKeyReplacer (default DotReplacer, single "_" → ".")
+// converts each post-prefix name into a dotted path. Use
+// WithReplacer(DoubleUnderscoreReplacer) for the "single `_` is part of
+// the key" convention. Actual process environment variables take
+// precedence over .env values for the same key, matching the classic
+// dotenv contract.
 //
 // Priority defaults to PriorityDotEnv (5), so all other built-in providers
 // override dotenv values.
@@ -31,20 +34,28 @@ import (
 //   - # comment lines
 //   - Blank lines are ignored.
 type DotEnvProvider struct {
-	prefix  string
-	paths   []string
+	prefix   string
+	paths    []string
 	priority int
-	getenv  func(string) string // injectable for tests
+	coerce   bool
+	replacer EnvKeyReplacer
+	root     []string
+	getenv   func(string) string // injectable for tests
 }
 
 // NewDotEnv builds a DotEnvProvider that reads the given .env file paths.
 // prefix follows the same convention as NewEnv: e.g. "APP_" so that
-// APP_DATABASE__HOST=db yields {"database":{"host":"db"}}.
+// APP_DATABASE_HOST=db yields {"database":{"host":"db"}} under the
+// default DotReplacer.
+//
+// Values are kept verbatim as strings by default; call WithCoerce(true)
+// to opt into bool/int/float coercion at load time (legacy behavior).
 func NewDotEnv(prefix string, paths ...string) *DotEnvProvider {
 	return &DotEnvProvider{
 		prefix:   prefix,
 		paths:    paths,
 		priority: contracts.PriorityDotEnv,
+		replacer: DotReplacer,
 		getenv:   os.Getenv,
 	}
 }
@@ -52,6 +63,29 @@ func NewDotEnv(prefix string, paths ...string) *DotEnvProvider {
 // WithPriority overrides the default priority.
 func (p *DotEnvProvider) WithPriority(prio int) *DotEnvProvider {
 	p.priority = prio
+	return p
+}
+
+// WithCoerce toggles eager value coercion. See EnvProvider.WithCoerce.
+func (p *DotEnvProvider) WithCoerce(on bool) *DotEnvProvider {
+	p.coerce = on
+	return p
+}
+
+// WithReplacer swaps the key-conversion strategy. Passing nil restores
+// the default DotReplacer. See EnvProvider.WithReplacer.
+func (p *DotEnvProvider) WithReplacer(r EnvKeyReplacer) *DotEnvProvider {
+	if r == nil {
+		r = DotReplacer
+	}
+	p.replacer = r
+	return p
+}
+
+// At grafts the loaded tree under the given dotted path instead of the
+// root of the merged configuration. See EnvProvider.At.
+func (p *DotEnvProvider) At(path string) *DotEnvProvider {
+	p.root = mappath.Split(path)
 	return p
 }
 
@@ -69,7 +103,7 @@ func (p *DotEnvProvider) Priority() int { return p.priority }
 
 // Load implements Provider.
 func (p *DotEnvProvider) Load(_ context.Context) (map[string]any, error) {
-	out := map[string]any{}
+	inner := map[string]any{}
 	for _, path := range p.paths {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -96,14 +130,14 @@ func (p *DotEnvProvider) Load(_ context.Context) (map[string]any, error) {
 			if k == "" {
 				continue
 			}
-			parts := strings.Split(k, "__")
-			for i, part := range parts {
-				parts[i] = strings.ToLower(part)
+			dotted := p.replacer.Replace(k)
+			if dotted == "" {
+				continue
 			}
-			mappath.Set(out, parts, coerce(v))
+			mappath.Set(inner, strings.Split(dotted, "."), maybeCoerce(v, p.coerce))
 		}
 	}
-	return out, nil
+	return graftAt(inner, p.root), nil
 }
 
 // Watch implements Provider. Dotenv files are not watched.

@@ -159,3 +159,70 @@ func TestExpandLabels_ValueContainsEquals(t *testing.T) {
 		t.Fatalf("rule lost trailing '=' segments: got %q", rule)
 	}
 }
+
+// Multi-separator: K8s recommended labels carry both "/" (prefix/name)
+// and "." (within the prefix). With Separators={"/", "."} the keys
+// decompose into a coherent ["app","kubernetes","io","name"] path so
+// downstream lookups can use GetDotted naturally.
+func TestExpandLabels_MultiSeparator_K8s(t *testing.T) {
+	in := map[string]string{
+		"app.kubernetes.io/name":      "web",
+		"app.kubernetes.io/component": "frontend",
+		"app.kubernetes.io/version":   "1.2.3",
+	}
+	out := mappath.ExpandLabels(in, mappath.LabelOptions{
+		Separators: []string{"/", "."},
+	})
+	if v, _ := mappath.GetDotted(out, "app.kubernetes.io.name"); v != "web" {
+		t.Fatalf("name got %v", v)
+	}
+	if v, _ := mappath.GetDotted(out, "app.kubernetes.io.component"); v != "frontend" {
+		t.Fatalf("component got %v", v)
+	}
+	if v, _ := mappath.GetDotted(out, "app.kubernetes.io.version"); v != "1.2.3" {
+		t.Fatalf("version got %v", v)
+	}
+}
+
+// Separators takes precedence over the singular Separator when both
+// are set.
+func TestExpandLabels_SeparatorsBeatsSeparator(t *testing.T) {
+	in := []string{"a/b.c=v"}
+	out := mappath.ExpandLabels(in, mappath.LabelOptions{
+		Separator:  "X", // ignored
+		Separators: []string{"/", "."},
+	})
+	if v, _ := mappath.Get(out, "a", "b", "c"); v != "v" {
+		t.Fatalf("got %v", v)
+	}
+}
+
+// Multi-separator + prefix strip: leading separator left by prefix
+// removal is also trimmed so "traefik.http.x" with Prefix="traefik"
+// produces ["http","x"] rather than ["", "http", "x"].
+func TestExpandLabels_MultiSeparator_PrefixStrip(t *testing.T) {
+	in := []string{
+		"my.app/config.timeout=30s",
+		"my.app/config.retries=3",
+	}
+	out := mappath.ExpandLabels(in, mappath.LabelOptions{
+		Prefix:      "my.app",
+		StripPrefix: true,
+		Separators:  []string{"/", "."},
+	})
+	if v, _ := mappath.GetDotted(out, "config.timeout"); v != "30s" {
+		t.Fatalf("timeout got %v", v)
+	}
+	if v, _ := mappath.GetDotted(out, "config.retries"); v != "3" {
+		t.Fatalf("retries got %v", v)
+	}
+}
+
+// Single-separator fallback path still works.
+func TestExpandLabels_LegacySeparatorFallback(t *testing.T) {
+	in := []string{"a.b.c=v"}
+	out := mappath.ExpandLabels(in, mappath.LabelOptions{Separator: "."})
+	if v, _ := mappath.Get(out, "a", "b", "c"); v != "v" {
+		t.Fatalf("got %v", v)
+	}
+}

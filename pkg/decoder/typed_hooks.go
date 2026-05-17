@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -37,6 +38,17 @@ type TypedHook interface {
 	Convert(raw any) (any, error)
 }
 
+// TypedHookWithTarget is an optional extension to TypedHook. When a hook
+// implements this interface, the walker calls ConvertWithTarget(raw,
+// target) instead of Convert(raw), passing the destination field's
+// reflect.Type. This is required for hooks that handle a family of
+// kinds (e.g. StringPrimitiveHook) and need the target type to pick the
+// right parse strategy.
+type TypedHookWithTarget interface {
+	TypedHook
+	ConvertWithTarget(raw any, target reflect.Type) (any, error)
+}
+
 // DefaultTypedHooks returns the built-in hook set. By design only
 // hooks whose target type has a native JSON wire form survive the
 // pre-decode rewrite (encoding/json must accept the rewritten value).
@@ -44,8 +56,15 @@ type TypedHook interface {
 // and *regexp.Regexp have no direct JSON form and are exposed as
 // helpers users can install explicitly via WithTypedHook when their
 // schema uses a string-field surrogate.
+//
+// DurationHook is registered first so named primitive types win the
+// dispatch against the generic StringPrimitiveHook. StringPrimitiveHook
+// closes the gap that opened when provider.EnvProvider stopped eagerly
+// coercing values: env values arriving as strings now flow through the
+// hook chain into bool/int/uint/float struct fields without bespoke
+// per-field hooks.
 func DefaultTypedHooks() []TypedHook {
-	return []TypedHook{DurationHook{}}
+	return []TypedHook{DurationHook{}, StringPrimitiveHook{}}
 }
 
 // DurationHook: "30s" → int64(30 * time.Second).
@@ -127,12 +146,91 @@ func (RegexHook) Convert(raw any) (any, error) {
 	return s, nil
 }
 
+// StringPrimitiveHook converts string raw values into the primitive
+// kind expected by the destination struct field: bool, int family, uint
+// family, or float family. Named primitive types (e.g. time.Duration)
+// are deliberately skipped so dedicated hooks (DurationHook) win the
+// dispatch instead.
+//
+// The hook is a no-op when the raw value is not a string, so YAML/JSON
+// layers that already decoded values to typed forms pass through
+// unchanged. It is registered in DefaultTypedHooks so the typical
+// "env value lands in a typed struct field" path works out of the box.
+type StringPrimitiveHook struct{}
+
+// Match accepts unnamed (builtin) primitive numeric / bool types.
+// Named types (PkgPath != "") are excluded so DurationHook and similar
+// keep their precedence.
+func (StringPrimitiveHook) Match(t reflect.Type) bool {
+	if t == nil {
+		return false
+	}
+	if t.PkgPath() != "" {
+		return false
+	}
+	switch t.Kind() {
+	case reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return true
+	}
+	return false
+}
+
+// Convert without a target type cannot pick a parse strategy, so it
+// returns raw untouched. The walker uses ConvertWithTarget when the
+// plan node records a target type.
+func (StringPrimitiveHook) Convert(raw any) (any, error) { return raw, nil }
+
+// ConvertWithTarget parses the string into the requested kind. Non-string
+// raw values pass through unchanged.
+func (StringPrimitiveHook) ConvertWithTarget(raw any, target reflect.Type) (any, error) {
+	s, ok := raw.(string)
+	if !ok {
+		return raw, nil
+	}
+	switch target.Kind() {
+	case reflect.Bool:
+		switch strings.ToLower(strings.TrimSpace(s)) {
+		case "true", "1", "yes", "on":
+			return true, nil
+		case "false", "0", "no", "off", "":
+			return false, nil
+		}
+		return raw, fmt.Errorf("string-primitive hook: cannot parse %q as bool", s)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+		if err != nil {
+			return raw, fmt.Errorf("string-primitive hook: parse int: %w", err)
+		}
+		return n, nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 64)
+		if err != nil {
+			return raw, fmt.Errorf("string-primitive hook: parse uint: %w", err)
+		}
+		return n, nil
+	case reflect.Float32, reflect.Float64:
+		f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+		if err != nil {
+			return raw, fmt.Errorf("string-primitive hook: parse float: %w", err)
+		}
+		return f, nil
+	}
+	return raw, nil
+}
+
 // TypedHookPlan is a struct-shaped plan: each node mirrors a struct
 // field and records which map-key aliases the merged map might use
 // (json tag, yaml tag, lowercase name, exact field name).
 type TypedHookPlan struct {
 	// hook applies to this node when non-nil. Mutually exclusive with children.
 	hook TypedHook
+	// hookTarget is the destination field type associated with hook; passed
+	// to hooks that implement TypedHookWithTarget so they can switch on the
+	// destination kind at Convert time.
+	hookTarget reflect.Type
 	// children, when non-empty, recurses into nested struct fields.
 	// Keyed by canonical alias (lowercase field name); each child also
 	// exposes its alias list so the walker can locate the corresponding
@@ -182,14 +280,23 @@ func (p *TypedHookPlan) build(t reflect.Type) {
 		}
 		child := &TypedHookPlan{hooks: p.hooks}
 		var matched TypedHook
+		var matchedTarget reflect.Type
 		for _, h := range p.hooks {
-			if h.Match(ft) || h.Match(base) {
+			switch {
+			case h.Match(ft):
 				matched = h
+				matchedTarget = ft
+			case h.Match(base):
+				matched = h
+				matchedTarget = base
+			}
+			if matched != nil {
 				break
 			}
 		}
 		if matched != nil {
 			child.hook = matched
+			child.hookTarget = matchedTarget
 		} else if base.Kind() == reflect.Struct {
 			child.build(base)
 			if len(child.children) == 0 {
@@ -220,7 +327,13 @@ func (p *TypedHookPlan) walk(node map[string]any) error {
 		}
 		v := node[key]
 		if child.plan.hook != nil {
-			converted, err := child.plan.hook.Convert(v)
+			var converted any
+			var err error
+			if hwt, ok := child.plan.hook.(TypedHookWithTarget); ok && child.plan.hookTarget != nil {
+				converted, err = hwt.ConvertWithTarget(v, child.plan.hookTarget)
+			} else {
+				converted, err = child.plan.hook.Convert(v)
+			}
 			if err != nil && firstErr == nil {
 				firstErr = err
 			}

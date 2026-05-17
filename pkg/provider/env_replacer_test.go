@@ -8,6 +8,9 @@ import (
 	"github.com/fastabc/fastconf/pkg/provider"
 )
 
+// NewEnvReplacer is a shortcut for NewEnv(prefix).WithReplacer(r).
+// Values stay as strings by default; pkg/decoder typed hooks convert
+// them into primitive struct fields at decode time.
 func TestEnvKeyReplacer_DefaultDotToUnderscore(t *testing.T) {
 	t.Setenv("EBT_SERVER_ADDR", "0.0.0.0:8080")
 	t.Setenv("EBT_SERVER_PORT", "9000")
@@ -25,8 +28,8 @@ func TestEnvKeyReplacer_DefaultDotToUnderscore(t *testing.T) {
 	if server["addr"] != "0.0.0.0:8080" {
 		t.Errorf("server.addr = %v, want 0.0.0.0:8080", server["addr"])
 	}
-	if server["port"] != int64(9000) {
-		t.Errorf("server.port = %v (%T), want int64(9000)", server["port"], server["port"])
+	if server["port"] != "9000" {
+		t.Errorf("server.port = %v (%T), want string \"9000\"", server["port"], server["port"])
 	}
 	database, ok := got["database"].(map[string]any)
 	if !ok {
@@ -34,6 +37,25 @@ func TestEnvKeyReplacer_DefaultDotToUnderscore(t *testing.T) {
 	}
 	if database["dsn"] != "postgres://localhost/db" {
 		t.Errorf("database.dsn = %v, want postgres://localhost/db", database["dsn"])
+	}
+}
+
+// WithCoerce(true) opts back into the legacy bool/int/float coercion.
+func TestEnvKeyReplacer_WithCoerceTrue(t *testing.T) {
+	t.Setenv("EBT2_SERVER_PORT", "9000")
+	t.Setenv("EBT2_DEBUG", "true")
+
+	p := provider.NewEnvReplacer("EBT2_", provider.DotReplacer).WithCoerce(true)
+	got, err := p.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, _ := got["server"].(map[string]any)
+	if server["port"] != int64(9000) {
+		t.Errorf("server.port = %v (%T), want int64(9000)", server["port"], server["port"])
+	}
+	if got["debug"] != true {
+		t.Errorf("debug = %v (%T), want bool true", got["debug"], got["debug"])
 	}
 }
 
@@ -74,7 +96,9 @@ func TestEnvKeyReplacer_NilReplacerUsesDefault(t *testing.T) {
 	if p == nil {
 		t.Fatal("NewEnvReplacer returned nil")
 	}
-	if !strings.Contains(p.Name(), "env-replacer:NN_") {
+	// NewEnvReplacer is now a thin shortcut for NewEnv(prefix).WithReplacer;
+	// the returned name matches the unified EnvProvider naming.
+	if !strings.Contains(p.Name(), "env:NN_") {
 		t.Errorf("unexpected name: %q", p.Name())
 	}
 	// Sanity-check Load runs without env vars.

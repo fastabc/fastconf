@@ -14,8 +14,12 @@ type LabelExpandOptions struct {
 	Prefix string
 	// StripPrefix removes Prefix from each key before expansion.
 	StripPrefix bool
-	// Separator splits a flat key into nested segments. Default ".".
+	// Separator splits a flat key into nested segments. Default ".". Use
+	// Separators (plural) for multi-delimiter inputs.
 	Separator string
+	// Separators is the ordered delimiter list (e.g. {"/", "."} for
+	// K8s recommended labels). Takes precedence over Separator.
+	Separators []string
 	// Coerce, when true, converts "true"/"false"/int/float strings into typed
 	// values. Default false: values are kept verbatim (matches Traefik /
 	// Compose label semantics).
@@ -93,6 +97,7 @@ func ExpandLabels(at, to string, opts LabelExpandOptions) Transformer {
 				Prefix:      opts.Prefix,
 				StripPrefix: opts.StripPrefix,
 				Separator:   opts.Separator,
+				Separators:  opts.Separators,
 				Coerce:      opts.Coerce,
 			})
 			if len(tree) == 0 {

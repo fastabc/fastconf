@@ -120,12 +120,19 @@ func cloneAny(v any) any {
 	}
 }
 
-// envPattern matches ${VAR} or ${VAR:-default}. Bare $VAR is intentionally
-// NOT matched to avoid clashing with bcrypt-style password fields.
-var envPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}`)
+// envPattern matches ${VAR}, ${VAR:-default}, or ${VAR:?optional message}.
+// Bare $VAR is intentionally NOT matched to avoid clashing with
+// bcrypt-style password fields. Capture groups:
+//
+//	1. name
+//	2. operator — "-" (default) or "?" (required); empty for bare ${VAR}
+//	3. body    — default value or error message; empty when no operator
+var envPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([-?])([^}]*))?\}`)
 
 // EnvSubst returns a Transformer that walks every string value in the
-// tree and substitutes occurrences of ${VAR} or ${VAR:-default}.
+// tree and substitutes occurrences of ${VAR}, ${VAR:-default}, or
+// ${VAR:?required message}. A ${VAR:?...} reference whose variable is
+// unset or empty aborts the reload with ErrTransform.
 func EnvSubst() Transformer { return EnvSubstWith(os.Getenv) }
 
 // EnvSubstWith is like EnvSubst but reads variables through the
@@ -134,17 +141,33 @@ func EnvSubstWith(lookup func(string) string) Transformer {
 	return TransformerFunc{
 		NameStr: "EnvSubst",
 		Fn: func(root map[string]any) error {
+			var firstErr error
 			walkStrings(root, func(s string) string {
 				return envPattern.ReplaceAllStringFunc(s, func(match string) string {
 					m := envPattern.FindStringSubmatch(match)
-					name, def := m[1], m[2]
-					if v := lookup(name); v != "" {
+					name, op, body := m[1], m[2], m[3]
+					v := lookup(name)
+					switch op {
+					case "?":
+						if v == "" && firstErr == nil {
+							msg := body
+							if msg == "" {
+								msg = "variable is required"
+							}
+							firstErr = fmt.Errorf("%w: EnvSubst: ${%s:?}: %s", ErrTransform, name, msg)
+						}
+						return v
+					case "-":
+						if v != "" {
+							return v
+						}
+						return body
+					default:
 						return v
 					}
-					return def
 				})
 			})
-			return nil
+			return firstErr
 		},
 	}
 }

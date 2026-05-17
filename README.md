@@ -53,6 +53,7 @@ import (
     "log"
 
     "github.com/fastabc/fastconf"
+    "github.com/fastabc/fastconf/pkg/provider"
 )
 
 type AppConfig struct {
@@ -66,10 +67,16 @@ type AppConfig struct {
 }
 
 func main() {
+    labels := []string{
+        "server.addr=:9090",
+    }
+
     mgr, err := fastconf.New[AppConfig](context.Background(),
         fastconf.WithDir("conf.d"),
         fastconf.WithProfileEnv("APP_PROFILE"),
         fastconf.WithDefaultProfile("dev"),
+        fastconf.WithProvider(provider.NewEnv("APP_")),
+        fastconf.WithProvider(provider.NewLabels(labels, provider.LabelOptions{})),
         fastconf.WithWatch(true),
     )
     if err != nil {
@@ -93,6 +100,31 @@ conf.d/
       50-overrides.yaml
       _patch.json
 ```
+
+Example base file:
+
+```yaml
+# conf.d/base/00-app.yaml
+server:
+  addr: ":8080"
+database:
+  dsn: "postgres://localhost/app"
+  pool: 10
+```
+
+Run with an environment override:
+
+```bash
+APP_PROFILE=prod APP_DATABASE_POOL=20 go run .
+```
+
+`APP_DATABASE_POOL=20` maps to `database.pool` (single `_` is the default
+separator, Viper / Spring Boot style — switch to `__` via
+`provider.NewEnv("APP_").WithReplacer(provider.DoubleUnderscoreReplacer)`
+when keys must carry literal underscores). The external label
+`server.addr=:9090` maps to `server.addr`. With the example above, env
+overrides the file value for `database.pool`, and labels override the file
+value for `server.addr`.
 
 With `APP_PROFILE=prod`, FastConf merges `base/*` first, then
 `overlays/prod/*`. The default decode bridge does a JSON round-trip, so if
@@ -411,11 +443,12 @@ fastconf.New[Cfg](ctx,
     fastconf.WithSource(source.NewBytes("inline", "yaml", data), nil), // nil = auto-bind by content-type
 
     // Structured providers — no Parser slot:
-    fastconf.WithProvider(provider.NewEnv("APP_")),                              // APP_DATABASE__DSN → database.dsn
-    fastconf.WithProvider(provider.NewEnvReplacer("APP_", provider.DotReplacer)),// APP_DATABASE_DSN → database.dsn
+    fastconf.WithProvider(provider.NewEnv("APP_")),                              // APP_DATABASE_DSN → database.dsn (default DotReplacer)
+    fastconf.WithProvider(provider.NewEnv("APP_").WithReplacer(provider.DoubleUnderscoreReplacer)), // preserves single "_", splits on "__"
+    fastconf.WithProvider(provider.NewEnv("APP_").At("config.runtime")),         // graft env tree under a sub-path
     fastconf.WithProvider(provider.NewCLI(cliMap)),                              // parsed CLI flag map
     fastconf.WithProvider(provider.NewDotEnv("APP_", ".env")),                   // explicit .env paths
-    fastconf.WithProvider(provider.NewLabels(labels, provider.LabelOptions{})),  // Traefik / Docker labels
+    fastconf.WithProvider(provider.NewLabels(labels, provider.LabelOptions{})),  // dotted labels (PriorityK8s default)
     fastconf.WithTransformers(transform.ExpandLabels(at, to, opts)),
 )
 ```
@@ -623,12 +656,12 @@ These contribute `map[string]any` directly — no Parser needed.
 
 | Provider | Constructor | Notes |
 |---|---|---|
-| Env         | `provider.NewEnv("APP_")` | `APP_FOO__BAR` → `foo.bar` (double underscore separator) |
-| EnvReplacer | `provider.NewEnvReplacer("APP_", provider.DotReplacer)` | Viper-style single underscore → dot |
+| Env         | `provider.NewEnv("APP_")` | Default `DotReplacer`: `APP_FOO_BAR` → `foo.bar` (single `_`, Viper / Spring style). Values stay as strings; typed decoder converts. Chain `.WithReplacer(DoubleUnderscoreReplacer)`, `.At("path")`, `.WithCoerce(true)` as needed. |
 | CLI         | `provider.NewCLI(map[string]any)` | Parsed CLI flag map |
-| DotEnv      | `provider.NewDotEnv("APP_", paths...)` | Explicit `.env` paths |
-| Labels      | `provider.NewLabels(labels, provider.LabelOptions{})` | Traefik / Docker-style `key=value` strings |
+| DotEnv      | `provider.NewDotEnv("APP_", paths...)` | Explicit `.env` paths; same replacer / `At` / `WithCoerce` knobs as `NewEnv` |
+| Labels      | `provider.NewLabels(labels, provider.LabelOptions{})` | Dotted `key=value` strings. Default priority `PriorityK8s`; pass `Separators: []string{"/", "."}` for K8s recommended labels |
 | LabelMap    | `provider.NewLabelMap(labels, provider.LabelOptions{})` | Kubernetes annotation-style `map[string]string` |
+| K8s Downward| `k8s.NewDefault()` (`providers/k8s`) | Reads `/etc/podinfo/{labels,annotations}`; multi-separator split + `labels.*` / `annotations.*` bucketing built in |
 
 ### First-party KV providers in the root module (`providers/{vault,consul,http}`)
 
@@ -903,7 +936,7 @@ fastconf.WithTransformers(
         "server": map[string]any{"timeout": "30s"},
     }),
     transform.SetIfAbsent("server.timeout", "30s"),    // single-path default
-    transform.EnvSubst(),                              // ${VAR} / ${VAR:-default}
+    transform.EnvSubst(),                              // ${VAR} / ${VAR:-default} / ${VAR:?required message}
     transform.DeletePaths("internal.debug"),
     transform.Aliases(map[string]string{               // old path → new path
         "db.url":      "database.dsn",

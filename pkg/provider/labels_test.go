@@ -38,8 +38,17 @@ func TestLabelProvider_MapForm(t *testing.T) {
 	}
 }
 
-func TestLabelProvider_DefaultPriorityIsCLI(t *testing.T) {
+func TestLabelProvider_DefaultPriorityIsK8s(t *testing.T) {
 	p := provider.NewLabels([]string{"k=v"}, provider.LabelOptions{})
+	if got := p.Priority(); got != contracts.PriorityK8s {
+		t.Fatalf("priority got %d want PriorityK8s %d", got, contracts.PriorityK8s)
+	}
+}
+
+func TestLabelProvider_PriorityOverrideForTraefik(t *testing.T) {
+	p := provider.NewLabels([]string{"traefik.enable=true"}, provider.LabelOptions{
+		Priority: contracts.PriorityCLI,
+	})
 	if got := p.Priority(); got != contracts.PriorityCLI {
 		t.Fatalf("priority got %d want PriorityCLI %d", got, contracts.PriorityCLI)
 	}

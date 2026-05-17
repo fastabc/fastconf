@@ -105,8 +105,19 @@ type LabelOptions struct {
 	// StripPrefix removes Prefix from each key before expansion. Has no
 	// effect when Prefix is empty.
 	StripPrefix bool
-	// Separator splits a flat key into nested segments. Default ".".
+	// Separator splits a flat key into nested segments. Default ".". Use
+	// Separators (plural) when more than one delimiter is in play (e.g.
+	// K8s recommended labels with both "/" and "."). When both fields are
+	// set, Separators wins.
 	Separator string
+	// Separators is the ordered list of delimiters applied to each key.
+	// Splits happen left-to-right: the input is first split by Separators[0],
+	// then each segment is split by Separators[1], and so on. This lets
+	// K8s-style "app.kubernetes.io/name" decompose coherently — e.g.
+	// {"/", "."} produces parts ["app", "kubernetes", "io", "name"].
+	// When empty, Separator (singular) is used; when both are empty, "."
+	// is the fallback.
+	Separators []string
 	// Coerce, when true, converts "true" / "false" / int-like / float-like
 	// values into their typed forms (matching pkg/provider env coercion).
 	// Default false: values are kept verbatim as strings, matching Traefik /
@@ -128,9 +139,7 @@ type LabelOptions struct {
 // freshly allocated tree; callers may merge it into an existing root via
 // pkg/merger.Deep.
 func ExpandLabels(input any, opts LabelOptions) map[string]any {
-	if opts.Separator == "" {
-		opts.Separator = "."
-	}
+	seps := resolveSeparators(opts)
 	out := map[string]any{}
 	visit := func(k, v string) {
 		if opts.Prefix != "" {
@@ -139,13 +148,20 @@ func ExpandLabels(input any, opts LabelOptions) map[string]any {
 			}
 			if opts.StripPrefix {
 				k = strings.TrimPrefix(k, opts.Prefix)
-				k = strings.TrimPrefix(k, opts.Separator)
+				// Strip a leading delimiter introduced by the prefix
+				// boundary, regardless of which separator it is.
+				for _, s := range seps {
+					if s != "" && strings.HasPrefix(k, s) {
+						k = strings.TrimPrefix(k, s)
+						break
+					}
+				}
 			}
 		}
 		if k == "" {
 			return
 		}
-		parts := strings.Split(k, opts.Separator)
+		parts := splitMulti(k, seps)
 		var value any = v
 		if opts.Coerce {
 			value = coerceLabelValue(v)
@@ -188,6 +204,49 @@ func ExpandLabels(input any, opts LabelOptions) map[string]any {
 // splitLabel returns the (key, value, ok) split at the first '='.
 func splitLabel(kv string) (string, string, bool) {
 	return strings.Cut(kv, "=")
+}
+
+// resolveSeparators returns the effective separator list, honoring
+// Separators when non-empty, then Separator (singular), then the
+// fallback ".".
+func resolveSeparators(opts LabelOptions) []string {
+	if len(opts.Separators) > 0 {
+		seps := make([]string, 0, len(opts.Separators))
+		for _, s := range opts.Separators {
+			if s != "" {
+				seps = append(seps, s)
+			}
+		}
+		if len(seps) > 0 {
+			return seps
+		}
+	}
+	if opts.Separator != "" {
+		return []string{opts.Separator}
+	}
+	return []string{"."}
+}
+
+// splitMulti splits s by seps[0], then each resulting segment by
+// seps[1], and so on. Empty segments are dropped so back-to-back
+// delimiters do not create empty path components.
+func splitMulti(s string, seps []string) []string {
+	parts := []string{s}
+	for _, sep := range seps {
+		next := make([]string, 0, len(parts))
+		for _, p := range parts {
+			for _, sub := range strings.Split(p, sep) {
+				if sub != "" {
+					next = append(next, sub)
+				}
+			}
+		}
+		parts = next
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	return parts
 }
 
 // coerceLabelValue mirrors pkg/provider env coercion: bool / int64 / float64

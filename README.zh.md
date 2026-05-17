@@ -65,6 +65,7 @@ import (
     "log"
 
     "github.com/fastabc/fastconf"
+    "github.com/fastabc/fastconf/pkg/provider"
 )
 
 type AppConfig struct {
@@ -78,10 +79,16 @@ type AppConfig struct {
 }
 
 func main() {
+    labels := []string{
+        "server.addr=:9090",
+    }
+
     mgr, err := fastconf.New[AppConfig](context.Background(),
         fastconf.WithDir("conf.d"),
         fastconf.WithProfileEnv("APP_PROFILE"),
         fastconf.WithDefaultProfile("dev"),
+        fastconf.WithProvider(provider.NewEnv("APP_")),
+        fastconf.WithProvider(provider.NewLabels(labels, provider.LabelOptions{})),
         fastconf.WithWatch(true),
     )
     if err != nil {
@@ -105,6 +112,30 @@ conf.d/
       50-overrides.yaml
       _patch.json
 ```
+
+基础文件示例：
+
+```yaml
+# conf.d/base/00-app.yaml
+server:
+  addr: ":8080"
+database:
+  dsn: "postgres://localhost/app"
+  pool: 10
+```
+
+带环境变量覆盖运行：
+
+```bash
+APP_PROFILE=prod APP_DATABASE_POOL=20 go run .
+```
+
+`APP_DATABASE_POOL=20` 会映射到 `database.pool`（默认单 `_` 分隔，Viper /
+Spring Boot 风格——若 key 中需要保留字面下划线，改用
+`provider.NewEnv("APP_").WithReplacer(provider.DoubleUnderscoreReplacer)`
+切回 `__` 约定）。外部注入的 label `server.addr=:9090` 会映射到
+`server.addr`。在这个例子里，env 会覆盖文件中的 `database.pool`，labels 会覆盖
+文件中的 `server.addr`。
 
 `APP_PROFILE=prod` 时，FastConf 会按 `base/*` → `overlays/prod/*` 的顺序合并。
 默认 decode bridge 走 JSON round-trip，所以现有结构体若只有 `yaml` tag，请补上
@@ -446,11 +477,12 @@ fastconf.New[Cfg](ctx,
     fastconf.WithSource(source.NewBytes("inline", "yaml", data), nil), // nil → 内容类型自动绑定
 
     // 已结构化的 provider —— 无 Parser 槽位：
-    fastconf.WithProvider(provider.NewEnv("APP_")),                              // APP_DATABASE__DSN → database.dsn
-    fastconf.WithProvider(provider.NewEnvReplacer("APP_", provider.DotReplacer)),// APP_DATABASE_DSN → database.dsn
+    fastconf.WithProvider(provider.NewEnv("APP_")),                              // APP_DATABASE_DSN → database.dsn（默认 DotReplacer）
+    fastconf.WithProvider(provider.NewEnv("APP_").WithReplacer(provider.DoubleUnderscoreReplacer)), // 保留单 "_"，仅在 "__" 分级
+    fastconf.WithProvider(provider.NewEnv("APP_").At("config.runtime")),         // 把 env 子树挂到指定路径
     fastconf.WithProvider(provider.NewCLI(cliMap)),                              // 解析过的 CLI 标志
     fastconf.WithProvider(provider.NewDotEnv("APP_", ".env")),                   // 显式 .env 路径
-    fastconf.WithProvider(provider.NewLabels(labels, provider.LabelOptions{})),  // Traefik/Docker 标签
+    fastconf.WithProvider(provider.NewLabels(labels, provider.LabelOptions{})),  // dotted labels（默认 PriorityK8s）
     fastconf.WithTransformers(transform.ExpandLabels(at, to, opts)),
 )
 ```
@@ -652,12 +684,12 @@ mgr, err := fastconf.New[AppConfig](ctx,
 
 | Provider | 构造 | 说明 |
 |---|---|---|
-| Env         | `provider.NewEnv("APP_")` | `APP_FOO__BAR` → `foo.bar`（双下划线分隔） |
-| EnvReplacer | `provider.NewEnvReplacer("APP_", provider.DotReplacer)` | Viper 风格单下划线 → 点 |
+| Env         | `provider.NewEnv("APP_")` | 默认 `DotReplacer`：`APP_FOO_BAR` → `foo.bar`（单 `_`，Viper / Spring 风格）；值保持字符串，typed decoder 转换。链式 `.WithReplacer(DoubleUnderscoreReplacer)`、`.At("path")`、`.WithCoerce(true)` |
 | CLI         | `provider.NewCLI(map[string]any)` | 命令行 flag 解析后的 map |
-| DotEnv      | `provider.NewDotEnv("APP_", paths...)` | 显式 `.env` 文件路径 |
-| Labels      | `provider.NewLabels(labels, provider.LabelOptions{})` | Traefik / Docker 风格 `key=value` 字符串列表 |
+| DotEnv      | `provider.NewDotEnv("APP_", paths...)` | 显式 `.env` 文件路径；与 `NewEnv` 同样支持 replacer / `At` / `WithCoerce` |
+| Labels      | `provider.NewLabels(labels, provider.LabelOptions{})` | 点分式 `key=value` 字符串列表，默认 `PriorityK8s`；K8s 推荐标签传 `Separators: []string{"/", "."}` |
 | LabelMap    | `provider.NewLabelMap(labels, provider.LabelOptions{})` | K8s annotation 风格 `map[string]string` |
+| K8s Downward| `k8s.NewDefault()`（`providers/k8s`） | 读取 `/etc/podinfo/{labels,annotations}`，内置多分隔符切分与 `labels.*` / `annotations.*` 分桶挂载 |
 
 ### 内置 KV Provider（`providers/{vault,consul,http}`，主模块内）
 
@@ -895,7 +927,7 @@ fastconf.WithTransformers(
         "server": map[string]any{"timeout": "30s"},
     }),
     transform.SetIfAbsent("server.timeout", "30s"),    // 单值缺省
-    transform.EnvSubst(),                              // 替换 ${VAR} / ${VAR:-default}
+    transform.EnvSubst(),                              // 替换 ${VAR} / ${VAR:-default} / ${VAR:?required message}
     transform.DeletePaths("internal.debug"),
     transform.Aliases(map[string]string{               // 旧路径 → 新路径
         "db.url":      "database.dsn",

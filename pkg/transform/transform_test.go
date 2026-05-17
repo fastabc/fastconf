@@ -2,6 +2,7 @@ package transform
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -117,6 +118,67 @@ func TestAliases_RewriteLegacyKeys(t *testing.T) {
 	}
 	if _, ok := root["redis"].(map[string]any)["host"]; ok {
 		t.Errorf("legacy redis.host not removed")
+	}
+}
+
+func TestEnvSubst_RequiredVariableMissing(t *testing.T) {
+	root := map[string]any{
+		"db": map[string]any{"dsn": "${DB_DSN:?database DSN is required}"},
+	}
+	tr := EnvSubstWith(func(string) string { return "" })
+	err := tr.Transform(root)
+	if err == nil {
+		t.Fatal("expected error for missing required variable")
+	}
+	if !errors.Is(err, ErrTransform) {
+		t.Fatalf("error must wrap ErrTransform: %v", err)
+	}
+	const want = "database DSN is required"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("error must include user message %q: %v", want, err)
+	}
+}
+
+func TestEnvSubst_RequiredVariableEmpty(t *testing.T) {
+	root := map[string]any{"x": "${X:?}"}
+	tr := EnvSubstWith(func(string) string { return "" })
+	err := tr.Transform(root)
+	if err == nil {
+		t.Fatal("expected error for required-but-empty variable")
+	}
+	if !errors.Is(err, ErrTransform) {
+		t.Fatalf("error must wrap ErrTransform: %v", err)
+	}
+}
+
+func TestEnvSubst_RequiredVariablePresent(t *testing.T) {
+	root := map[string]any{"x": "${X:?missing}"}
+	tr := EnvSubstWith(func(name string) string {
+		if name == "X" {
+			return "set"
+		}
+		return ""
+	})
+	if err := tr.Transform(root); err != nil {
+		t.Fatalf("expected no error when variable is set: %v", err)
+	}
+	if got := root["x"]; got != "set" {
+		t.Fatalf("got %v want set", got)
+	}
+}
+
+func TestEnvSubst_RequiredFirstErrorWins(t *testing.T) {
+	root := map[string]any{
+		"a": "${A:?first}",
+		"b": "${B:?second}",
+	}
+	err := EnvSubstWith(func(string) string { return "" }).Transform(root)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	// Either first-walked key may fire; just ensure exactly one wrapped error.
+	if !errors.Is(err, ErrTransform) {
+		t.Fatalf("error must wrap ErrTransform: %v", err)
 	}
 }
 

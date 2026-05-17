@@ -13,16 +13,25 @@ type LabelOptions struct {
 	// Name overrides the default Provider name (otherwise "labels:<prefix>"
 	// or "labels:" when prefix is empty).
 	Name string
-	// Priority sets the merge priority. Defaults to PriorityCLI so labels
-	// from a controller / docker engine override file layers.
+	// Priority sets the merge priority. Defaults to PriorityK8s, matching
+	// the typical "metadata.labels / metadata.annotations from a K8s
+	// controller" use case. Traefik / Docker engine label sources that
+	// must beat env values should set PriorityCLI explicitly.
 	Priority int
 	// Prefix, when non-empty, restricts expansion to labels whose key starts
 	// with this prefix (e.g. "traefik.").
 	Prefix string
 	// StripPrefix removes Prefix from each key before expansion.
 	StripPrefix bool
-	// Separator splits a flat key into nested segments. Default ".".
+	// Separator splits a flat key into nested segments. Default ".". Use
+	// Separators (plural) when multiple delimiters are in play (e.g.
+	// K8s recommended labels with both "/" and ".").
 	Separator string
+	// Separators is the ordered list of delimiters applied to each key,
+	// left to right. Pass {"/", "."} to make K8s-style
+	// "app.kubernetes.io/name" decompose into ["app","kubernetes","io","name"].
+	// When set, takes precedence over Separator.
+	Separators []string
 	// Coerce, when true, converts "true"/"false"/int/float strings into typed
 	// values. Default false: values are kept verbatim (matches Traefik /
 	// Compose label semantics).
@@ -54,8 +63,13 @@ func NewLabelMap(labels map[string]string, opts LabelOptions) *LabelProvider {
 }
 
 func newLabelProvider(labels any, opts LabelOptions) *LabelProvider {
+	// Default to PriorityK8s (40). The most common label source is a K8s
+	// controller forwarding metadata.labels / metadata.annotations, which
+	// should sit between remote KV (30) and process env (50). Traefik /
+	// Docker engine label sources whose intent is to beat env values
+	// should set Priority: PriorityCLI explicitly.
 	if opts.Priority == 0 {
-		opts.Priority = contracts.PriorityCLI
+		opts.Priority = contracts.PriorityK8s
 	}
 	if opts.Name == "" {
 		opts.Name = "labels:" + opts.Prefix
@@ -75,6 +89,7 @@ func (p *LabelProvider) Load(_ context.Context) (map[string]any, error) {
 		Prefix:      p.opts.Prefix,
 		StripPrefix: p.opts.StripPrefix,
 		Separator:   p.opts.Separator,
+		Separators:  p.opts.Separators,
 		Coerce:      p.opts.Coerce,
 	}), nil
 }
