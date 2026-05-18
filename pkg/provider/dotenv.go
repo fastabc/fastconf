@@ -20,7 +20,8 @@ import (
 // WithReplacer(DoubleUnderscoreReplacer) for the "single `_` is part of
 // the key" convention. Actual process environment variables take
 // precedence over .env values for the same key, matching the classic
-// dotenv contract.
+// dotenv contract. Presence, not non-emptiness, decides precedence:
+// APP_PORT="" still suppresses APP_PORT from the .env fallback layer.
 //
 // Priority defaults to PriorityDotEnv (5), so all other built-in providers
 // override dotenv values.
@@ -40,8 +41,13 @@ type DotEnvProvider struct {
 	coerce   bool
 	replacer EnvKeyReplacer
 	root     []string
-	getenv   func(string) string // injectable for tests
+	lookup   EnvLookup
 }
+
+// EnvLookup reports both an env var's value and whether it exists.
+// The boolean is intentionally part of the contract so explicit empty
+// values still win over .env fallbacks.
+type EnvLookup func(string) (string, bool)
 
 // NewDotEnv builds a DotEnvProvider that reads the given .env file paths.
 // prefix follows the same convention as NewEnv: e.g. "APP_" so that
@@ -56,7 +62,7 @@ func NewDotEnv(prefix string, paths ...string) *DotEnvProvider {
 		paths:    paths,
 		priority: contracts.PriorityDotEnv,
 		replacer: DotReplacer,
-		getenv:   os.Getenv,
+		lookup:   os.LookupEnv,
 	}
 }
 
@@ -89,9 +95,13 @@ func (p *DotEnvProvider) At(path string) *DotEnvProvider {
 	return p
 }
 
-// withGetenv is for tests.
-func (p *DotEnvProvider) withGetenv(fn func(string) string) *DotEnvProvider {
-	p.getenv = fn
+// WithLookup swaps the env lookup used to decide whether a process env
+// value suppresses a .env fallback. Passing nil restores os.LookupEnv.
+func (p *DotEnvProvider) WithLookup(fn EnvLookup) *DotEnvProvider {
+	if fn == nil {
+		fn = os.LookupEnv
+	}
+	p.lookup = fn
 	return p
 }
 
@@ -117,11 +127,14 @@ func (p *DotEnvProvider) Load(_ context.Context) (map[string]any, error) {
 			return nil, fmt.Errorf("dotenv provider: parse %q: %w", path, err)
 		}
 		for k, v := range pairs {
-			// Actual env vars take precedence: skip keys already set in the
-			// process environment. Check k directly — it is the full raw key
-			// from the .env file (e.g. APP_PORT) and is not yet prefix-stripped.
-			if p.getenv != nil && p.getenv(k) != "" {
-				continue
+			// Actual env vars take precedence: skip keys already present in
+			// the process environment, even when their value is explicitly
+			// empty. Check k directly — it is the full raw key from the .env
+			// file (e.g. APP_PORT) and is not yet prefix-stripped.
+			if p.lookup != nil {
+				if _, ok := p.lookup(k); ok {
+					continue
+				}
 			}
 			if p.prefix != "" && !strings.HasPrefix(k, p.prefix) {
 				continue

@@ -32,6 +32,16 @@ type Provider interface {
 	Watch(ctx context.Context) (<-chan Event, error)
 }
 
+// WatchPathProvider is an optional extension for providers backed by local
+// files that should be attached to Manager's shared filesystem watcher.
+// Implementations return the leaf file paths they read; the watcher will
+// subscribe to the appropriate parent directories so Kubernetes-style atomic
+// symlink swaps are observed without each provider creating its own fsnotify
+// loop.
+type WatchPathProvider interface {
+	WatchPaths() []string
+}
+
 // Resumable is the Phase 25 optional extension. Providers that can
 // re-subscribe from a known revision (etcd-style "Watch from
 // last_revision", NATS JetStream "DeliverByStartSequence", Vault

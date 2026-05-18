@@ -23,7 +23,7 @@ root README.
 | [consul](consul.md)                | Consul KV with watcher prefix + ACL |
 | [cross-process](cross-process.md)  | Cross-process push via NATS or Redis Streams |
 | [generators](generators.md)        | Kustomize-style ConfigMap/Secret generators (build-info, downward-api) |
-| [labels](labels.md)                | Traefik / Docker / K8s label expansion |
+| [labels](labels.md)                | Metadata labels, dotted config labels, routing DSL labels, and K8s raw metadata |
 | [env-replacer](env-replacer.md)    | Env key conventions (single `_` default, `__` opt-in), `At()` namespacing, coercion |
 | [provider-timeouts](provider-timeouts.md) | HTTP-client `Timeout` vs `ctx` — what FastConf guarantees |
 

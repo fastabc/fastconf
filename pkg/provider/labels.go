@@ -13,13 +13,13 @@ type LabelOptions struct {
 	// Name overrides the default Provider name (otherwise "labels:<prefix>"
 	// or "labels:" when prefix is empty).
 	Name string
-	// Priority sets the merge priority. Defaults to PriorityK8s, matching
-	// the typical "metadata.labels / metadata.annotations from a K8s
-	// controller" use case. Traefik / Docker engine label sources that
-	// must beat env values should set PriorityCLI explicitly.
+	// Priority sets the merge priority. Defaults to PriorityStatic (10):
+	// labels have no inherent precedence, so callers integrating with a
+	// Kubernetes controller should pass PriorityK8s explicitly, while
+	// startup override use cases may choose PriorityCLI.
 	Priority int
 	// Prefix, when non-empty, restricts expansion to labels whose key starts
-	// with this prefix (e.g. "traefik.").
+	// with this prefix (e.g. "routing.").
 	Prefix string
 	// StripPrefix removes Prefix from each key before expansion.
 	StripPrefix bool
@@ -33,15 +33,22 @@ type LabelOptions struct {
 	// When set, takes precedence over Separator.
 	Separators []string
 	// Coerce, when true, converts "true"/"false"/int/float strings into typed
-	// values. Default false: values are kept verbatim (matches Traefik /
-	// Compose label semantics).
+	// values. Default false: values are kept verbatim, matching common
+	// object-metadata and dotted-label inputs.
 	Coerce bool
 }
 
-// LabelProvider injects a flat list (or map) of Traefik / Docker / K8s style
-// dotted labels as a single configuration layer. Use it when labels arrive
-// from outside the configuration file — e.g. a Docker engine query, a K8s
-// controller scanning service annotations, or a CLI flag with --label.
+// DottedLabelOptions names the intent of labels that are deliberately used as
+// dotted application configuration keys.
+type DottedLabelOptions = LabelOptions
+
+// LabelProvider injects a flat list (or map) of labels as a single
+// configuration layer. NewLabels / NewLabelMap are low-level primitives for
+// callers that already know how their label keys should be interpreted. Prefer
+// NewDottedLabels / NewDottedLabelMap when the labels intentionally encode
+// dotted application configuration. Use NewRoutingLabels / NewRoutingLabelMap
+// when the source also carries routing-DSL value semantics such as typed leaves,
+// comma lists, or indexed siblings.
 //
 // LabelProvider is read-only and does not implement Watch; pair it with a
 // fastconf.Reload(ctx) call when the upstream label set changes.
@@ -62,14 +69,23 @@ func NewLabelMap(labels map[string]string, opts LabelOptions) *LabelProvider {
 	return newLabelProvider(labels, opts)
 }
 
+// NewDottedLabels constructs a LabelProvider from labels that intentionally
+// encode dotted application configuration keys.
+func NewDottedLabels(labels []string, opts DottedLabelOptions) *LabelProvider {
+	return newLabelProvider(labels, opts)
+}
+
+// NewDottedLabelMap is the map[string]string variant for labels that
+// intentionally encode dotted application configuration keys.
+func NewDottedLabelMap(labels map[string]string, opts DottedLabelOptions) *LabelProvider {
+	return newLabelProvider(labels, opts)
+}
+
 func newLabelProvider(labels any, opts LabelOptions) *LabelProvider {
-	// Default to PriorityK8s (40). The most common label source is a K8s
-	// controller forwarding metadata.labels / metadata.annotations, which
-	// should sit between remote KV (30) and process env (50). Traefik /
-	// Docker engine label sources whose intent is to beat env values
-	// should set Priority: PriorityCLI explicitly.
+	// Labels are a representation, not a deployment-layer policy. Default to
+	// the neutral static band and let callers opt into K8s / CLI precedence.
 	if opts.Priority == 0 {
-		opts.Priority = contracts.PriorityK8s
+		opts.Priority = contracts.PriorityStatic
 	}
 	if opts.Name == "" {
 		opts.Name = "labels:" + opts.Prefix

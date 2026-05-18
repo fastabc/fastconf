@@ -95,11 +95,11 @@ func DeleteDotted(root map[string]any, dotted string) {
 	Delete(root, Split(dotted))
 }
 
-// LabelOptions controls how ExpandLabels reshapes Traefik / Docker / K8s
-// style flat labels into a nested map[string]any.
+// LabelOptions controls how ExpandLabels reshapes flat labels into a nested
+// map[string]any.
 type LabelOptions struct {
 	// Prefix, when non-empty, restricts expansion to labels whose key starts
-	// with this prefix (e.g. "traefik."). Labels lacking the prefix are
+	// with this prefix (e.g. "routing."). Labels lacking the prefix are
 	// silently skipped.
 	Prefix string
 	// StripPrefix removes Prefix from each key before expansion. Has no
@@ -120,14 +120,12 @@ type LabelOptions struct {
 	Separators []string
 	// Coerce, when true, converts "true" / "false" / int-like / float-like
 	// values into their typed forms (matching pkg/provider env coercion).
-	// Default false: values are kept verbatim as strings, matching Traefik /
-	// Compose label semantics.
+	// Default false: values are kept verbatim as strings.
 	Coerce bool
 }
 
 // ExpandLabels reshapes a flat list / map of "dotted.key=value" labels into a
-// nested map[string]any so the configuration tree can carry Traefik / Docker /
-// K8s style annotations. Accepted input shapes:
+// nested map[string]any. Accepted input shapes:
 //
 //   - []string{"a.b=1", "a.c=2"}            — Compose / docker CLI form
 //   - []any{"a.b=1", "a.c=2"}               — YAML-decoded form
@@ -135,9 +133,8 @@ type LabelOptions struct {
 //   - map[string]any{"a.b":"1","a.c":"2"}   — already-decoded YAML map
 //
 // Malformed entries (no '=' separator, empty key after prefix trim) are
-// silently dropped, matching Traefik's lenient behavior. The result is a
-// freshly allocated tree; callers may merge it into an existing root via
-// pkg/merger.Deep.
+// silently dropped. The result is a freshly allocated tree; callers may merge
+// it into an existing root via pkg/merger.Deep.
 func ExpandLabels(input any, opts LabelOptions) map[string]any {
 	seps := resolveSeparators(opts)
 	out := map[string]any{}

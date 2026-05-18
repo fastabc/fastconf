@@ -27,21 +27,26 @@
 // Multi-line annotation values are escaped with \n; KEY may contain
 // "/" and "." (matching K8s recommended-label conventions).
 //
-// # Key decomposition
+// # Metadata representation
 //
-// Keys are split with Separators (default {"/", "."}) so the K8s
-// recommended label "app.kubernetes.io/name" decomposes into the
-// nested path "app.kubernetes.io.name". Pass a custom Separators
-// list to match other conventions.
+// K8s metadata is preserved raw by default so selector / annotation keys keep
+// their original identity. NewDefault grafts the buckets under k8s.metadata:
+//
+//	k8s.metadata.labels["app.kubernetes.io/name"] = "web"
+//
+// Callers that intentionally want configuration-style expansion can opt into
+// MetadataExpanded; Separators (default {"/", "."}) then split keys such as
+// "app.kubernetes.io/name" into nested path segments.
 //
 // # Watch
 //
-// The kubelet rewrites the mounted files in-place when labels or
-// annotations change, but the rewrite cadence is per-sync-period
-// (~60s by default) and not signalled to the container. The provider
-// therefore returns (nil, nil) from Watch; trigger Manager.Reload(ctx)
-// on whatever signal your operator already uses (SIGHUP, controller
-// reconcile, etc.).
+// Downward API volume updates follow the same projected-volume pattern as
+// ConfigMap mounts: kubelet refreshes a data directory and atomically swaps
+// the "..data" symlink. DownwardProvider exposes its mounted leaf paths via
+// WatchPaths so Manager's shared filesystem watcher can observe that swap
+// when WithWatch(true) is enabled. Watch itself still returns (nil, nil)
+// because provider-local fsnotify loops would duplicate the framework's
+// existing K8s-aware watcher.
 package k8s
 
 import (
@@ -60,6 +65,17 @@ const (
 	DefaultAnnotationsPath = "/etc/podinfo/annotations"
 )
 
+// MetadataMode controls whether Downward API keys are preserved verbatim or
+// expanded into nested configuration paths.
+type MetadataMode uint8
+
+const (
+	// MetadataRaw preserves every source key exactly as mounted by kubelet.
+	MetadataRaw MetadataMode = iota
+	// MetadataExpanded splits keys according to Options.Separators.
+	MetadataExpanded
+)
+
 // Options configures a DownwardProvider. Either or both of LabelsPath
 // and AnnotationsPath may be empty — empty paths are skipped silently.
 type Options struct {
@@ -69,16 +85,24 @@ type Options struct {
 	// above remote KV, below process env. Override for site-specific layering.
 	Priority int
 	// LabelsPath is the file the kubelet writes metadata.labels to.
-	// Defaults to DefaultLabelsPath; pass an explicit "" to disable
+	// NewDefault sets DefaultLabelsPath; leave empty on low-level New to skip
 	// the labels bucket entirely.
 	LabelsPath string
 	// AnnotationsPath is the file the kubelet writes metadata.annotations
-	// to. Defaults to DefaultAnnotationsPath; pass "" to disable.
+	// to. NewDefault sets DefaultAnnotationsPath; leave empty on low-level New
+	// to skip the annotations bucket entirely.
 	AnnotationsPath string
-	// Separators controls how each label / annotation key is decomposed
-	// into a nested path. Default {"/", "."} matches the K8s recommended
-	// label form (app.kubernetes.io/name → app.kubernetes.io.name).
+	// Separators controls how each label / annotation key is decomposed when
+	// the corresponding MetadataMode is MetadataExpanded. Default {"/", "."}
+	// matches the K8s recommended label form
+	// (app.kubernetes.io/name → app.kubernetes.io.name).
 	Separators []string
+	// LabelsMode controls whether labels preserve raw keys or expand them.
+	// Zero value MetadataRaw is the safe default.
+	LabelsMode MetadataMode
+	// AnnotationsMode controls whether annotations preserve raw keys or expand
+	// them. Zero value MetadataRaw is the safe default.
+	AnnotationsMode MetadataMode
 	// At, when non-empty, grafts the entire loaded tree under this
 	// dotted path. Useful for namespacing K8s metadata away from
 	// application configuration:
@@ -102,9 +126,10 @@ type DownwardProvider struct {
 
 // New builds a DownwardProvider with the given options. Apply Options
 // defaults: empty Name → "k8s-downward"; zero Priority → PriorityK8s;
-// empty Separators → {"/", "."}; LabelsPath/AnnotationsPath unset only
-// when explicitly zeroed (struct literal omits LabelsPath leaves it ""
-// which means "skip" — pass DefaultLabelsPath explicitly to enable).
+// empty Separators → {"/", "."}; zero metadata modes → MetadataRaw;
+// LabelsPath/AnnotationsPath unset only when explicitly zeroed (struct
+// literal omits LabelsPath leaves it "" which means "skip" — pass
+// DefaultLabelsPath explicitly to enable).
 //
 // For the "I want the defaults" path use NewDefault().
 func New(opts Options) *DownwardProvider {
@@ -120,14 +145,25 @@ func New(opts Options) *DownwardProvider {
 	return &DownwardProvider{opts: opts, root: mappath.Split(opts.At)}
 }
 
-// NewDefault is a shortcut for New(Options{
-//     LabelsPath: DefaultLabelsPath,
-//     AnnotationsPath: DefaultAnnotationsPath,
-// }) — the standard Downward API layout from the K8s docs.
+// NewDefault returns the recommended metadata preset for the standard
+// Downward API layout from the K8s docs. It preserves raw keys and namespaces
+// the buckets under k8s.metadata.
 func NewDefault() *DownwardProvider {
 	return New(Options{
 		LabelsPath:      DefaultLabelsPath,
 		AnnotationsPath: DefaultAnnotationsPath,
+		At:              "k8s.metadata",
+	})
+}
+
+// NewExpandedDefault preserves the pre-v0.17 expanded-root behavior for
+// callers that intentionally use metadata keys as configuration paths.
+func NewExpandedDefault() *DownwardProvider {
+	return New(Options{
+		LabelsPath:      DefaultLabelsPath,
+		AnnotationsPath: DefaultAnnotationsPath,
+		LabelsMode:      MetadataExpanded,
+		AnnotationsMode: MetadataExpanded,
 	})
 }
 
@@ -141,7 +177,7 @@ func (p *DownwardProvider) Priority() int { return p.opts.Priority }
 func (p *DownwardProvider) Load(_ context.Context) (map[string]any, error) {
 	inner := map[string]any{}
 	if p.opts.LabelsPath != "" {
-		tree, err := p.loadBucket(p.opts.LabelsPath)
+		tree, err := p.loadBucket(p.opts.LabelsPath, p.opts.LabelsMode)
 		if err != nil {
 			return nil, err
 		}
@@ -150,7 +186,7 @@ func (p *DownwardProvider) Load(_ context.Context) (map[string]any, error) {
 		}
 	}
 	if p.opts.AnnotationsPath != "" {
-		tree, err := p.loadBucket(p.opts.AnnotationsPath)
+		tree, err := p.loadBucket(p.opts.AnnotationsPath, p.opts.AnnotationsMode)
 		if err != nil {
 			return nil, err
 		}
@@ -171,10 +207,28 @@ func (p *DownwardProvider) Watch(_ context.Context) (<-chan contracts.Event, err
 	return nil, nil
 }
 
+// WatchPaths implements contracts.WatchPathProvider so Manager's shared
+// filesystem watcher can subscribe to the mounted Downward API files.
+func (p *DownwardProvider) WatchPaths() []string {
+	paths := make([]string, 0, 2)
+	seen := map[string]struct{}{}
+	for _, path := range []string{p.opts.LabelsPath, p.opts.AnnotationsPath} {
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+	return paths
+}
+
 // loadBucket reads one Downward API file and expands its KEY="VALUE"
 // lines into a nested map. Returns (nil, nil) when the file is absent
 // and MustExist is false.
-func (p *DownwardProvider) loadBucket(path string) (map[string]any, error) {
+func (p *DownwardProvider) loadBucket(path string, mode MetadataMode) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) && !p.opts.MustExist {
@@ -188,6 +242,13 @@ func (p *DownwardProvider) loadBucket(path string) (map[string]any, error) {
 	}
 	if len(pairs) == 0 {
 		return map[string]any{}, nil
+	}
+	if mode == MetadataRaw {
+		raw := make(map[string]any, len(pairs))
+		for k, v := range pairs {
+			raw[k] = v
+		}
+		return raw, nil
 	}
 	return mappath.ExpandLabels(pairs, mappath.LabelOptions{
 		Separators: p.opts.Separators,

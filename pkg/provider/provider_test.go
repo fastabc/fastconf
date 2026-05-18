@@ -127,3 +127,18 @@ func TestCLIProvider(t *testing.T) {
 		t.Error("priority")
 	}
 }
+
+func TestCLIProvider_ChangedAliasMatchesNewCLI(t *testing.T) {
+	want := map[string]any{"server": map[string]any{"addr": ":9090"}}
+	p := NewCLIChanged(want)
+	got, err := p.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %#v want %#v", got, want)
+	}
+	if p.Priority() != contracts.PriorityCLI {
+		t.Error("priority")
+	}
+}

@@ -12,10 +12,9 @@ import (
 )
 
 // Realistic K8s downward sample with recommended labels, a custom
-// label, and a multi-line annotation. Verifies that the multi-separator
-// split decomposes "app.kubernetes.io/name" coherently and that
-// quoted-string escapes are preserved.
-func TestDownwardProvider_LoadEndToEnd(t *testing.T) {
+// label, and a multi-line annotation. Default raw mode preserves every
+// mounted key exactly while still decoding quoted-string escapes.
+func TestDownwardProvider_LoadEndToEndRaw(t *testing.T) {
 	dir := t.TempDir()
 	labels := `# kubelet header
 app.kubernetes.io/name="web"
@@ -40,19 +39,21 @@ description="line1\nline2"
 		t.Fatalf("Load: %v", err)
 	}
 
-	if v, _ := mappath.GetDotted(got, "labels.app.kubernetes.io.name"); v != "web" {
-		t.Errorf("labels.app.kubernetes.io.name = %v want \"web\"", v)
+	labelsMap, _ := got["labels"].(map[string]any)
+	if v := labelsMap["app.kubernetes.io/name"]; v != "web" {
+		t.Errorf(`labels["app.kubernetes.io/name"] = %v want "web"`, v)
 	}
-	if v, _ := mappath.GetDotted(got, "labels.app.kubernetes.io.component"); v != "frontend" {
-		t.Errorf("labels.app.kubernetes.io.component = %v", v)
+	if v := labelsMap["app.kubernetes.io/component"]; v != "frontend" {
+		t.Errorf(`labels["app.kubernetes.io/component"] = %v`, v)
 	}
-	if v, _ := mappath.GetDotted(got, "labels.custom"); v != "hello" {
+	if v := labelsMap["custom"]; v != "hello" {
 		t.Errorf("labels.custom = %v", v)
 	}
-	if v, _ := mappath.GetDotted(got, "annotations.description"); v != "line1\nline2" {
+	annotationsMap, _ := got["annotations"].(map[string]any)
+	if v := annotationsMap["description"]; v != "line1\nline2" {
 		t.Errorf("description escape lost: %v", v)
 	}
-	if v, _ := mappath.GetDotted(got, "annotations.kubectl.kubernetes.io.last-applied-configuration"); v != `{"a":1}` {
+	if v := annotationsMap["kubectl.kubernetes.io/last-applied-configuration"]; v != `{"a":1}` {
 		t.Errorf("last-applied-configuration: got %v", v)
 	}
 }
@@ -85,7 +86,8 @@ func TestDownwardProvider_MustExistErrors(t *testing.T) {
 	}
 }
 
-// NewDefault picks up DefaultLabelsPath / DefaultAnnotationsPath.
+// NewDefault picks up DefaultLabelsPath / DefaultAnnotationsPath and uses the
+// raw, namespaced metadata preset.
 func TestDownwardProvider_NewDefaultPaths(t *testing.T) {
 	p := k8s.NewDefault()
 	if p.Name() != "k8s-downward" {
@@ -93,6 +95,106 @@ func TestDownwardProvider_NewDefaultPaths(t *testing.T) {
 	}
 	if p.Priority() != contracts.PriorityK8s {
 		t.Errorf("Priority() = %d want PriorityK8s %d", p.Priority(), contracts.PriorityK8s)
+	}
+	got := p.WatchPaths()
+	want := []string{k8s.DefaultLabelsPath, k8s.DefaultAnnotationsPath}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("WatchPaths() = %v want %v", got, want)
+	}
+}
+
+func TestDownwardProvider_NewDefaultPreservesRawKeysAndNamespacesMetadata(t *testing.T) {
+	dir := t.TempDir()
+	labelsPath := filepath.Join(dir, "labels")
+	annPath := filepath.Join(dir, "annotations")
+	mustWrite(t, labelsPath, `app.kubernetes.io/name="web"`+"\n")
+	mustWrite(t, annPath, `example.com/a.b="v"`+"\n")
+
+	p := k8s.New(k8s.Options{
+		LabelsPath:      labelsPath,
+		AnnotationsPath: annPath,
+		At:              "k8s.metadata",
+	})
+	got, err := p.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	labelsMap, _ := mappath.GetDotted(got, "k8s.metadata.labels")
+	labelsRaw, _ := labelsMap.(map[string]any)
+	if labelsRaw["app.kubernetes.io/name"] != "web" {
+		t.Fatalf("raw labels lost: %#v", got)
+	}
+	annotationsMap, _ := mappath.GetDotted(got, "k8s.metadata.annotations")
+	annotationsRaw, _ := annotationsMap.(map[string]any)
+	if annotationsRaw["example.com/a.b"] != "v" {
+		t.Fatalf("raw annotations lost: %#v", got)
+	}
+}
+
+func TestDownwardProvider_ExpandedModeLegacyShape(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "labels")
+	mustWrite(t, path, `app.kubernetes.io/name="web"`+"\n")
+
+	p := k8s.New(k8s.Options{
+		LabelsPath: path,
+		LabelsMode: k8s.MetadataExpanded,
+	})
+	got, err := p.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := mappath.GetDotted(got, "labels.app.kubernetes.io.name"); v != "web" {
+		t.Fatalf("expanded label = %v want web", v)
+	}
+}
+
+func TestDownwardProvider_RawModeAvoidsSeparatorCollision(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "labels")
+	mustWrite(t, path, "a.b/c=\"left\"\na/b.c=\"right\"\n")
+
+	p := k8s.New(k8s.Options{LabelsPath: path})
+	got, err := p.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	labelsMap, _ := got["labels"].(map[string]any)
+	if labelsMap["a.b/c"] != "left" || labelsMap["a/b.c"] != "right" {
+		t.Fatalf("raw keys collided: %#v", got)
+	}
+}
+
+func TestDownwardProvider_WatchPaths(t *testing.T) {
+	p := k8s.New(k8s.Options{
+		LabelsPath:      "/etc/podinfo/labels",
+		AnnotationsPath: "/etc/podinfo/annotations",
+	})
+	got := p.WatchPaths()
+	want := []string{"/etc/podinfo/labels", "/etc/podinfo/annotations"}
+	if len(got) != len(want) {
+		t.Fatalf("WatchPaths() = %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("WatchPaths() = %v want %v", got, want)
+		}
+	}
+}
+
+func TestDownwardProvider_WatchPathsSkipsDisabledBucketsAndDuplicates(t *testing.T) {
+	p := k8s.New(k8s.Options{
+		LabelsPath:      "/etc/podinfo/labels",
+		AnnotationsPath: "/etc/podinfo/labels",
+	})
+	got := p.WatchPaths()
+	if len(got) != 1 || got[0] != "/etc/podinfo/labels" {
+		t.Fatalf("WatchPaths() = %v want [/etc/podinfo/labels]", got)
+	}
+
+	disabled := k8s.New(k8s.Options{})
+	if got := disabled.WatchPaths(); len(got) != 0 {
+		t.Fatalf("disabled WatchPaths() = %v want empty", got)
 	}
 }
 
@@ -149,6 +251,7 @@ func TestDownwardProvider_CustomSeparators(t *testing.T) {
 	p := k8s.New(k8s.Options{
 		LabelsPath: path,
 		Separators: []string{":"},
+		LabelsMode: k8s.MetadataExpanded,
 	})
 	got, err := p.Load(context.Background())
 	if err != nil {
@@ -159,8 +262,14 @@ func TestDownwardProvider_CustomSeparators(t *testing.T) {
 	}
 }
 
-// Watch returns (nil, nil) — see package doc; operators trigger
-// Reload externally.
+func TestDownwardProvider_NewExpandedDefaultRetainsExpandedPreset(t *testing.T) {
+	p := k8s.NewExpandedDefault()
+	if got := p.WatchPaths(); len(got) != 2 {
+		t.Fatalf("WatchPaths() = %v want default mounted paths", got)
+	}
+}
+
+// Watch returns (nil, nil); Manager's shared file watcher follows WatchPaths.
 func TestDownwardProvider_WatchReturnsNil(t *testing.T) {
 	p := k8s.NewDefault()
 	ch, err := p.Watch(context.Background())

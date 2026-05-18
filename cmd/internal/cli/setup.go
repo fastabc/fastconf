@@ -58,6 +58,31 @@ func RegisterFlags(fs *flag.FlagSet, f *Flags) {
 	fs.Var(&f.Providers, "provider", "name=value provider spec (repeatable; value may be JSON)")
 }
 
+// ChangedValues visits only flags explicitly set by the user and lets the
+// caller project them into a CLI-provider map. It intentionally skips parser
+// defaults so lower-priority config remains authoritative unless the user
+// typed an override.
+//
+// When build is nil, ChangedValues records a flat name → string-value map.
+func ChangedValues(fs *flag.FlagSet, build func(name, value string, out map[string]any) error) (map[string]any, error) {
+	out := map[string]any{}
+	var firstErr error
+	fs.Visit(func(f *flag.Flag) {
+		if firstErr != nil {
+			return
+		}
+		if build == nil {
+			out[f.Name] = f.Value.String()
+			return
+		}
+		firstErr = build(f.Name, f.Value.String(), out)
+	})
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	return out, nil
+}
+
 // LoadConfig builds a fastconf.Manager[T] from a populated Flags value
 // plus any extra Option overrides. It is the canonical Manager
 // constructor for CLI binaries; -dir / -profile / -strict / -watch

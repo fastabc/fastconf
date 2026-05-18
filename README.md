@@ -67,16 +67,11 @@ type AppConfig struct {
 }
 
 func main() {
-    labels := []string{
-        "server.addr=:9090",
-    }
-
     mgr, err := fastconf.New[AppConfig](context.Background(),
         fastconf.WithDir("conf.d"),
         fastconf.WithProfileEnv("APP_PROFILE"),
         fastconf.WithDefaultProfile("dev"),
         fastconf.WithProvider(provider.NewEnv("APP_")),
-        fastconf.WithProvider(provider.NewLabels(labels, provider.LabelOptions{})),
         fastconf.WithWatch(true),
     )
     if err != nil {
@@ -446,9 +441,10 @@ fastconf.New[Cfg](ctx,
     fastconf.WithProvider(provider.NewEnv("APP_")),                              // APP_DATABASE_DSN → database.dsn (default DotReplacer)
     fastconf.WithProvider(provider.NewEnv("APP_").WithReplacer(provider.DoubleUnderscoreReplacer)), // preserves single "_", splits on "__"
     fastconf.WithProvider(provider.NewEnv("APP_").At("config.runtime")),         // graft env tree under a sub-path
-    fastconf.WithProvider(provider.NewCLI(cliMap)),                              // parsed CLI flag map
-    fastconf.WithProvider(provider.NewDotEnv("APP_", ".env")),                   // explicit .env paths
-    fastconf.WithProvider(provider.NewLabels(labels, provider.LabelOptions{})),  // dotted labels (PriorityK8s default)
+    fastconf.WithProvider(provider.NewCLIChanged(cliMap)),                       // explicit CLI overrides only
+    fastconf.WithProvider(provider.NewDotEnv("APP_", ".env")),                   // explicit .env fallback paths
+    fastconf.WithProvider(provider.NewDottedLabels(labels, provider.DottedLabelOptions{})), // explicit dotted config labels
+    fastconf.WithProvider(provider.NewRoutingLabels(labels, provider.RoutingLabelOptions{})), // routing DSL labels (typed/list/index semantics)
     fastconf.WithTransformers(transform.ExpandLabels(at, to, opts)),
 )
 ```
@@ -657,11 +653,13 @@ These contribute `map[string]any` directly — no Parser needed.
 | Provider | Constructor | Notes |
 |---|---|---|
 | Env         | `provider.NewEnv("APP_")` | Default `DotReplacer`: `APP_FOO_BAR` → `foo.bar` (single `_`, Viper / Spring style). Values stay as strings; typed decoder converts. Chain `.WithReplacer(DoubleUnderscoreReplacer)`, `.At("path")`, `.WithCoerce(true)` as needed. |
-| CLI         | `provider.NewCLI(map[string]any)` | Parsed CLI flag map |
-| DotEnv      | `provider.NewDotEnv("APP_", paths...)` | Explicit `.env` paths; same replacer / `At` / `WithCoerce` knobs as `NewEnv` |
-| Labels      | `provider.NewLabels(labels, provider.LabelOptions{})` | Dotted `key=value` strings. Default priority `PriorityK8s`; pass `Separators: []string{"/", "."}` for K8s recommended labels |
-| LabelMap    | `provider.NewLabelMap(labels, provider.LabelOptions{})` | Kubernetes annotation-style `map[string]string` |
-| K8s Downward| `k8s.NewDefault()` (`providers/k8s`) | Reads `/etc/podinfo/{labels,annotations}`; multi-separator split + `labels.*` / `annotations.*` bucketing built in |
+| CLI         | `provider.NewCLIChanged(map[string]any)` | Explicitly changed CLI flag map; omit parser defaults so files/env remain authoritative unless the user typed an override |
+| DotEnv      | `provider.NewDotEnv("APP_", paths...)` | Explicit `.env` fallback paths; actual process env values win even when set to `""`. Same replacer / `At` / `WithCoerce` knobs as `NewEnv` |
+| Labels      | `provider.NewLabels(labels, provider.LabelOptions{})` | Low-level flat-label primitive. Default priority `PriorityStatic`; pass a higher band explicitly when the source should override |
+| DottedLabels| `provider.NewDottedLabels(labels, provider.DottedLabelOptions{})` | Explicit dotted-config labels when the key path itself is the whole DSL |
+| RoutingLabels| `provider.NewRoutingLabels(labels, provider.RoutingLabelOptions{})` | Routing DSL labels with typed scalars, comma lists, `[N]` indexes, and an optional enable gate. For Traefik-style inputs, opt into the matching `Prefix`, `EnableGate`, and `LowercaseKeys` settings explicitly |
+| LabelMap    | `provider.NewLabelMap(labels, provider.LabelOptions{})` | `map[string]string` variant of the low-level primitive |
+| K8s Downward| `k8s.NewDefault()` (`providers/k8s`) | Reads `/etc/podinfo/{labels,annotations}` as raw metadata under `k8s.metadata.*`; mounted files automatically join the shared fs watcher when `WithWatch(true)` is enabled. Use `NewExpandedDefault()` or `MetadataExpanded` only when you intentionally want config-style expansion |
 
 ### First-party KV providers in the root module (`providers/{vault,consul,http}`)
 
@@ -780,7 +778,7 @@ events. "Codec" indicates whether the provider needs you to choose one.
 | `pkg/provider.File` | root | load-only | — | inferred from ext | filesystem | n/a |
 | `pkg/provider.Bytes` | root | load-only | — | explicit | n/a (in-memory) | n/a |
 | `pkg/provider.DotEnv` | root | load-only | — | n/a | filesystem | n/a |
-| `pkg/provider.Labels` / `LabelMap` | root | load-only | — | n/a | n/a (in-memory) | n/a |
+| `pkg/provider.Labels` / `LabelMap` / `DottedLabels` / `RoutingLabels` | root | load-only | — | n/a | n/a (in-memory) | n/a |
 | `providers/http` | root | ETag + body-hash poll | — | required | static headers (Bearer, …) | `no_provider_http` |
 | `providers/consul` | root | blocking query (X-Consul-Index) | — | optional (Mode KV/Blob) | ACL token | `no_provider_consul` |
 | `providers/vault` | root | metadata-version poll | — | (JSON, built-in) | static token / `WithAuth` | `no_provider_vault` |

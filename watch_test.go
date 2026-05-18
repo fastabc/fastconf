@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fastabc/fastconf"
+	k8s "github.com/fastabc/fastconf/providers/k8s"
 )
 
 func writeFile(t *testing.T, p, content string) {
@@ -263,6 +264,67 @@ func TestWatcher_HotReloadOnHierarchicalAxisChange(t *testing.T) {
 		"hot reload on hierarchical axis overlay change")
 	if mgr.Snapshot().Generation == gen1 {
 		t.Errorf("generation did not advance after axis overlay change")
+	}
+}
+
+type downwardWatchCfg struct {
+	Labels map[string]string `json:"labels" yaml:"labels"`
+}
+
+// TestWatch_DownwardAPIAtomicSwapTriggersReload verifies that a provider which
+// exposes projected-volume leaf paths participates in the shared K8s-aware
+// filesystem watcher. The symlink layout mirrors a mounted Downward API
+// volume: labels -> ..data/labels, with ..data atomically retargeted.
+func TestWatch_DownwardAPIAtomicSwapTriggersReload(t *testing.T) {
+	dir := t.TempDir()
+	conf := filepath.Join(dir, "conf.d")
+	writeFile(t, filepath.Join(conf, "base", "00-seed.yaml"), "seed: true\n")
+
+	podinfo := filepath.Join(dir, "podinfo")
+	if err := os.MkdirAll(filepath.Join(podinfo, "data-v1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(podinfo, "data-v1", "labels"), "app=\"v1\"\n")
+	if err := os.Symlink("data-v1", filepath.Join(podinfo, "..data")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..data", "labels"), filepath.Join(podinfo, "labels")); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr, err := fastconf.New[downwardWatchCfg](context.Background(),
+		fastconf.WithDir(conf),
+		fastconf.WithProvider(k8s.New(k8s.Options{
+			LabelsPath: filepath.Join(podinfo, "labels"),
+		})),
+		fastconf.WithWatch(true),
+		fastconf.WithCoalesceQuiet(20*time.Millisecond),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.Close()
+
+	if got := mgr.Get().Labels["app"]; got != "v1" {
+		t.Fatalf("initial label app = %q want v1", got)
+	}
+	gen1 := mgr.Snapshot().Generation
+
+	if err := os.MkdirAll(filepath.Join(podinfo, "data-v2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(podinfo, "data-v2", "labels"), "app=\"v2\"\n")
+	tmpLink := filepath.Join(podinfo, "..data_tmp_phase2")
+	if err := os.Symlink("data-v2", tmpLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmpLink, filepath.Join(podinfo, "..data")); err != nil {
+		t.Fatal(err)
+	}
+
+	waitFor(t, func() bool { return mgr.Get().Labels["app"] == "v2" }, "downward API reload after ..data swap")
+	if mgr.Snapshot().Generation == gen1 {
+		t.Errorf("generation did not advance after downward API swap")
 	}
 }
 

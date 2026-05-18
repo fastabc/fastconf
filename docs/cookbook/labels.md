@@ -1,189 +1,206 @@
-# Traefik / Docker / K8s 风格 Label 支持
+# Label 处理：metadata、dotted config 与 routing DSL
 
-FastConf 支持把扁平的 `dotted.key=value` 标签列表（Traefik / Docker Compose / K8s annotation 风格）展开成嵌套配置子树。两种入口：
+FastConf 按来源语义区分 label：
 
-| 来源 | 推荐 API | 备注 |
+| 心智模型 | 推荐 API | 默认语义 |
 |---|---|---|
-| 已经在配置文件里（Compose `deploy.labels` 列表 / K8s `metadata.annotations` map） | `WithTransformers(transform.ExpandLabels(at, to, opts))` | 原地展开，默认删除源 list |
-| 来自 Docker engine / K8s controller / CLI `--label` 等外部注入 | `WithProvider(provider.NewLabels(...))` / `WithProvider(provider.NewLabelMap(...))` | 走 provider 优先级，默认 `PriorityK8s`（40）。Traefik / Docker 场景如需覆盖 env，显式 `Priority: PriorityCLI` |
-| K8s Downward API `/etc/podinfo/{labels,annotations}` | `providers/k8s.NewDefault()` 或 `k8s.New(k8s.Options{...})` | 自动按 `{"/", "."}` 多分隔符切分 `app.kubernetes.io/name`，分别挂在 `labels.*` / `annotations.*` 下 |
+| 原始 metadata | `provider.NewLabels(...)` / `provider.NewLabelMap(...)` | 低层 primitive；值保留 string；默认 `PriorityStatic` |
+| 明确把 label 当配置 DSL | `provider.NewDottedLabels(...)` / `provider.NewDottedLabelMap(...)` | 显式表达“这些 key 就是 dotted config” |
+| 路由 DSL labels | `provider.NewRoutingLabels(...)` / `provider.NewRoutingLabelMap(...)` | typed scalar + list + `[N]` index；可选整组 enable gate |
+| 配置文件里的 dotted label 字段 | `transform.ExpandLabels(at, to, opts)` | 把已有 list / map 原地展开成配置子树 |
+| K8s Downward API metadata | `k8s.NewDefault()` | 默认 raw + namespaced；`WithWatch(true)` 时跟随 projected-volume refresh |
 
-底层共用 `pkg/mappath.ExpandLabels`，可被第三方代码直接复用。
+底层都复用 `pkg/mappath.ExpandLabels`；区别不在 merge 引擎，而在**调用方表达的意图**。
 
 ---
 
-## 1. Compose `deploy.labels` 列表 → 嵌套子树（Transformer）
+## 1. 配置文件中的 dotted labels（Transformer）
 
-输入：
+如果 label 已经在 YAML / JSON 配置里，并且它们本来就是你定义的配置 DSL，用
+`transform.ExpandLabels`：
 
 ```yaml
 # conf.d/base/00-app.yaml
 deploy:
   labels:
-    - "traefik.http.services.dummy-svc.loadbalancer.server.port=9999"
-    - "traefik.enable=true"
+    - "routing.http.services.api.loadbalancer.server.port=9999"
+    - "routing.enable=true"
 ```
-
-代码：
 
 ```go
-import (
-    "github.com/fastabc/fastconf"
-    "github.com/fastabc/fastconf/pkg/transform"
-)
-
 cfg, _ := fastconf.New[Cfg](ctx,
     fastconf.WithDir("conf.d"),
-    fastconf.WithTransformers(transform.ExpandLabels("deploy.labels", "", transform.LabelExpandOptions{})),
+    fastconf.WithTransformers(transform.ExpandLabels(
+        "deploy.labels",
+        "",
+        transform.LabelExpandOptions{},
+    )),
 )
 ```
 
-结果（merged tree，源 `deploy.labels` 默认被移除）：
+结果（`deploy.labels` 默认被移除）：
 
 ```yaml
-traefik:
+routing:
   http:
     services:
-      dummy-svc:
+      api:
         loadbalancer:
           server:
             port: "9999"
   enable: "true"
 ```
 
-对应业务 struct：
-
-```go
-type Cfg struct {
-    Traefik struct {
-        Enable string `json:"enable"`
-        HTTP   struct {
-            Services map[string]struct {
-                LoadBalancer struct {
-                    Server struct {
-                        Port string `json:"port"`
-                    } `json:"server"`
-                } `json:"loadbalancer"`
-            } `json:"services"`
-        } `json:"http"`
-    } `json:"traefik"`
-}
-```
-
-### Option 速查
+常用选项：
 
 | 字段 | 含义 | 默认值 |
 |---|---|---|
-| `Prefix` | 仅展开以此为前缀的 key（例如 `"traefik."`） | `""`（不过滤） |
-| `StripPrefix` | 展开前去掉前缀 | `false` |
-| `Separator` | 单分隔符；拆分 key 的字符 | `"."` |
-| `Separators` | 多分隔符（按顺序逐级切分），优先于 `Separator`。`{"/", "."}` 让 K8s 推荐标签 `app.kubernetes.io/name` 拆成 `["app","kubernetes","io","name"]` | `nil` |
-| `Coerce` | 把 `"true"`/`"42"`/`"3.14"` 转成 bool/int64/float64 | `false`（保留字符串，匹配 Traefik 语义） |
-| `KeepSource` | 是否保留 `at` 处的原始 list | `false`（默认删除） |
-| `MergeMode` | 与 `to` 处已有子树的合并策略 | `ExpandReplace` |
+| `Prefix` | 只处理某个前缀 | `""` |
+| `StripPrefix` | 展开前移除前缀 | `false` |
+| `Separator` | 单分隔符 | `"."` |
+| `Separators` | 多分隔符，优先于 `Separator` | `nil` |
+| `Coerce` | 把 `"true"` / `"42"` / `"3.14"` 转成 typed value | `false` |
+| `KeepSource` | 是否保留原始 list / map | `false` |
+| `MergeMode` | 展开树与已有子树的合并策略 | `ExpandReplace` |
 
-### `MergeMode` 三种语义
+`MergeMode`：
 
-- **`ExpandReplace`**（默认）：用 label 展开的子树**覆盖** `to` 位置；
-- **`ExpandOverlay`**：label 值 **赢过**已有同名 key（适合 "label 写最新值"）；
-- **`ExpandUnderlay`**：已有同名 key **赢过** label（适合 "label 只补默认值"）。
-
-```go
-fastconf.WithTransformers(transform.ExpandLabels("deploy.labels", "traefik",
-    transform.LabelExpandOptions{
-        Prefix:      "traefik.",
-        StripPrefix: true,
-        MergeMode:   transform.ExpandOverlay, // label 写最新值
-    })),
-```
+- `ExpandReplace`：直接覆盖目标子树；
+- `ExpandOverlay`：label 值赢；
+- `ExpandUnderlay`：已有配置赢。
 
 ---
 
-## 2. K8s annotation map → 嵌套子树（Transformer）
+## 2. 外部注入的 dotted labels（Provider）
 
-```yaml
-# conf.d/base/00-svc.yaml
-metadata:
-  annotations:
-    traefik.enable: "true"
-    traefik.http.routers.api.rule: "Host(`api.example.com`)"
-    unrelated.k: "ignored"
-```
+如果 label 来自配置文件之外，但你明确把它们当应用配置使用，优先用正式入口
+`NewDottedLabels` / `NewDottedLabelMap`：
 
 ```go
-fastconf.WithTransformers(transform.ExpandLabels("metadata.annotations", "",
-    transform.LabelExpandOptions{
-        Prefix:      "traefik.",
-        StripPrefix: true,
-    })),
-```
-
-只展开以 `traefik.` 开头的 annotation；`unrelated.k` 被跳过。
-
----
-
-## 3. 外部注入：Docker engine / K8s controller / CLI（Provider）
-
-如果 label 来自配置文件**之外**（例如代码中从 Docker engine API 拉到 container labels，或从 K8s informer 拿到 service annotations），用 `provider.NewLabels` / `provider.NewLabelMap` 把它当作一个 provider 注入：
-
-```go
-// 从 docker engine 拿到的 []string
-dockerLabels := []string{
-    "traefik.http.services.api.loadbalancer.server.port=8080",
-    "traefik.enable=true",
+labels := []string{
+    "server.addr=:9090",
+    "feature.rollout=canary",
 }
 
-cfg, _ := fastconf.New[Cfg](ctx,
+mgr, _ := fastconf.New[Cfg](ctx,
     fastconf.WithDir("conf.d"),
-    fastconf.WithProvider(provider.NewLabels(dockerLabels, provider.LabelOptions{
-        Prefix:      "traefik.",
+    fastconf.WithProvider(provider.NewDottedLabels(labels, provider.DottedLabelOptions{})),
+)
+```
+
+```go
+annotations := map[string]string{
+    "config.server.addr": ":9090",
+}
+
+mgr, _ := fastconf.New[Cfg](ctx,
+    fastconf.WithProvider(provider.NewDottedLabelMap(annotations, provider.DottedLabelOptions{
+        Prefix:      "config.",
         StripPrefix: true,
     })),
 )
 ```
 
-```go
-// 从 K8s informer 拿到的 map[string]string
-annotations := svc.Annotations
-cfg, _ := fastconf.New[Cfg](ctx,
-    fastconf.WithDir("conf.d"),
-    fastconf.WithProvider(provider.NewLabelMap(annotations, provider.LabelOptions{
-        Prefix:      "fastconf.io/",
-        StripPrefix: true,
-        Separator:   "/",
-    })),
-)
-```
-
-Provider 默认优先级是 `PriorityK8s`（40），位于 remote KV 之上、process env 之下——匹配最常见的 "K8s controller 推送 labels/annotations" 用例。Traefik / Docker engine 场景若需要覆盖 env，显式传 `Priority: PriorityCLI`。
-
-### K8s 推荐标签（多分隔符）
-
-K8s 推荐标签形如 `app.kubernetes.io/name`——前缀 `/` 名字、前缀内部 `.`。用 `Separators` 一次性拆成连贯路径：
+当你只是需要一个低层 primitive，或者调用方自己已经决定了 separator / priority
+策略时，仍可直接用 `NewLabels` / `NewLabelMap`。它们现在默认落在中性的
+`PriorityStatic`，不会再隐式带入 K8s controller 假设：
 
 ```go
-fastconf.WithProvider(provider.NewLabelMap(svc.Labels, provider.LabelOptions{
-    Separators: []string{"/", "."}, // 先 / 后 .
+fastconf.WithProvider(provider.NewLabelMap(labels, provider.LabelOptions{
+    Priority: contracts.PriorityK8s, // 只有调用方明确需要时才提升
 }))
-// app.kubernetes.io/name="web" → app.kubernetes.io.name = "web"
-// app.kubernetes.io/component   → app.kubernetes.io.component
 ```
 
-或直接用 `providers/k8s.NewDefault()` 读 Downward API 文件，预设了多分隔符 + 分桶挂载：
+---
+
+## 3. 路由 DSL labels
+
+如果这批 label 不是普通 dotted KV，而是一个**路由 DSL**，使用正式入口
+`NewRoutingLabels` / `NewRoutingLabelMap`。它在 dotted 展开之外还会处理：
+
+- `"true"` / `"8080"` / `"1.5"` 这类 typed scalar；
+- `web,websecure` 这类逗号 list；
+- `domains[0].main` 这类 indexed sibling；
+- 可选的整组 gate，例如 `routing.enable=false` 时跳过整组 labels。
+
+```go
+labels := []string{
+    "routing.enable=true",
+    "routing.http.services.api.loadbalancer.server.port=8080",
+    "routing.http.routers.api.entrypoints=web,websecure",
+    "routing.http.routers.api.tls.domains[0].main=example.com",
+    "routing.http.routers.api.tls.domains[0].sans=www.example.com,api.example.com",
+}
+
+mgr, _ := fastconf.New[Cfg](ctx,
+    fastconf.WithProvider(provider.NewRoutingLabels(labels, provider.RoutingLabelOptions{
+        EnableGate: "routing.enable",
+    })),
+)
+```
+
+常用选项：
+
+| 字段 | 含义 | 默认值 |
+|---|---|---|
+| `Prefix` / `StripPrefix` | 只消费某个 prefix，必要时展开前移除 | `""` / `false` |
+| `EnableGate` | label 存在且值不是 truthy 时跳过整组 | `""`（关闭） |
+| `ListSeparator` / `NoListSplit` | list 分隔符及 opt-out | `","` / `false` |
+| `KeepRawSuffixes` | 哪些 key suffix 即使含分隔符也保持 raw string | `[".rule", "regexp"]` |
+| `Raw` | 全部 value 保持 string，不做 scalar/list 处理 | `false` |
+| `LowercaseKeys` | 展开前把完整 key lower-case | `false` |
+
+`Raw` 和 `NoListSplit` 是两个不同的逃生门：前者完全保留 value，后者只关闭
+list 拆分，仍保留 scalar coercion。`KeepRawSuffixes` 用于保护表达式型字段，避免
+表达式里的逗号被误判成 list。
+
+---
+
+## 4. K8s metadata：默认 raw + namespaced
+
+K8s labels / annotations 首先是 metadata，不应默认被 reshape 成应用配置。
+推荐入口：
 
 ```go
 import k8s "github.com/fastabc/fastconf/providers/k8s"
 
-fastconf.WithProvider(k8s.NewDefault()) // 读 /etc/podinfo/{labels,annotations}
+mgr, _ := fastconf.New[Cfg](ctx,
+    fastconf.WithProvider(k8s.NewDefault()),
+    fastconf.WithWatch(true),
+)
+```
+
+默认结果保留原始 key：
+
+```go
+// k8s.metadata.labels["app.kubernetes.io/name"] == "web"
+// k8s.metadata.annotations["example.com/rollout"] == "canary"
+```
+
+如果业务**明确**要把 metadata key 当配置路径使用，再 opt in：
+
+```go
+fastconf.WithProvider(k8s.New(k8s.Options{
+    LabelsPath:      "/etc/podinfo/labels",
+    AnnotationsPath: "/etc/podinfo/annotations",
+    At:              "k8s.metadata",
+    LabelsMode:      k8s.MetadataExpanded,
+    AnnotationsMode: k8s.MetadataExpanded,
+    Separators:      []string{"/", "."},
+}))
+```
+
+旧的 expanded-root 形状也仍可显式获得：
+
+```go
+fastconf.WithProvider(k8s.NewExpandedDefault())
 ```
 
 ---
 
-## 4. 直接用 `mappath.ExpandLabels`（脱框架使用）
+## 5. 直接用 `mappath.ExpandLabels`
 
 ```go
-import "github.com/fastabc/fastconf/pkg/mappath"
-
 tree := mappath.ExpandLabels(
     []string{"a.b.c=1", "a.b.d=2"},
     mappath.LabelOptions{},
@@ -191,14 +208,22 @@ tree := mappath.ExpandLabels(
 // tree = {"a": {"b": {"c": "1", "d": "2"}}}
 ```
 
-`ExpandLabels` 也接收 `[]any`、`map[string]string`、`map[string]any` 四种输入，方便从任意 YAML/JSON 解码结果直接喂入。
+`ExpandLabels` 接受：
+
+- `[]string`
+- `[]any`
+- `map[string]string`
+- `map[string]any`
 
 ---
 
-## 5. 常见陷阱
+## 6. 常见陷阱
 
-- **value 中含 `=`**：只在**第一个** `=` 处切分；`key=Host(\`a\`)&&Path(\`/x\`)` 不会丢；
-- **缺 `=`**：整条静默丢弃，不会致 reload 失败；
-- **空 key**（前缀剥离后变空）：静默丢弃；
-- **Coerce + 字符串数字**：`Coerce: true` 时 `"9999"` 变 `int64(9999)`，下游 struct 字段需要相应类型——若希望 port 字段为 string，关闭 Coerce；
-- **list-of-map 不可展开**：`labels` 必须是 `[]string` 或 `map[string]string` 形态；不接受 `[{key: ..., value: ...}]` 这种 K8s 风格 list-of-object（如需可先用 `WithTransformers` 自定义先转一道）。
+- value 中含 `=`：只在**第一个** `=` 处切分；
+- 缺 `=`：整条静默丢弃；
+- 空 key：静默丢弃；
+- `Coerce: true` 会把字符串数字变成 typed value；
+- `labels` 必须是 `[]string` 或 map 形态，不接受 `[{key: ..., value: ...}]`；
+- `RoutingLabels` 会默认拆分逗号 list；表达式字段若不在 raw suffix 保护范围内，
+  请显式配置 `KeepRawSuffixes` 或 `NoListSplit`；
+- K8s metadata 若要保真，请保持默认 raw 模式；不要为了“看起来整齐”先把 selector key 展开掉。

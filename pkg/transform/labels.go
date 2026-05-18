@@ -10,7 +10,7 @@ import (
 // mappath.LabelOptions so callers do not need to import two packages.
 type LabelExpandOptions struct {
 	// Prefix, when non-empty, restricts expansion to labels whose key starts
-	// with this prefix (e.g. "traefik.").
+	// with this prefix (e.g. "routing.").
 	Prefix string
 	// StripPrefix removes Prefix from each key before expansion.
 	StripPrefix bool
@@ -21,8 +21,7 @@ type LabelExpandOptions struct {
 	// K8s recommended labels). Takes precedence over Separator.
 	Separators []string
 	// Coerce, when true, converts "true"/"false"/int/float strings into typed
-	// values. Default false: values are kept verbatim (matches Traefik /
-	// Compose label semantics).
+	// values. Default false: values are kept verbatim.
 	Coerce bool
 	// KeepSource, when true, leaves the original source list at At untouched.
 	// Default false: the source list is removed after expansion so the
@@ -50,10 +49,10 @@ const (
 	ExpandUnderlay
 )
 
-// ExpandLabels returns a Transformer that reshapes a Traefik / Docker /
-// K8s style label list found at the dotted-path `at` into a nested
-// subtree grafted at the dotted-path `to`. When `to` is empty the
-// expanded tree is grafted at the configuration root.
+// ExpandLabels returns a Transformer that reshapes a dotted label list found
+// at the dotted-path `at` into a nested subtree grafted at the dotted-path
+// `to`. When `to` is empty the expanded tree is grafted at the configuration
+// root.
 //
 // Accepted input shapes at `at`:
 //
@@ -66,13 +65,13 @@ const (
 //	# input.yaml
 //	deploy:
 //	  labels:
-//	    - "traefik.http.services.dummy.loadbalancer.server.port=9999"
-//	    - "traefik.enable=true"
+//	    - "routing.http.services.dummy.loadbalancer.server.port=9999"
+//	    - "routing.enable=true"
 //
 //	transform.ExpandLabels("deploy.labels", "", transform.LabelExpandOptions{})
 //
 //	// Result (deploy.labels removed by default; KeepSource=true to keep it):
-//	traefik:
+//	routing:
 //	  http:
 //	    services:
 //	      dummy:
@@ -82,8 +81,8 @@ const (
 //	    enable: "true"
 //
 // Malformed entries (no '=' separator, empty key after prefix trim) are
-// silently dropped, matching Traefik's lenient behavior. A missing source
-// path is also silently ignored (the transformer is a no-op).
+// silently dropped. A missing source path is also silently ignored (the
+// transformer is a no-op).
 func ExpandLabels(at, to string, opts LabelExpandOptions) Transformer {
 	name := fmt.Sprintf("ExpandLabels(at=%s,to=%s)", at, to)
 	return TransformerFunc{

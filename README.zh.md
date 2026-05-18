@@ -79,16 +79,11 @@ type AppConfig struct {
 }
 
 func main() {
-    labels := []string{
-        "server.addr=:9090",
-    }
-
     mgr, err := fastconf.New[AppConfig](context.Background(),
         fastconf.WithDir("conf.d"),
         fastconf.WithProfileEnv("APP_PROFILE"),
         fastconf.WithDefaultProfile("dev"),
         fastconf.WithProvider(provider.NewEnv("APP_")),
-        fastconf.WithProvider(provider.NewLabels(labels, provider.LabelOptions{})),
         fastconf.WithWatch(true),
     )
     if err != nil {
@@ -480,9 +475,10 @@ fastconf.New[Cfg](ctx,
     fastconf.WithProvider(provider.NewEnv("APP_")),                              // APP_DATABASE_DSN → database.dsn（默认 DotReplacer）
     fastconf.WithProvider(provider.NewEnv("APP_").WithReplacer(provider.DoubleUnderscoreReplacer)), // 保留单 "_"，仅在 "__" 分级
     fastconf.WithProvider(provider.NewEnv("APP_").At("config.runtime")),         // 把 env 子树挂到指定路径
-    fastconf.WithProvider(provider.NewCLI(cliMap)),                              // 解析过的 CLI 标志
-    fastconf.WithProvider(provider.NewDotEnv("APP_", ".env")),                   // 显式 .env 路径
-    fastconf.WithProvider(provider.NewLabels(labels, provider.LabelOptions{})),  // dotted labels（默认 PriorityK8s）
+    fastconf.WithProvider(provider.NewCLIChanged(cliMap)),                       // 仅显式传入的 CLI override
+    fastconf.WithProvider(provider.NewDotEnv("APP_", ".env")),                   // 显式 .env fallback 路径
+    fastconf.WithProvider(provider.NewDottedLabels(labels, provider.DottedLabelOptions{})), // 显式 dotted config labels
+    fastconf.WithProvider(provider.NewRoutingLabels(labels, provider.RoutingLabelOptions{})), // routing DSL labels（typed/list/index 语义）
     fastconf.WithTransformers(transform.ExpandLabels(at, to, opts)),
 )
 ```
@@ -685,11 +681,13 @@ mgr, err := fastconf.New[AppConfig](ctx,
 | Provider | 构造 | 说明 |
 |---|---|---|
 | Env         | `provider.NewEnv("APP_")` | 默认 `DotReplacer`：`APP_FOO_BAR` → `foo.bar`（单 `_`，Viper / Spring 风格）；值保持字符串，typed decoder 转换。链式 `.WithReplacer(DoubleUnderscoreReplacer)`、`.At("path")`、`.WithCoerce(true)` |
-| CLI         | `provider.NewCLI(map[string]any)` | 命令行 flag 解析后的 map |
-| DotEnv      | `provider.NewDotEnv("APP_", paths...)` | 显式 `.env` 文件路径；与 `NewEnv` 同样支持 replacer / `At` / `WithCoerce` |
-| Labels      | `provider.NewLabels(labels, provider.LabelOptions{})` | 点分式 `key=value` 字符串列表，默认 `PriorityK8s`；K8s 推荐标签传 `Separators: []string{"/", "."}` |
-| LabelMap    | `provider.NewLabelMap(labels, provider.LabelOptions{})` | K8s annotation 风格 `map[string]string` |
-| K8s Downward| `k8s.NewDefault()`（`providers/k8s`） | 读取 `/etc/podinfo/{labels,annotations}`，内置多分隔符切分与 `labels.*` / `annotations.*` 分桶挂载 |
+| CLI         | `provider.NewCLIChanged(map[string]any)` | 仅包含用户显式设置的 flag map；不要把 parser 默认值塞进来，否则会无意覆盖文件/env |
+| DotEnv      | `provider.NewDotEnv("APP_", paths...)` | 显式 `.env` fallback 路径；实际进程 env 即使被设成 `""` 也优先。与 `NewEnv` 同样支持 replacer / `At` / `WithCoerce` |
+| Labels      | `provider.NewLabels(labels, provider.LabelOptions{})` | 低层 flat-label primitive；默认 `PriorityStatic`，需要更高优先级时由调用方显式指定 |
+| DottedLabels| `provider.NewDottedLabels(labels, provider.DottedLabelOptions{})` | 显式 dotted-config labels；当 key path 本身就是全部 DSL 时使用 |
+| RoutingLabels| `provider.NewRoutingLabels(labels, provider.RoutingLabelOptions{})` | routing DSL labels：支持 typed scalar、逗号 list、`[N]` index、可选 enable gate。若输入是 Traefik-style，再显式配置对应的 `Prefix` / `EnableGate` / `LowercaseKeys` |
+| LabelMap    | `provider.NewLabelMap(labels, provider.LabelOptions{})` | 低层 primitive 的 `map[string]string` 变体 |
+| K8s Downward| `k8s.NewDefault()`（`providers/k8s`） | 读取 `/etc/podinfo/{labels,annotations}`，默认 raw metadata 并挂到 `k8s.metadata.*`；启用 `WithWatch(true)` 时 mounted files 会自动接入统一 fs watcher。只有确实要配置式展开时才用 `NewExpandedDefault()` / `MetadataExpanded` |
 
 ### 内置 KV Provider（`providers/{vault,consul,http}`，主模块内）
 
@@ -801,7 +799,7 @@ provider 实现了 `contracts.Resumable.WatchFrom`，断线重连后不丢事件
 | `pkg/provider.File` | 主模块 | load-only | — | 按扩展名推断 | 文件系统 | 无 |
 | `pkg/provider.Bytes` | 主模块 | load-only | — | 显式 | 无（in-memory） | 无 |
 | `pkg/provider.DotEnv` | 主模块 | load-only | — | 无 | 文件系统 | 无 |
-| `pkg/provider.Labels` / `LabelMap` | 主模块 | load-only | — | 无 | 无（in-memory） | 无 |
+| `pkg/provider.Labels` / `LabelMap` / `DottedLabels` / `RoutingLabels` | 主模块 | load-only | — | 无 | 无（in-memory） | 无 |
 | `providers/http` | 主模块 | ETag + body-hash 轮询 | — | 必填 | 静态 header（Bearer 等） | `no_provider_http` |
 | `providers/consul` | 主模块 | blocking query（X-Consul-Index） | — | 可选（Mode KV/Blob） | ACL Token | `no_provider_consul` |
 | `providers/vault` | 主模块 | metadata 版本轮询 | — | （JSON，内建） | 静态 Token / `WithAuth` | `no_provider_vault` |

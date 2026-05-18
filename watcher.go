@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/internal/coalesce"
 	"github.com/fastabc/fastconf/internal/watcher"
 )
@@ -92,6 +93,15 @@ func collectWatchPaths(o options) []string {
 	add(filepath.Join(o.dir, "overlays"))
 	for _, p := range o.watchPaths {
 		add(p)
+	}
+	for _, p := range o.providers {
+		wp, ok := p.(contracts.WatchPathProvider)
+		if !ok {
+			continue
+		}
+		for _, path := range wp.WatchPaths() {
+			add(path)
+		}
 	}
 	return out
 }

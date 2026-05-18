@@ -62,6 +62,21 @@ fastconf.WithProvider(provider.NewEnv("APP_").At("config.runtime"))
 
 `At` is available on both `EnvProvider` and `DotEnvProvider`.
 
+## `.env` is a fallback layer
+
+`DotEnvProvider` is intentionally lower priority than process env. Presence
+wins, not non-emptiness: if the deployment environment explicitly sets
+`APP_PORT=""`, FastConf keeps that empty override and does **not** refill it
+from `.env`.
+
+```go
+fastconf.WithProvider(provider.NewDotEnv("APP_", ".env"))
+// APP_PORT="" in the real process env suppresses APP_PORT=8080 from .env
+```
+
+That keeps `.env` aligned with the usual "local fallback" role while process
+env remains the deploy-time override surface.
+
 ## Coercion (off by default)
 
 Values are kept verbatim as strings; the typed-decode chain (`pkg/decoder.StringPrimitiveHook` in `DefaultTypedHooks`) converts them to the destination field type at `*T` decode time. If you consume the merged map directly (without the typed-decode hook chain) and want eager bool/int/float coercion at Load time, opt in:

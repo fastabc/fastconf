@@ -105,14 +105,14 @@ func defaultOptions() options {
 		dir: DefaultDir,
 		// profileEnv default lives in effectiveProfile so _meta.yaml can
 		// override it when WithProfileEnv is not used.
-		profileEnv:    "",
-		defaultProf:   "",
-		strict:   false,
-		logger:   base,
-		log:      flog.New(base),
-		coalesce: coalesce.ProfileK8s.Apply(),
-		metrics:  newMetricsBridge(noopMetrics{}),
-		tracer:   noopTracer{},
+		profileEnv:  "",
+		defaultProf: "",
+		strict:      false,
+		logger:      base,
+		log:         flog.New(base),
+		coalesce:    coalesce.ProfileK8s.Apply(),
+		metrics:     newMetricsBridge(noopMetrics{}),
+		tracer:      noopTracer{},
 	}
 }
 
@@ -465,6 +465,16 @@ type priorityOverride struct {
 
 func (p *priorityOverride) Priority() int { return p.priority }
 
+// WatchPaths preserves the optional WatchPathProvider extension when a
+// provider is wrapped by WithProviderOrdered. Providers without watch paths
+// simply yield nil.
+func (p *priorityOverride) WatchPaths() []string {
+	if wp, ok := p.Provider.(contracts.WatchPathProvider); ok {
+		return wp.WatchPaths()
+	}
+	return nil
+}
+
 // priorityOverrideResumable preserves Resumable.WatchFrom when wrapping
 // a provider whose dynamic type also implements contracts.Resumable.
 type priorityOverrideResumable struct {
@@ -474,6 +484,15 @@ type priorityOverrideResumable struct {
 }
 
 func (p *priorityOverrideResumable) Priority() int { return p.priority }
+
+// WatchPaths preserves the optional WatchPathProvider extension when a
+// resumable provider is wrapped by WithProviderOrdered.
+func (p *priorityOverrideResumable) WatchPaths() []string {
+	if wp, ok := p.Provider.(contracts.WatchPathProvider); ok {
+		return wp.WatchPaths()
+	}
+	return nil
+}
 
 // wrapWithPriority returns the smallest wrapper type that preserves
 // every interface p satisfies (Provider always, Resumable when present).
