@@ -1,4 +1,4 @@
-.PHONY: all build test test-all race lint tidy bench cover example graph \
+.PHONY: all build test test-all race lint tidy bench cover example graph versions \
         dist dist-clean dist-verify dist-fastconfd dist-fastconfctl dist-fastconfgen
 
 # ---------------------------------------------------------------------------
@@ -51,6 +51,7 @@ test:
 test-all: test
 	cd cmd/fastconfctl       && go test -race -count=1 ./...
 	cd cmd/fastconfgen       && go test -race -count=1 ./...
+	cd integrations/cli/pflag && go test -race -count=1 ./...
 	cd observability/metrics/prometheus && go test -race -count=1 ./...
 	cd observability/otel              && go test -race -count=1 ./...
 	cd policy/cue            && go test -race -count=1 ./...
@@ -79,6 +80,12 @@ example:
 
 graph:
 	bash tools/code-review-graph.sh
+
+# List released root-module versions (filters out sub-module path-prefixed tags
+# like policy/cue/v0.16.0; those are required by Go's module system but add
+# noise to `git tag -l`). Newest first.
+versions:
+	@git tag -l 'v[0-9]*' --sort=-v:refname
 
 # ---------------------------------------------------------------------------
 # Cross-compile dist pipeline (v0.9.0 SPEC-95)

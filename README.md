@@ -21,25 +21,26 @@ via `atomic.Pointer`; the hot read path is one `atomic.Pointer.Load()`.
 
 1. [Quick start](#quick-start)
 2. [Why FastConf](#why-fastconf)
-3. [Installation](#installation)
-4. [Core model](#core-model)
-5. [Manager API](#manager-api)
-6. [Options reference](#options-reference)
-7. [Reload pipeline](#reload-pipeline)
-8. [Profiles & overlays](#profiles--overlays)
-9. [Provider system](#provider-system)
-10. [Codec & bridge](#codec--bridge)
-11. [Transformers & migration](#transformers--migration)
-12. [Watch, Subscribe, and Plan](#watch-subscribe-and-plan)
-13. [Provenance, history & rollback](#provenance-history--rollback)
-14. [Observability](#observability)
-15. [Multi-tenant & presets](#multi-tenant--presets)
-16. [Sub-module ecosystem](#sub-module-ecosystem)
-17. [Extension guide](#extension-guide)
-18. [CLI tools](#cli-tools)
-19. [Performance](#performance)
-20. [Development](#development)
-21. [License](#license)
+3. [Coming from another config library](#coming-from-another-config-library)
+4. [Installation](#installation)
+5. [Core model](#core-model)
+6. [Manager API](#manager-api)
+7. [Options reference](#options-reference)
+8. [Reload pipeline](#reload-pipeline)
+9. [Profiles & overlays](#profiles--overlays)
+10. [Provider system](#provider-system)
+11. [Codec & bridge](#codec--bridge)
+12. [Transformers & migration](#transformers--migration)
+13. [Watch, Subscribe, and Plan](#watch-subscribe-and-plan)
+14. [Provenance, history & rollback](#provenance-history--rollback)
+15. [Observability](#observability)
+16. [Multi-tenant & presets](#multi-tenant--presets)
+17. [Sub-module ecosystem](#sub-module-ecosystem)
+18. [Extension guide](#extension-guide)
+19. [CLI tools](#cli-tools)
+20. [Performance](#performance)
+21. [Development](#development)
+22. [License](#license)
 
 ---
 
@@ -158,6 +159,73 @@ region / zone / host axis overlays see `PresetHierarchical` and
 
 ---
 
+## Coming from another config library
+
+Quick translation table for the most common idioms.
+
+| Your library | Their idiom | FastConf equivalent | Caveat |
+|---|---|---|---|
+| **spf13/viper** | `viper.BindPFlag(...)` | `provider.NewCLIChanged(cliadapter_pflag.FromChanged(cmd.Flags()))` | `BindPFlag` leaks pflag **defaults** into config; FastConf only forwards flags whose `Changed` bit is set. |
+| **spf13/viper** | precedence (override > flag > env > config > kv > default) | `Priority*` constants: `PriorityDotEnv=5` → `PriorityCLI=60`, 7 explicit bands | DotEnv and K8s are first-class bands; precedence is set per-provider, not globally. |
+| **knadh/koanf** | `k.Load(provider, parser)` — last load wins | `mgr.Add(provider)` + each provider's `Priority()` | Load order is **irrelevant**; priority alone decides. Reorder freely. |
+| **knadh/koanf** | `koanf.WithMergeFunc(...)` | `pkg/merger` strategy + `policy/*` sub-modules | Strategy-driven merge (RFC 6902, mergeKeys, etc.), configured via options. |
+| **kelseyhightower/envconfig** | `envconfig.Process("APP", &cfg)` | `provider.NewEnv("APP_")` | Prefix-based provider, not struct-tag scanner. CamelCase auto-split (`split_words`) is **not** supported — write the dotted key. |
+| **kelseyhightower/envconfig** | `default:"foo"` tag | `merger.Defaults` layer (or struct zero value) | Defaults live in a dedicated layer, not in tags. |
+| **kelseyhightower/envconfig** | `required:"true"` tag | `pkg/validate.Required(...)` | Validation is its own pipeline stage; runs after merge. |
+| **caarlos0/env** | `envExpand` (`${VAR}` interpolation) | `transform.EnvSubst()` (process env) or `transform.EnvSubstWith(lookup func(string) string)` (custom) | Explicit transformer; supply a lookup closure to consult dotenv before `os.Getenv`. |
+| **joho/godotenv** | `godotenv.Load(".env")` | `provider.NewDotEnv("APP_", ".env")` at `PriorityDotEnv=5` | **No `os.Setenv` mutation** — `.env` is a layer, not a side effect. Process env still overrides (presence-based, so `APP_PORT=""` also suppresses). |
+| **joho/godotenv** | `godotenv.Overload(".env")` (force override) | `provider.NewDotEnv(...).WithPriority(contracts.PriorityCLI)` | Priority knob replaces the dual API. |
+| **spf13/cobra + pflag** | `cmd.Flags()` | `cliadapter_pflag.FromChanged(cmd.Flags())` → `provider.NewCLIChanged(...)` | Sub-module `github.com/fastabc/fastconf/integrations/cli/pflag` — keeps pflag out of the root module's dependency closure. |
+| **stdlib `flag`** | `flag.FlagSet` | `cliadapter.FromStdFlag(fs)` → `provider.NewCLIChanged(...)` | Zero-dep; lives in `pkg/cliadapter`. |
+| **alecthomas/kong** / **urfave/cli** | typed flag struct / `cli.Context` | use `cliadapter.From(visit)` with a one-line visit closure | Pattern: walk only `Changed` / `IsSet` flags and call `yield(name, value)`. |
+
+### Side-by-side: flag binding without the default-leak footgun
+
+The single most common Viper bug is `BindPFlag` happily forwarding the
+flag's **default** value into config even when the user never typed the
+flag — silently overriding values you set in YAML or env. FastConf splits
+the two concerns:
+
+```go
+// Viper (footgun-prone):
+//   pflag default ("8080") wins over server.port: 9090 in app.yaml
+viper.BindPFlag("server.port", cmd.Flags().Lookup("server.port"))
+
+// FastConf (changed-only by construction):
+//   only set if --server.port was explicitly typed
+import cliflag "github.com/fastabc/fastconf/integrations/cli/pflag"
+
+mgr, _ := fastconf.New[Cfg](ctx,
+    fastconf.WithDir("conf.d"),
+    fastconf.WithProvider(provider.NewCLIChanged(cliflag.FromChanged(cmd.Flags()))),
+)
+```
+
+### Side-by-side: env binding without struct-tag scanning
+
+```go
+// envconfig (struct-tag scanner, one-shot):
+type Cfg struct {
+    DSN  string `envconfig:"DATABASE_DSN" required:"true" default:"sqlite:///tmp/db"`
+    Port int    `envconfig:"SERVER_PORT"  default:"8080"`
+}
+_ = envconfig.Process("APP", &cfg)
+
+// FastConf (provider layer + dedicated defaults & validate):
+type Cfg struct {
+    Database struct{ DSN  string } // populated by env: APP_DATABASE_DSN
+    Server   struct{ Port int }    // populated by env: APP_SERVER_PORT
+}
+
+mgr, _ := fastconf.New[Cfg](ctx,
+    fastconf.WithDefaults(Cfg{ /* zero-value or filled defaults */ }),
+    fastconf.WithProvider(provider.NewEnv("APP_")),    // _ → . relaxed binding
+    fastconf.WithValidate(validate.Required("Database.DSN")),
+)
+```
+
+---
+
 ## Installation
 
 ```bash
@@ -166,13 +234,9 @@ go get github.com/fastabc/fastconf@latest
 # Optional sub-modules:
 go get github.com/fastabc/fastconf/observability/otel@latest
 go get github.com/fastabc/fastconf/observability/metrics/prometheus@latest
-go get github.com/fastabc/fastconf/policy/cue@latest
+go get github.com/fastabc/fastconf/cue@latest           # CUE validation + policy
 go get github.com/fastabc/fastconf/policy/opa@latest
 go get github.com/fastabc/fastconf/providers/s3@latest
-go get github.com/fastabc/fastconf/providers/s3events@latest
-go get github.com/fastabc/fastconf/providers/nats@latest
-go get github.com/fastabc/fastconf/providers/redisstream@latest
-go get github.com/fastabc/fastconf/validate/cue/cuelang@latest
 go get github.com/fastabc/fastconf/validate/playground@latest
 ```
 
@@ -252,11 +316,12 @@ pkg/                    Reusable primitives — importable by third-party author
   transform/            Defaults / SetIfAbsent / EnvSubst / DeletePaths / Aliases
   validate/             Validator + ValidatorReport
 internal/               Private helpers (debounce / obs / typeinfo / watcher)
-providers/              First-party providers (consul / http / vault in root module; nats / redisstream / s3 as sub-modules)
+providers/              First-party providers (consul / http / vault / nats / redisstream / k8s in root module; s3 + s3/s3events as sub-module)
 integrations/           bus / render / log / openfeature adapters
 observability/          metrics/prometheus + otel (independent sub-modules)
-policy/                 Policy interface; cue/opa backends as sub-modules
-validate/               cue/cuelang + playground (independent sub-modules)
+policy/                 Policy interface; opa backend as sub-module; cue backend in cue/ module
+cue/                    Unified CUE sub-module: cue/cuelang (validation) + cue/policy (policy backend)
+validate/               playground (independent sub-module)
 cmd/                    fastconfd (root module); fastconfctl / fastconfgen (sub-modules)
 ```
 
@@ -728,13 +793,13 @@ sp, _ := s3prov.New(cfg)
 `version_id`, and `priority` query parameters. Credentials are passed
 separately so secrets never appear in URLs that may be logged.
 
-For change-driven reloads, compose with `providers/s3events` (S3 →
+For change-driven reloads, compose with `providers/s3/s3events` (S3 →
 EventBridge → SQS):
 
 ```go
 import (
     s3prov   "github.com/fastabc/fastconf/providers/s3"
-    s3events "github.com/fastabc/fastconf/providers/s3events"
+    s3events "github.com/fastabc/fastconf/providers/s3/s3events"
 )
 
 loader, _ := s3prov.New(s3prov.Config{ /* ... */ })
@@ -782,10 +847,10 @@ events. "Codec" indicates whether the provider needs you to choose one.
 | `providers/http` | root | ETag + body-hash poll | — | required | static headers (Bearer, …) | `no_provider_http` |
 | `providers/consul` | root | blocking query (X-Consul-Index) | — | optional (Mode KV/Blob) | ACL token | `no_provider_consul` |
 | `providers/vault` | root | metadata-version poll | — | (JSON, built-in) | static token / `WithAuth` | `no_provider_vault` |
-| `providers/nats` | sub-module | JetStream subscribe | yes | required | inject `nats.Conn` adapter | (sub-module) |
-| `providers/redisstream` | sub-module | `XREAD BLOCK` | yes | required | inject `redis.Client` adapter | (sub-module) |
+| `providers/nats` | root | JetStream subscribe | yes | required | inject `nats.Conn` adapter | — |
+| `providers/redisstream` | root | `XREAD BLOCK` | yes | required | inject `redis.Client` adapter | — |
 | `providers/s3` | sub-module | load + ETag short-circuit | — | inferred from key ext or explicit | static AWS creds | `no_provider_s3` |
-| `providers/s3events` | sub-module | SQS long-poll (EventBridge) | — | n/a (watch-only) | static AWS creds | `no_provider_s3events` |
+| `providers/s3/s3events` | root module pkg | SQS long-poll (EventBridge) | — | n/a (watch-only) | static AWS creds | `no_provider_s3events` |
 
 Notes:
 
@@ -1218,7 +1283,7 @@ mgr, _ := fastconf.New[AppConfig](ctx,
 )
 ```
 
-CUE and OPA implementations live in `policy/cue` and `policy/opa`.
+CUE and OPA implementations live in `cue/policy` and `policy/opa`.
 
 | Severity | Plan behaviour | Reload behaviour |
 |---|---|---|
@@ -1302,16 +1367,16 @@ fastconf.PresetHierarchical(fastconf.HierarchicalOpts{ /* ... */ })
 | validate/playground | `validate/playground` | `validate/playground/vX.Y.Z` | go-playground/validator |
 | prometheus | `observability/metrics/prometheus` | `observability/metrics/prometheus/vX.Y.Z` | prometheus/client_golang |
 | otel | `observability/otel` | `observability/otel/vX.Y.Z` | OpenTelemetry SDK |
-| cue-policy | `policy/cue` | `policy/cue/vX.Y.Z` | cuelang.org/go |
+| cue (unified) | `cue` | `cue/vX.Y.Z` | cuelang.org/go (CUE validation + policy) |
 | opa-policy | `policy/opa` | `policy/opa/vX.Y.Z` | open-policy-agent/opa |
-| cue-validate | `validate/cue/cuelang` | `validate/cue/cuelang/vX.Y.Z` | cuelang.org/go |
 | log/phuslu | `integrations/log/phuslu` | `integrations/log/phuslu/vX.Y.Z` | phuslu/log |
 | log/zerolog | `integrations/log/zerolog` | `integrations/log/zerolog/vX.Y.Z` | rs/zerolog |
-| nats provider | `providers/nats` | `providers/nats/vX.Y.Z` | root module only (caller injects `nats.Conn`) |
-| redis-streams provider | `providers/redisstream` | `providers/redisstream/vX.Y.Z` | root module only (caller injects redis client) |
+| cli/pflag | `integrations/cli/pflag` | `integrations/cli/pflag/vX.Y.Z` | spf13/pflag |
+| nats provider | `providers/nats` | root-versioned (`vX.Y.Z`) | root module only (caller injects `nats.Conn`) |
+| redis-streams provider | `providers/redisstream` | root-versioned (`vX.Y.Z`) | root module only (caller injects redis client) |
+| openfeature | `integrations/openfeature` | root-versioned (`vX.Y.Z`) | root module only |
 | s3 provider | `providers/s3` | `providers/s3/vX.Y.Z` | AWS SDK v2 (load + ETag short-circuit, `FromURL` helper) |
-| s3events provider | `providers/s3events` | `providers/s3events/vX.Y.Z` | AWS SDK v2 SQS (EventBridge S3 → SQS watch sibling) |
-| openfeature | `integrations/openfeature` | `integrations/openfeature/vX.Y.Z` | OpenFeature SDK |
+| s3events provider | `providers/s3/s3events` | root-versioned via `providers/s3` | AWS SDK v2 SQS (EventBridge S3 → SQS watch, subpackage of s3) |
 | cmd/fastconfctl | `cmd/fastconfctl` | `cmd/fastconfctl/vX.Y.Z` | root module only |
 | cmd/fastconfgen | `cmd/fastconfgen` | `cmd/fastconfgen/vX.Y.Z` | yaml.v3 |
 
@@ -1510,8 +1575,6 @@ Common recipes:
 
 ## License
 
-MIT License
+MIT License, See [`LICENSE`](LICENSE).
 
 Copyright (c) 2026 FastAbc
-
-See [`LICENSE`](LICENSE).

@@ -5,18 +5,23 @@ FastConf publishes Go modules from a single repository:
 | Module path | Releases independently? | Tag prefix |
 |---|:--:|---|
 | `github.com/fastabc/fastconf` | yes (root) | `vX.Y.Z` |
+| `github.com/fastabc/fastconf/cue` | yes | `cue/vX.Y.Z` |
+| `github.com/fastabc/fastconf/integrations/cli/pflag` | yes | `integrations/cli/pflag/vX.Y.Z` |
+| `github.com/fastabc/fastconf/integrations/log/phuslu` | yes | `integrations/log/phuslu/vX.Y.Z` |
+| `github.com/fastabc/fastconf/integrations/log/zerolog` | yes | `integrations/log/zerolog/vX.Y.Z` |
 | `github.com/fastabc/fastconf/observability/metrics/prometheus` | yes | `observability/metrics/prometheus/vX.Y.Z` |
 | `github.com/fastabc/fastconf/observability/otel` | yes | `observability/otel/vX.Y.Z` |
-| `github.com/fastabc/fastconf/policy/cue` | yes | `policy/cue/vX.Y.Z` |
 | `github.com/fastabc/fastconf/policy/opa` | yes | `policy/opa/vX.Y.Z` |
-| `github.com/fastabc/fastconf/validate/cue/cuelang` | yes | `validate/cue/cuelang/vX.Y.Z` |
+| `github.com/fastabc/fastconf/providers/s3` | yes | `providers/s3/vX.Y.Z` |
 | `github.com/fastabc/fastconf/validate/playground` | yes (v0.9.0+) | `validate/playground/vX.Y.Z` |
 
 Subpackages without their own `go.mod` inherit the root module's version.
 The following packages are root-versioned (no independent `go.mod`):
 `cmd/fastconfctl`, `cmd/fastconfgen`, `cmd/fastconfd`,
-`integrations/bus`, `integrations/render`, `contracts`, `providers/http`,
-`providers/vault`, `providers/consul`, `pkg/*`, `policy/` (root).
+`integrations/bus`, `integrations/openfeature`, `integrations/render`,
+`contracts`, `providers/http`, `providers/nats`, `providers/redisstream`,
+`providers/vault`, `providers/consul`, `providers/k8s`,
+`providers/s3/s3events`, `pkg/*`, `policy/` (root).
 
 > **Note on legacy tags (v0.9 and earlier)**: Prior to v0.10.0 the observability
 > sub-modules lived directly under `metrics/prometheus/` and `otel/`.
@@ -47,8 +52,8 @@ The following packages are root-versioned (no independent `go.mod`):
 
 ## Tagging procedure
 
-**Preferred: use the unified script** — tags all 14 modules in one command
-(1 root + 13 sub-modules):
+**Preferred: use the unified script** — tags all 10 modules in one command
+(1 root + 9 sub-modules):
 
 ```bash
 git switch main && git pull

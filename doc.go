@@ -45,15 +45,16 @@
 // files are:
 //
 //	cmd/fastconfctl, cmd/fastconfgen
-//	integrations/log/phuslu, integrations/log/zerolog, integrations/openfeature
+//	cue (unified: cue/cuelang + cue/policy)
+//	integrations/cli/pflag, integrations/log/phuslu, integrations/log/zerolog
 //	observability/metrics/prometheus, observability/otel
-//	policy/cue, policy/opa
-//	providers/nats, providers/redisstream
-//	validate/cue/cuelang, validate/playground
+//	policy/opa
+//	providers/s3
+//	validate/playground
 //
 // Subpackages that share the root module version include: contracts,
-// integrations/{bus,render}, providers/{consul,http,vault}, pkg/*, policy/
-// (root), cmd/fastconfd, and cmd/internal/cli.
+// integrations/{bus,openfeature,render}, providers/{consul,http,nats,redisstream,vault,k8s},
+// providers/s3/s3events, pkg/*, policy/ (root), cmd/fastconfd, and cmd/internal/cli.
 //
 // # Key files
 //

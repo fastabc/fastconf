@@ -14,7 +14,7 @@ import (
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
 	"github.com/fastabc/fastconf/contracts"
-	s3events "github.com/fastabc/fastconf/providers/s3events"
+	s3events "github.com/fastabc/fastconf/providers/s3/s3events"
 )
 
 // fakeSQS is a tiny in-memory SQS double. Append a JSON envelope via

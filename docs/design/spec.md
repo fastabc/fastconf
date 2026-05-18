@@ -130,8 +130,9 @@ Any stage failure preserves the previous `*State[T]` and publishes one
 | `providers/{nats,redisstream}`          | ✅ (each) |
 | `observability/otel`                    | ✅ |
 | `observability/metrics/prometheus`      | ✅ |
-| `policy/{cue,opa}`                      | ✅ (each) |
-| `validate/playground`, `validate/cue/cuelang` | ✅ (each) |
+| `cue` (unified: cue/cuelang + cue/policy) | ✅ |
+| `policy/opa`                            | ✅ |
+| `validate/playground`                   | ✅ |
 | `cmd/{fastconfd,fastconfctl,fastconfgen}` | ✅ (each) |
 
 The root closure stays minimal: `yaml.v3 + json-patch + fsnotify`.

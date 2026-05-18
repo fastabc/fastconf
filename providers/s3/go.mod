@@ -1,8 +1,9 @@
-// Separate Go module so users that don't need S3 support can avoid
-// pulling the AWS SDK v2 dependency graph into their build. This
-// sub-module depends on the fastconf root module (for contracts +
-// pkg/decoder) and the minimal subset of AWS SDK v2 needed to fetch a
-// single object with explicit static credentials.
+// Single AWS S3 module covering both load (S3 GetObject) and
+// change-driven reloads (S3 → EventBridge → SQS). The former
+// providers/s3events sub-module is merged here to reduce module
+// maintenance overhead; both providers are still separately importable
+// as github.com/fastabc/fastconf/providers/s3 and
+// github.com/fastabc/fastconf/providers/s3/s3events.
 module github.com/fastabc/fastconf/providers/s3
 
 go 1.26.2
@@ -11,6 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.32.6
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.47
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.71.0
+	github.com/aws/aws-sdk-go-v2/service/sqs v1.37.2
 	github.com/aws/smithy-go v1.22.1
 	github.com/fastabc/fastconf v0.0.0
 )

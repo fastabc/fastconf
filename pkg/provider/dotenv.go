@@ -24,7 +24,14 @@ import (
 // APP_PORT="" still suppresses APP_PORT from the .env fallback layer.
 //
 // Priority defaults to PriorityDotEnv (5), so all other built-in providers
-// override dotenv values.
+// override dotenv values. To force dotenv values to win (equivalent to
+// joho/godotenv.Overload), bump the priority above PriorityEnv (50) — e.g.
+// .WithPriority(contracts.PriorityCLI).
+//
+// Unlike joho/godotenv, this provider does NOT call os.Setenv; .env values
+// live entirely inside the merged configuration tree. That isolation is
+// deliberate: it keeps multi-process / multi-tenant tests from leaking state
+// through the process environment.
 //
 // Supported .env syntax:
 //
@@ -32,8 +39,23 @@ import (
 //   - KEY="double quoted"  (supports \n \t \" \\ escapes)
 //   - KEY='single quoted'  (no escapes; literal content)
 //   - export KEY=VALUE   (leading "export" keyword stripped)
-//   - # comment lines
+//   - # comment lines    (must start the line)
 //   - Blank lines are ignored.
+//
+// Semantic notes that diverge from common dotenv dialects:
+//
+//   - Multi-file order. When multiple paths are passed, files are read in
+//     order and later files OVERRIDE earlier ones on the same key. This is
+//     the opposite of joho/godotenv.Load, where the first file wins.
+//   - Inline `#`. `#` is only honored at the start of a line; an unquoted
+//     value containing `#` keeps it as part of the value (e.g.
+//     KEY=value#tag yields "value#tag"). Quote the value or split the
+//     comment onto its own line if you need a trailing comment.
+//   - $VAR interpolation. This provider does NOT expand `$VAR` or `${VAR}`
+//     inside values. Use transform.EnvSubst (or EnvSubstWith for a custom
+//     lookup) as a pipeline stage if you need that — keeping interpolation
+//     out of the dotenv layer avoids the chicken-and-egg "is $VAR resolved
+//     from dotenv or process env?" ambiguity.
 type DotEnvProvider struct {
 	prefix   string
 	paths    []string

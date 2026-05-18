@@ -33,6 +33,11 @@ import (
 // Use At(path) to graft the loaded tree under a configurable root path
 // (e.g. "config.runtime") instead of polluting the root of the merged
 // configuration.
+//
+// EnvProvider does NOT expand ${VAR} or $VAR references inside values.
+// Add transform.EnvSubst (or transform.EnvSubstWith for a custom lookup)
+// as a pipeline stage if you need that behavior; this is the equivalent of
+// caarlos0/env's envExpand.
 type EnvProvider struct {
 	prefix   string
 	priority int

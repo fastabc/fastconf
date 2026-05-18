@@ -1,4 +1,7 @@
-module github.com/fastabc/fastconf/policy/cue
+// Unified CUE module: combines the former validate/cue/cuelang and
+// policy/cue sub-modules. Both use cuelang.org/go v0.10.0 and are kept
+// in the same module so the CUE version stays in sync automatically.
+module github.com/fastabc/fastconf/cue
 
 go 1.26.2
 
@@ -16,4 +19,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/fastabc/fastconf => ../..
+replace github.com/fastabc/fastconf => ..

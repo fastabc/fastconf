@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/fastabc/fastconf/policy"
-	cuepol "github.com/fastabc/fastconf/policy/cue"
+	cuepol "github.com/fastabc/fastconf/cue/policy"
 )
 
 type cfg struct {

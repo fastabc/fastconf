@@ -10,7 +10,20 @@ collapsed into a single baseline — the project is the API described in
 
 ## [Unreleased]
 
-_Nothing pending — open new sections here as work lands on `main`._
+### Breaking changes (import path migration)
+
+Three sub-module paths have changed. Update your `go.mod` and import statements:
+
+| Old import path | New import path |
+|---|---|
+| `github.com/fastabc/fastconf/policy/cue` | `github.com/fastabc/fastconf/cue/policy` |
+| `github.com/fastabc/fastconf/validate/cue/cuelang` | `github.com/fastabc/fastconf/cue/cuelang` |
+| `github.com/fastabc/fastconf/providers/s3events` | `github.com/fastabc/fastconf/providers/s3/s3events` |
+
+The `cue/` top-level module (`github.com/fastabc/fastconf/cue`) replaces the two former
+CUE sub-modules (`policy/cue` and `validate/cue/cuelang`), merging them under a single
+shared `cuelang.org/go` runtime. `providers/s3events` is now a subpackage of `providers/s3`
+(same `go get github.com/fastabc/fastconf/providers/s3@latest` install).
 
 ## [v0.15.0] — 2026-05-16
 

@@ -33,7 +33,7 @@ mgr, _ := fastconf.New[MyApp](ctx, fastconf.WithPolicy(p))
 ## CUE schema (opt-in submodule)
 
 ```go
-import cuepol "github.com/fastabc/fastconf/policy/cue"
+import cuepol "github.com/fastabc/fastconf/cue/policy"
 
 p, _ := cuepol.New[MyApp]("ports", `port: >0 & <65536`)
 mgr, _ := fastconf.New[MyApp](ctx, fastconf.WithPolicy(p))

@@ -133,10 +133,26 @@ var envPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([-?])([^}]
 // tree and substitutes occurrences of ${VAR}, ${VAR:-default}, or
 // ${VAR:?required message}. A ${VAR:?...} reference whose variable is
 // unset or empty aborts the reload with ErrTransform.
+//
+// EnvSubst is the canonical place for ${VAR} interpolation in fastconf;
+// provider/EnvProvider and provider/DotEnvProvider deliberately do not
+// expand variables inside their values. Add EnvSubst as a transformer
+// stage when callers need the equivalent of caarlos0/env's envExpand or
+// docker-compose-style variable substitution.
 func EnvSubst() Transformer { return EnvSubstWith(os.Getenv) }
 
 // EnvSubstWith is like EnvSubst but reads variables through the
-// supplied lookup function.
+// supplied lookup function. Use it to look variables up from sources
+// other than os.Getenv — for example, to consult a .env file first and
+// fall back to process env, wrap your dotenv lookup in a closure:
+//
+//	dotenv := map[string]string{ /* parsed once */ }
+//	tr := transform.EnvSubstWith(func(name string) string {
+//	    if v, ok := dotenv[name]; ok {
+//	        return v
+//	    }
+//	    return os.Getenv(name)
+//	})
 func EnvSubstWith(lookup func(string) string) Transformer {
 	return TransformerFunc{
 		NameStr: "EnvSubst",

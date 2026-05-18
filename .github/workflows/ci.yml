@@ -53,11 +53,10 @@ jobs:
         module:
           - cmd/fastconfctl
           - cmd/fastconfgen
+          - cue
           - observability/metrics/prometheus
           - observability/otel
-          - policy/cue
           - policy/opa
-          - validate/cue/cuelang
           - validate/playground
     steps:
       - uses: actions/checkout@v4
