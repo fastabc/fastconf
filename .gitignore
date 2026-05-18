@@ -12,7 +12,7 @@
 
 # ---- AI / graph tools -------------------------------------------
 .claude/
-.code-review-graph/
+.code-review-graph*
 .github/copilot*.md
 .graphify-out/
 graphify-out/

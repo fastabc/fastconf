@@ -47,8 +47,8 @@ The following packages are root-versioned (no independent `go.mod`):
 
 ## Tagging procedure
 
-**Preferred: use the unified script** — tags all 9 modules in one command
-(1 root + 8 sub-modules as of v0.9.0):
+**Preferred: use the unified script** — tags all 14 modules in one command
+(1 root + 13 sub-modules):
 
 ```bash
 git switch main && git pull

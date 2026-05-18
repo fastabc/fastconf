@@ -72,10 +72,17 @@ fi
 # -------------------------------------------------------------------------
 declare -a MODULES=(
   ":fastconf (root)"
+  "integrations/log/phuslu:integrations/log/phuslu"
+  "integrations/log/zerolog:integrations/log/zerolog"
+  "integrations/openfeature:integrations/openfeature"
   "observability/metrics/prometheus:observability/metrics/prometheus"
   "observability/otel:observability/otel"
   "policy/cue:policy/cue"
   "policy/opa:policy/opa"
+  "providers/nats:providers/nats"
+  "providers/redisstream:providers/redisstream"
+  "providers/s3:providers/s3"
+  "providers/s3events:providers/s3events"
   "validate/cue/cuelang:validate/cue/cuelang"
   "validate/playground:validate/playground"
 )
