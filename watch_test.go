@@ -49,8 +49,10 @@ database:
 `)
 	mgr, err := fastconf.New[appCfg](context.Background(),
 		fastconf.WithDir(conf),
-		fastconf.WithWatch(true),
-		fastconf.WithCoalesceQuiet(20*time.Millisecond),
+		fastconf.WithWatch(fastconf.WatchOptions{
+			Enabled:  true,
+			Coalesce: fastconf.CoalesceOptions{Quiet: 20 * time.Millisecond},
+		}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -85,8 +87,10 @@ database:
 `)
 	mgr, err := fastconf.New[appCfg](context.Background(),
 		fastconf.WithDir(conf),
-		fastconf.WithWatch(true),
-		fastconf.WithCoalesceQuiet(20*time.Millisecond),
+		fastconf.WithWatch(fastconf.WatchOptions{
+			Enabled:  true,
+			Coalesce: fastconf.CoalesceOptions{Quiet: 20 * time.Millisecond},
+		}),
 		fastconf.WithStrict(true),
 	)
 	if err != nil {
@@ -190,8 +194,8 @@ func TestSubscribe_CancelStops(t *testing.T) {
 
 // TestWatcher_HotReloadOnOverlayProfileChange verifies that modifying a file
 // inside a profile-specific overlay directory (overlays/<profile>/) triggers a
-// hot-reload. BUG-1101: the old watcher only watched the static overlays/ root,
-// missing the profile sub-directory entirely.
+// hot-reload. Regression: an earlier watcher only watched the static
+// overlays/ root and missed the profile sub-directory entirely.
 func TestWatcher_HotReloadOnOverlayProfileChange(t *testing.T) {
 	dir := t.TempDir()
 	conf := filepath.Join(dir, "conf.d")
@@ -201,9 +205,11 @@ func TestWatcher_HotReloadOnOverlayProfileChange(t *testing.T) {
 
 	mgr, err := fastconf.New[appCfg](context.Background(),
 		fastconf.WithDir(conf),
-		fastconf.WithProfile("production"),
-		fastconf.WithWatch(true),
-		fastconf.WithCoalesceQuiet(20*time.Millisecond),
+		fastconf.WithProfile(fastconf.ProfileOptions{Single: "production"}),
+		fastconf.WithWatch(fastconf.WatchOptions{
+			Enabled:  true,
+			Coalesce: fastconf.CoalesceOptions{Quiet: 20 * time.Millisecond},
+		}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -227,7 +233,7 @@ func TestWatcher_HotReloadOnOverlayProfileChange(t *testing.T) {
 }
 
 // TestWatcher_HotReloadOnHierarchicalAxisChange verifies hot-reload fires when
-// a multi-axis overlay file changes (BUG-1101: axis dirs must be watched too).
+// a multi-axis overlay file changes — axis dirs must be watched too.
 func TestWatcher_HotReloadOnHierarchicalAxisChange(t *testing.T) {
 	dir := t.TempDir()
 	conf := filepath.Join(dir, "conf.d")
@@ -243,8 +249,10 @@ func TestWatcher_HotReloadOnHierarchicalAxisChange(t *testing.T) {
 		fastconf.WithMultiAxisOverlays(
 			fastconf.OverlayAxis{Dir: "regions", EnvVar: "FASTCONF_TEST_REGION", Priority: 3000},
 		),
-		fastconf.WithWatch(true),
-		fastconf.WithCoalesceQuiet(20*time.Millisecond),
+		fastconf.WithWatch(fastconf.WatchOptions{
+			Enabled:  true,
+			Coalesce: fastconf.CoalesceOptions{Quiet: 20 * time.Millisecond},
+		}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -297,8 +305,10 @@ func TestWatch_DownwardAPIAtomicSwapTriggersReload(t *testing.T) {
 		fastconf.WithProvider(k8s.New(k8s.Options{
 			LabelsPath: filepath.Join(podinfo, "labels"),
 		})),
-		fastconf.WithWatch(true),
-		fastconf.WithCoalesceQuiet(20*time.Millisecond),
+		fastconf.WithWatch(fastconf.WatchOptions{
+			Enabled:  true,
+			Coalesce: fastconf.CoalesceOptions{Quiet: 20 * time.Millisecond},
+		}),
 	)
 	if err != nil {
 		t.Fatal(err)

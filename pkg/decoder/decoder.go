@@ -1,10 +1,12 @@
-// Package decoder 把不同编码（yaml/json/...）的字节流解码为统一的
-// map[string]any 中间表示。该中间表示只在 reload 流水线内部存在，
-// 不会出现在公开 API 上。
+// Package decoder turns bytes of various encodings (yaml/json/...) into
+// a uniform map[string]any intermediate representation. That
+// representation lives only inside the reload pipeline and never
+// appears in the public API.
 //
-// 解码器通过进程内 registry 注册（见 registry.go）。内置 yaml/yml/json
-// 在 init 时注册；外部 codec（toml/hcl/json5/...）可通过 fastconf.RegisterCodec
-// 在仓库外注入。
+// Decoders are registered through a process-wide registry (see
+// registry.go). The built-in yaml/yml/json codecs register themselves
+// in init(); external codecs (toml/hcl/json5/...) plug in from outside
+// the repo via fastconf.RegisterCodec.
 package decoder
 
 import (
@@ -19,17 +21,19 @@ import (
 	"github.com/fastabc/fastconf/contracts"
 )
 
-// Decoder 把字节流解码为通用 map。
+// Decoder turns a byte stream into a generic map.
 //
-// Decoder 等价于公共契约 contracts.Codec — 内部包以别名形式持有，
-// 任何实现 contracts.Codec 的类型都可直接喂进 internal/decoder 的注册表。
+// Decoder is an alias for the public contracts.Codec interface, so any
+// implementation of contracts.Codec can be fed directly into this
+// package's registry.
 type Decoder = contracts.Codec
 
-// ErrUnknownCodec 表示不识别的 codec 名。
+// ErrUnknownCodec means the codec name was not registered.
 var ErrUnknownCodec = errors.New("decoder: unknown codec")
 
-// For 按 codec 名返回 Decoder。codec 不区分大小写。
-// 不在注册表中时返回 ErrUnknownCodec。
+// For returns the Decoder for a codec name. Codec lookup is case
+// insensitive. Returns ErrUnknownCodec when the codec is not
+// registered.
 func For(codec string) (Decoder, error) {
 	if c, ok := Lookup(codec); ok {
 		return c, nil

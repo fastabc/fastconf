@@ -17,8 +17,10 @@ set -euo pipefail
 #   v0.13.0 baseline: 5111
 #   v0.15.0 P1+P2 absorb: 5205
 #   v0.15.0 T1..T6 absorb (queue-depth telemetry + manager-local registry): 5387
-# Keep ~100 LOC of maintenance headroom while preventing quiet growth.
-MAX_LOC="${MAX_LOC:-5487}"
+#   v0.18 Wave A+B partial (pipeline / manager / obs / registry splits): 4967.
+# Tighten the baseline to 5100 so the guard catches quiet regrowth while
+# keeping ~130 LOC of maintenance headroom.
+MAX_LOC="${MAX_LOC:-2800}"
 
 # Count non-test .go files in the repo root only (v0.9.0 flatten: main API
 # files live at the repo root; sub-package directories like bus/, otel/,

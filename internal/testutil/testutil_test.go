@@ -2,6 +2,7 @@ package testutil_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -70,5 +71,74 @@ func TestFakeProvider_WatchReturnsNil(t *testing.T) {
 	}
 	if ch != nil {
 		t.Error("Watch: expected nil channel")
+	}
+}
+
+func TestFakeProvider_LoadReturnsError(t *testing.T) {
+	p := testutil.NewFakeProvider("fp", 100, nil)
+	p.LoadErr = errors.New("boom")
+	_, err := p.Load(context.Background())
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("Load: want boom error, got %v", err)
+	}
+}
+
+func TestFakeProvider_LoadReturnsCopy(t *testing.T) {
+	orig := map[string]any{"k": "v"}
+	p := testutil.NewFakeProvider("fp", 100, orig)
+	data, _ := p.Load(context.Background())
+	data["k"] = "tampered"
+	data2, _ := p.Load(context.Background())
+	if data2["k"] != "v" {
+		t.Errorf("Load must return a copy; got %q after mutation", data2["k"])
+	}
+}
+
+func TestRecordingTracer_CapturesSpans(t *testing.T) {
+	tr := &testutil.RecordingTracer{}
+	ctx := context.Background()
+	_, sp := tr.Start(ctx, "my-span")
+	sp.SetAttribute("k", "v")
+	sp.End()
+
+	spans := tr.Spans()
+	if len(spans) != 1 {
+		t.Fatalf("Spans(): want 1, got %d", len(spans))
+	}
+	got := spans[0]
+	if got.Name != "my-span" {
+		t.Errorf("Name = %q, want my-span", got.Name)
+	}
+	if !got.Ended {
+		t.Error("Ended should be true after End()")
+	}
+	if got.Attrs["k"] != "v" {
+		t.Errorf("Attrs[k] = %v, want v", got.Attrs["k"])
+	}
+}
+
+func TestRecordingTracer_FindSpan(t *testing.T) {
+	tr := &testutil.RecordingTracer{}
+	ctx := context.Background()
+	tr.Start(ctx, "alpha")
+	tr.Start(ctx, "beta")
+
+	sp := tr.FindSpan("beta")
+	if sp == nil || sp.Name != "beta" {
+		t.Fatalf("FindSpan('beta') = %v", sp)
+	}
+	if tr.FindSpan("missing") != nil {
+		t.Error("FindSpan for unknown name should return nil")
+	}
+}
+
+func TestRecordingSpan_RecordError(t *testing.T) {
+	tr := &testutil.RecordingTracer{}
+	_, sp := tr.Start(context.Background(), "s")
+	sp.RecordError(errors.New("oops"))
+
+	spans := tr.Spans()
+	if spans[0].Err == nil || spans[0].Err.Error() != "oops" {
+		t.Errorf("Err = %v, want oops", spans[0].Err)
 	}
 }

@@ -17,12 +17,10 @@
 //
 // # Files
 //
-//   - provider.go  — Provider + Resumable + ErrResumeUnsupported
+//   - provider.go  — Provider + WatchPathProvider + Resumable + ErrResumeUnsupported
 //   - snapshot.go  — Snapshot + SnapshotProvider
-//   - event.go     — Event
-//   - codec.go     — Codec
-//   - source.go    — Source
-//   - priority.go  — PriorityStatic .. PriorityCLI constants
+//   - generator.go — Generator
+//   - types.go     — Codec, Event, RawLayer, Source, Parser, Span, Attr, Priority* constants
 package contracts
 
 import (
@@ -59,16 +57,23 @@ type Event struct {
 }
 
 // RawLayer is a self-describing in-memory contributor: the union of
-// (name, codec, bytes). It is the carrier the Generator contract uses
-// to emit synthetic configuration layers (see pkg/generator). For
-// dynamic byte-stream contributors that the framework polls or watches,
-// use the Source interface instead.
+// (name, codec, bytes, optional priority). It is the carrier the
+// Generator contract uses to emit synthetic configuration layers (see
+// pkg/generator). For dynamic byte-stream contributors that the
+// framework polls or watches, use the Source interface instead.
+//
+// Priority, when non-zero, is offset into the generator merge band (see
+// BandGenerator) so multiple emissions from the same Generator can be
+// ordered relative to each other. Zero (the default) is treated as
+// PriorityGenerator, so the typical "one layer per Generator" case
+// requires no field.
 //
 //	contracts.RawLayer{Name: "inline", Codec: "yaml", Data: []byte("a: 1")}
 type RawLayer struct {
-	Name  string
-	Codec string
-	Data  []byte
+	Name     string
+	Codec    string
+	Data     []byte
+	Priority int
 }
 
 // Source is a byte-stream configuration contributor — the koanf-style
@@ -131,31 +136,62 @@ type Span interface {
 
 // Standard priority bands. Higher values override lower ones during merge.
 //
-// File discovery uses 1000-2999 internally; provider bands are kept small
-// (10-99) and the framework offsets them above file layers when reporting
-// Snapshot().Sources, so providers always win over file layers.
+// User-facing priorities (5–60) are what custom Provider implementations
+// declare via Provider.Priority(). The framework offsets them into the
+// internal SourcePriorityBand ranges (1000–8999) when reporting
+// Snapshot().Sources so providers always win over file layers regardless
+// of caller-declared value.
 //
+// User-facing bands:
+//
+//	.env file defaults     5  (PriorityDotEnv) — lowest; overridden by all built-ins
 //	Static / file-like    10  (PriorityStatic)
 //	Overlay providers     20  (PriorityOverlay)
 //	Remote KV             30  (PriorityKV)
 //	Kubernetes            40  (PriorityK8s)
 //	Environment           50  (PriorityEnv)
-//	Command-line flags    60  (PriorityCLI)  ← highest
+//	Command-line flags    60  (PriorityCLI)
+//	Generator             70  (PriorityGenerator) ← highest user band
 //
-// Custom providers SHOULD pick a value within an appropriate band so that
-// merge order remains predictable across heterogeneous deployments.
+// Internal bands (used by Snapshot().Sources reporting; not for caller
+// use):
+//
+//	1000 + i              file base layer at discovery index i
+//	2000 + i              file overlay layer (single-profile path)
+//	3000 + i              file overlay layer (multi-axis / extra)
+//	7000 + Priority()     generator emitted Sources
+//	8000 + Priority()     provider Load() output
+//
+// Custom providers SHOULD pick a value within an appropriate user band so
+// that merge order remains predictable across heterogeneous deployments.
 const (
-	PriorityDotEnv  = 5  // .env file defaults — lowest band; overridden by all built-in providers
-	PriorityStatic  = 10
-	PriorityOverlay = 20
-	PriorityKV      = 30
-	PriorityK8s     = 40
-	PriorityEnv     = 50
-	PriorityCLI     = 60
+	PriorityDotEnv    = 5
+	PriorityStatic    = 10
+	PriorityOverlay   = 20
+	PriorityKV        = 30
+	PriorityK8s       = 40
+	PriorityEnv       = 50
+	PriorityCLI       = 60
+	PriorityGenerator = 70
 )
 
-// Attr is a (key, value) pair used by tracer attribute fan-out.
-// (Introduced by BUG-706; see internal/obs.EnrichAttrs.)
+// SourcePriorityBand offsets for the framework-internal layer ranges.
+// Provider/Generator priorities declared by the user are stamped into
+// these bands when SourceRef.Priority is populated. Keep names aligned
+// with the table above and the trimProviderPrefix helper in the root
+// state.go.
+const (
+	BandFileBase      = 1000
+	BandFileOverlay   = 2000
+	BandExtraOverlay  = 3000
+	BandGenerator     = 7000
+	BandProvider      = 8000
+)
+
+// Attr is a (key, value) pair used by tracer attribute fan-out. See
+// internal/obs.EnrichAttrs for the canonical span-enrichment helper
+// that consumes a variadic Attr slice without per-attribute interface
+// allocation.
 type Attr struct {
 	Key   string
 	Value any

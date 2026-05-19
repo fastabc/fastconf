@@ -64,7 +64,7 @@ type Options struct {
 	// SkipFirstHook, when true, writes the file once on Wire() but does
 	// NOT fire hooks for that initial render. Use when downstream
 	// daemons are not yet up at boot and a SIGHUP would race with their
-	// own startup. Phase 20 BUG-203.
+	// own startup.
 	SkipFirstHook bool
 }
 

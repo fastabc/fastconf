@@ -77,7 +77,7 @@ type EnvLookup func(string) (string, bool)
 // default DotReplacer.
 //
 // Values are kept verbatim as strings by default; call WithCoerce(true)
-// to opt into bool/int/float coercion at load time (legacy behavior).
+// to opt into bool/int/float coercion at load time.
 func NewDotEnv(prefix string, paths ...string) *DotEnvProvider {
 	return &DotEnvProvider{
 		prefix:   prefix,

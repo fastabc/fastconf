@@ -101,6 +101,9 @@ jobs:
       - name: Documentation symbol guard
         run: bash tools/check-doc-symbols.sh
 
+      - name: CJK-in-non-test guard
+        run: bash tools/check-cjk-comments.sh
+
   # -----------------------------------------------------------------------
   # Phase-comment audit guard (zero stale phase comments allowed)
   # -----------------------------------------------------------------------

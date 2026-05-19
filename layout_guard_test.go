@@ -24,13 +24,9 @@ func TestLayoutGuard(t *testing.T) {
 		docref          string
 	}
 	rules := []rule{
-		{"options.go", "opt_", "SPEC-90 / Phase 78"},
-		{"state.go", "state_", "SPEC-90 / Phase 80"},
-		{"pipeline.go", "pipeline_helpers", "SPEC-94"},
-		{"pipeline.go", "pipeline_plan", "SPEC-94"},
-		{"manager.go", "reload_", "SPEC-95"},
+		{"options.go", "opt_", "SPEC-90"},
+		{"manager.go", "manager_", "Wave F"},
 		{"errors.go", "failure_", "SPEC-97"},
-		{"state.go", "diff_reporter", "SPEC-96"},
 	}
 	have := map[string]bool{}
 	for _, e := range entries {
@@ -51,10 +47,13 @@ func TestLayoutGuard(t *testing.T) {
 		}
 	}
 
-	// Also forbid bug_*_test.go files (BUG-705 / SPEC-100).
+	// Also forbid bug_*_test.go files (SPEC-100).
 	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), "bug_") {
 			t.Fatalf("%s violates SPEC-100 — fold into the topic test file", e.Name())
+		}
+		if strings.HasPrefix(e.Name(), "example_") && e.Name() != "example_api_test.go" {
+			t.Fatalf("%s belongs under examples/; keep only root package godoc examples here", e.Name())
 		}
 	}
 }

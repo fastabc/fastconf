@@ -1,5 +1,5 @@
 // Package profile implements FastConf's tiny boolean profile-expression
-// language (Phase 13). An expression is a propositional formula over
+// language. An expression is a propositional formula over
 // profile names with the operators '&' (AND), '|' (OR), '!' (NOT) and
 // parentheses. An identifier evaluates to true iff it is in the active
 // profile set.
@@ -49,9 +49,12 @@ func Eval(expr string, active Set) (bool, error) {
 	return fn(active), nil
 }
 
-// Compile parses expr once and returns a reusable evaluator. Empty
-// expression compiles to a constant-true predicate. Phase 20 BUG-205:
-// callers can validate user-supplied expressions at startup time.
+// Compile parses expr once and returns a reusable evaluator. An empty
+// expression compiles to a constant-true predicate, which lets callers
+// treat "no `match:` field in _meta.yaml" as "always match" without a
+// nil check. Callers can also use Compile to validate user-supplied
+// expressions at startup time and surface errors before the first
+// reload.
 func Compile(expr string) (func(Set) bool, error) {
 	expr = strings.TrimSpace(expr)
 	if expr == "" {

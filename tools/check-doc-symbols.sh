@@ -30,15 +30,18 @@ must_exist() {
   check_symbol "$sym" || error "$sym"
 }
 
-# Core Manager symbols
-must_exist "func.*Manager\[T\].*Get\(\)"
-must_exist "func.*Manager\[T\].*Reload\("
-must_exist "func.*Manager\[T\].*Plan\("
-must_exist "func.*Manager\[T\].*Snapshot\("
-must_exist "func.*Manager\[T\].*Close\("
-must_exist "func.*Manager\[T\].*Errors\("
-must_exist "func.*Manager\[T\].*Watcher\("
-must_exist "func.*Manager\[T\].*Replay\("
+# Core Manager symbols. Root-level Manager[T] wraps internal/manager.M[T];
+# the wrapper exists in fastconf/manager.go while the implementation
+# methods live on *M[T] in internal/manager.
+must_exist "type Manager\[T any\]"
+must_exist "func.*\*M\[T\].*Get\(\)"
+must_exist "func.*\*M\[T\].*Reload\("
+must_exist "func.*\*M\[T\].*Plan\("
+must_exist "func.*\*M\[T\].*Snapshot\("
+must_exist "func.*\*M\[T\].*Close\("
+must_exist "func.*\*M\[T\].*Errors\("
+must_exist "func.*\*M\[T\].*Watcher\("
+must_exist "func.*\*M\[T\].*Replay\("
 must_exist "func Subscribe\["
 must_exist "func Eval\["
 
@@ -73,6 +76,41 @@ if check_symbol "RequestID.*ManualReload\|ManualReload.*RequestID"; then
 fi
 if check_symbol "func.*Manager\[T\].*Watch\("; then
   echo "GHOST SYMBOL FOUND: Manager.Watch (use Subscribe instead)" >&2
+  FAIL=1
+fi
+
+# Cookbook symbol audit. Every `fastconf.<Ident>` reference in
+# docs/cookbook/*.md must resolve to a Go identifier in the root
+# package (or a subpackage). This catches stale recipes after public-API
+# renames — e.g. the v0.18 Sub → Extract migration would have left
+# docs/cookbook/introspect.md referencing a non-existent symbol.
+COOKBOOK_DIR="$ROOT/docs/cookbook"
+COOKBOOK_FAIL=0
+if [ -d "$COOKBOOK_DIR" ]; then
+  if [ -n "$RG" ]; then
+    cookbook_syms=$($RG --no-filename -o 'fastconf\.[A-Z][A-Za-z0-9_]*' "$COOKBOOK_DIR" 2>/dev/null \
+      | sed 's/^fastconf\.//' | sort -u)
+  else
+    cookbook_syms=$(grep -hoE 'fastconf\.[A-Z][A-Za-z0-9_]*' "$COOKBOOK_DIR"/*.md 2>/dev/null \
+      | sed 's/^fastconf\.//' | sort -u)
+  fi
+  for sym in $cookbook_syms; do
+    # Boundary anchors keep WithDir from matching WithDirNested, etc.
+    # We accept the symbol in any .go file under the repo.
+    if [ -n "$RG" ]; then
+      $RG -q --type go "\\b${sym}\\b" "$ROOT" || {
+        echo "COOKBOOK GHOST SYMBOL: fastconf.${sym} (referenced in docs/cookbook/ but not defined in *.go)" >&2
+        COOKBOOK_FAIL=1
+      }
+    else
+      grep -rq -E "\\b${sym}\\b" "$ROOT"/*.go "$ROOT"/pkg "$ROOT"/contracts 2>/dev/null || {
+        echo "COOKBOOK GHOST SYMBOL: fastconf.${sym} (referenced in docs/cookbook/ but not defined in *.go)" >&2
+        COOKBOOK_FAIL=1
+      }
+    fi
+  done
+fi
+if [ "$COOKBOOK_FAIL" -ne 0 ]; then
   FAIL=1
 fi
 

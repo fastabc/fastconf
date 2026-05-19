@@ -119,7 +119,9 @@ func TestCoalesce_PerKeyParallel(t *testing.T) {
 	// Chatty key A — keeps pushing for 200ms.
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Go(func() {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
 		t := time.NewTicker(10 * time.Millisecond)
 		defer t.Stop()
 		for {
@@ -130,7 +132,7 @@ func TestCoalesce_PerKeyParallel(t *testing.T) {
 				c.Push("A", "a", false)
 			}
 		}
-	})
+	}()
 	// Quiet key B — one push.
 	c.Push("B", "b", false)
 	// B should fire well before A finishes; specifically ~Quiet after the push.

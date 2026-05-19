@@ -80,3 +80,10 @@ Both providers implement `contracts.Resumable`. The framework remembers the last
 ## Drop-on-full
 
 Subscriptions push events into a buffered channel; if a downstream reload is slow, additional events are *dropped* rather than blocking the transport. FastConf's single-writer reload loop preserves order across drops.
+
+## Runnable example
+
+[`examples/external_source/example_test.go`](../../examples/external_source/example_test.go) —
+a stand-alone Provider plus an inline `WithSource(seed, parser.YAML())`
+byte-blob layer, the same two extension points used by the NATS / Redis
+adapters above. Run it with `go test ./examples/external_source/...`.

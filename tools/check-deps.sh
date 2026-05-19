@@ -7,12 +7,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FAIL=0
 
 # Allowed edges: "importer:importee"
-# pkg/mappath is the leaf util — any pkg/* may depend on it.
+# pkg/mappath and pkg/typed are leaf utils — any pkg/* may depend on them.
 ALLOWED=(
   "pkg/discovery:pkg/profile"
   "pkg/generator:pkg/mappath"
   "pkg/provider:pkg/decoder"
   "pkg/provider:pkg/mappath"
+  "pkg/provider:pkg/typed"
+  "pkg/mappath:pkg/typed"
   "pkg/transform:pkg/mappath"
   "pkg/parser:pkg/decoder"
 )

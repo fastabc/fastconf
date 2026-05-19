@@ -33,7 +33,7 @@ database:
 	mgr, err := fastconf.New[appCfg](context.Background(),
 		fastconf.WithFS(mfs),
 		fastconf.WithDir("conf.d"),
-		fastconf.WithProfile("prod"),
+		fastconf.WithProfile(fastconf.ProfileOptions{Single: "prod"}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestPatchLayer_FailureKeepsOldState(t *testing.T) {
 		A int `yaml:"a" json:"a"`
 	}
 	_, err = fastconf.New[tinyCfg](context.Background(),
-		fastconf.WithFS(mfs2), fastconf.WithDir("c"), fastconf.WithProfile("p"))
+		fastconf.WithFS(mfs2), fastconf.WithDir("c"), fastconf.WithProfile(fastconf.ProfileOptions{Single: "p"}))
 	if err == nil {
 		t.Fatal("expected patch failure")
 	}
@@ -79,8 +79,8 @@ func TestPatchLayer_FailureKeepsOldState(t *testing.T) {
 }
 
 func TestReloadLoopNoPendingAfterClose(t *testing.T) {
-	// BUG-406: reloadLoop must NOT process any pending request after
-	// m.closed fires, even when both channels are simultaneously ready.
+	// reloadLoop must NOT process any pending request after m.closed
+	// fires, even when both channels are simultaneously ready.
 	mfs := fstest.MapFS{
 		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("v: 0\n")},
 	}
@@ -385,5 +385,39 @@ func TestReloadWithSource_AfterCloseFails(t *testing.T) {
 	err := mgr.Reload(context.Background(), fastconf.WithSourceOverride(map[string]any{"port": 1}))
 	if !errors.Is(err, fastconf.ErrClosed) {
 		t.Errorf("expected ErrClosed, got %v", err)
+	}
+}
+
+// TestReloadWithSource_DeepCopyAtCall verifies SPEC-D1: WithSourceOverride
+// captures a deep copy at the call site, so callers can freely mutate
+// the source map afterwards without racing the reload pipeline.
+func TestReloadWithSource_DeepCopyAtCall(t *testing.T) {
+	fs := fstest.MapFS{
+		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("name: base\nport: 80\n")},
+	}
+	mgr, err := fastconf.New[rwsCfg](context.Background(),
+		fastconf.WithFS(fs),
+		fastconf.WithDir("conf.d"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.Close()
+
+	override := map[string]any{"name": "snapshot", "port": 99}
+	if err := mgr.Reload(context.Background(), fastconf.WithSourceOverride(override)); err != nil {
+		t.Fatal(err)
+	}
+	// Mutate the caller's map after WithSourceOverride; the snapshot
+	// must reflect the value captured at call time.
+	override["name"] = "mutated"
+	override["port"] = 7777
+	delete(override, "name")
+	cfg := mgr.Get()
+	if cfg.Name != "snapshot" {
+		t.Errorf("WithSourceOverride did not deep-copy: got Name=%q, want snapshot", cfg.Name)
+	}
+	if cfg.Port != 99 {
+		t.Errorf("WithSourceOverride did not deep-copy: got Port=%d, want 99", cfg.Port)
 	}
 }

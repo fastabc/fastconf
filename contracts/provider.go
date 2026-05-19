@@ -42,7 +42,7 @@ type WatchPathProvider interface {
 	WatchPaths() []string
 }
 
-// Resumable is the Phase 25 optional extension. Providers that can
+// Resumable is an optional extension. Providers that can
 // re-subscribe from a known revision (etcd-style "Watch from
 // last_revision", NATS JetStream "DeliverByStartSequence", Vault
 // kv-v2 metadata version) implement WatchFrom. The framework

@@ -1,445 +1,254 @@
 package fastconf
 
-// Options are consolidated here: every fastconf.WithXxx builder lives in
-// this file (paired with its options-struct field) so the public Option
-// surface stays discoverable in one place.
-// Tracer- and AuditSink-related options (WithTracer / WithAuditSink)
-// live with their interface definitions in the obs_* files.
-
 import (
-	"context"
-	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"log/slog"
-	"maps"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/internal/coalesce"
+	"github.com/fastabc/fastconf/internal/fcerr"
+	iopts "github.com/fastabc/fastconf/internal/options"
+	"github.com/fastabc/fastconf/internal/secret"
 	"github.com/fastabc/fastconf/pkg/decoder"
-	"github.com/fastabc/fastconf/pkg/feature"
-	"github.com/fastabc/fastconf/pkg/flog"
-	"github.com/fastabc/fastconf/pkg/provider"
-	"github.com/fastabc/fastconf/pkg/transform"
+	"github.com/fastabc/fastconf/pkg/discovery"
 	"github.com/fastabc/fastconf/policy"
 )
 
-// ---------------------------------------------------------------------
-// Option type + options struct + defaults
-// ---------------------------------------------------------------------
+type Option = iopts.Option
+type options = iopts.Options
 
-// Option configures Manager behavior.
-type Option func(*options)
-
-type options struct {
-	dir         string
-	fsys        fs.FS // Overrides dir in tests.
-	profile     string
-	profiles    []string // Multi-profile active set.
-	profileExpr string   // Global profile match expression override.
-	profileEnv  string
-	defaultProf string
-	strict      bool
-	logger      *slog.Logger
-	log         *flog.Logger // zerolog-style fluent wrapper over logger; refreshed in New() after all options apply.
-	providers   []contracts.Provider
-
-	watch       bool
-	coalesce    coalesce.Options // watcher event-burst coalescer windows
-	watchPaths  []string
-	overlayAxes []OverlayAxis // multi-axis overlay configuration
-
-	metrics        metricsBridge
-	validators     []validatorEntry
-	transformers   []Transformer
-	provenance     ProvenanceLevel
-	historyCap     int
-	secretRedactor SecretRedactor
-	structDefaults func(any) error
-	defaulterFunc  func(any) // called after structDefaults if *T implements Defaulter or via WithDefaulterFunc
-	codecBridge    codecBridge
-	migrationRun   MigrationApplier
-	auditSinks     []AuditSink
-	tracer         Tracer
-	policies       []policy.AnyPolicy
-	deferredErrs   []error
-	rawMapHook     func(map[string]any) // called with merged map before codec decode
-	secretResolver SecretResolver       // optional pre-decode secret decryption hook
-
-	featureExtract func(any) map[string]feature.Rule
-
-	generators []contracts.Generator
-
-	typedHooks    []decoder.TypedHook // extra hooks beyond defaults
-	typedHooksOff bool                // opt-out of DefaultTypedHooks()
-
-	mergeKeys map[string]string // programmatic strategic-merge keys
-
-	diffReporters        []DiffReporter
-	diffReporterQueueCap int // per-reporter bounded queue; 0 → defaultDiffReporterQueueCap
-
-	dotEnvAutoPrefixes []string // deferred WithDotEnvAuto resolution
-
-	// providerRegistry is the optional Manager-local factory registry
-	// installed via WithProviderRegistry. nil → only the process-wide
-	// default registry is consulted.
-	providerRegistry *ProviderRegistry
-	// pendingByName accumulates WithProviderByName lookups; resolved
-	// in New() once every Option has applied so registry ordering is
-	// irrelevant.
-	pendingByName []pendingByName
-}
-
-// defaultDiffReporterQueueCap is the per-reporter queue depth used when
-// WithDiffReporterQueueCap is not set. Chosen to absorb reasonable bursts
-// of changes without unbounded goroutine fan-out on slow reporters.
-const defaultDiffReporterQueueCap = 64
-
-func defaultOptions() options {
-	base := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	return options{
-		dir: DefaultDir,
-		// profileEnv default lives in effectiveProfile so _meta.yaml can
-		// override it when WithProfileEnv is not used.
-		profileEnv:  "",
-		defaultProf: "",
-		strict:      false,
-		logger:      base,
-		log:         flog.New(base),
-		coalesce:    coalesce.ProfileK8s.Apply(),
-		metrics:     newMetricsBridge(noopMetrics{}),
-		tracer:      noopTracer{},
-	}
-}
-
-// refreshLog re-derives the fluent flog.Logger from the current
-// *slog.Logger. Called once at the end of New() after every Option has
-// run, so WithLogger can swap the backend without callers worrying
-// about ordering relative to the fluent wrapper.
-func (o *options) refreshLog() {
-	if o.logger == nil {
-		o.logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
-	}
-	o.log = flog.New(o.logger)
-}
-
-// ---------------------------------------------------------------------
-// Codec bridge selector
-// ---------------------------------------------------------------------
-
-// codecBridge picks the encoder used by decodeInto on the reload path.
-type codecBridge uint8
+// CodecBridge selects the bytes-to-struct decoder used in the typed
+// pipeline stage. BridgeJSON (default) round-trips through encoding/json
+// so canonical-hash caching can reuse the marshalled bytes; BridgeYAML
+// honours yaml struct tags directly. See WithCodecBridge for the user
+// trap when *T has only yaml tags.
+type CodecBridge uint8
 
 const (
-	bridgeJSON codecBridge = iota // default; pairs with canonicalHash byte reuse
-	bridgeYAML                    // legacy v0.6 behaviour for yaml-only struct tags
+	BridgeJSON CodecBridge = iota
+	BridgeYAML
 )
 
-// BridgeJSON and BridgeYAML are the exported aliases for use with WithCodecBridge.
-const (
-	BridgeJSON = bridgeJSON
-	BridgeYAML = bridgeYAML
-)
-
-// WithCodecBridge selects how the merged map[string]any is round-tripped
-// into *T. The default bridgeJSON pairs with the SHA-256 hash so a
-// reload only marshals the document once. Choose BridgeYAML if your
-// configuration struct only carries yaml tags and you cannot add json
-// tags; this is the v0.6 behaviour and slightly slower.
-func WithCodecBridge(b codecBridge) Option {
-	return func(o *options) { o.codecBridge = b }
+// OverlayAxis describes one multi-axis overlay layer. Resolution order:
+//
+//  1. EnvVar present + non-empty       → use that value
+//  2. EnvVar present + empty           → skip axis (operator opt-out)
+//  3. EnvVar absent + DefaultFromHostname → fall back to os.Hostname()
+//  4. otherwise                        → skip axis
+//
+// Priority should be a value in or above the contracts.BandExtraOverlay
+// (3000) range to win over file-base / single-profile overlays. The
+// Generator (7000) and Provider (8000) bands stay higher.
+type OverlayAxis struct {
+	Dir                 string
+	EnvVar              string
+	Priority            int
+	DefaultFromHostname bool
 }
 
-// WithRawMapAccess installs a read hook that is called with the fully merged
-// map[string]any immediately after all transformers run and just before the
-// map is decoded into *T via the configured codec bridge.
+// Transformer is the root-facade contract for the pre-decode raw-map
+// transformation stage. Implementations get the merged
+// map[string]any AFTER all source layers fold together and BEFORE the
+// typed decoder runs, so they can rewrite keys, inject computed values,
+// or normalise vendor-specific layouts without touching *T.
 //
-// Downstream adapters use this hook to work around type-mismatch issues that
-// the codec bridge cannot resolve on its own:
-//   - Extract a sub-tree (e.g. "protocols") as raw data to populate a
-//     json.RawMessage field without going through a yaml.Marshal / Unmarshal
-//     round-trip that loses type information.
-//   - Read string-form values (e.g. "30s") that json.Unmarshal cannot convert
-//     natively into time.Duration fields, and use them alongside a separate
-//     validator or defaulter.
+// The same shape is reused inside pkg/transform for the built-in
+// transformers (Aliases, KeyMap, DropPrefix, EnvReplacer, …); third
+// parties only need to satisfy this root interface.
+type Transformer interface {
+	Name() string
+	Transform(map[string]any) error
+}
+
+// MigrationApplier is the root-facade contract for the version
+// migration stage. Migrate is invoked once per reload on the merged raw
+// map, before any transformer and before decoding into *T. Use
+// MigrationFunc to adapt a plain `func(map[string]any) error` value.
+type MigrationApplier interface {
+	Migrate(map[string]any) error
+}
+
+// MigrationFunc adapts a plain function value to the MigrationApplier
+// contract.
+type MigrationFunc func(map[string]any) error
+
+// Migrate implements MigrationApplier.
+func (fn MigrationFunc) Migrate(root map[string]any) error { return fn(root) }
+
+// WithCodecBridge selects the bytes-to-struct decoder for the typed
+// stage. See [CodecBridge] for the BridgeJSON / BridgeYAML semantics.
 //
-// The callback is invoked synchronously on the single reload goroutine.
-// The map argument is the live merged tree — callers MUST NOT retain a
-// reference beyond the call or mutate the map.  Use WithTransformers if
-// mutation of the merged tree before decode is required.
+// # Troubleshooting
 //
-// Example — capture the raw "protocols" sub-tree so a validator can convert
-// it to json.RawMessage independent of the codec bridge:
+// The default [BridgeJSON] round-trips through encoding/json so the
+// canonical-hash cache can reuse the marshalled bytes. It honours
+// `json:` and `fastconf:` struct tags only. Symptoms that indicate
+// the default is mis-matched to your struct:
 //
-//	var rawProtocols map[string]any
-//	fastconf.New[Config](ctx,
-//	    fastconf.WithRawMapAccess(func(root map[string]any) {
-//	        if p, ok := root["protocols"].(map[string]any); ok {
-//	            rawProtocols = p
-//	        }
-//	    }),
-//	    fastconf.WithValidator(func(cfg *Config) error {
-//	        if rawProtocols != nil {
-//	            b, _ := json.Marshal(rawProtocols)
-//	            cfg.Protocols = b
-//	        }
-//	        return nil
-//	    }),
-//	)
+//   - snake_case keys in your YAML are silently dropped — the field is
+//     left at its zero value (e.g. `db_pool: 50` ignored when *T only
+//     declares `yaml:"db_pool"`). FastConf emits a one-time warn log
+//     at New() to surface this; switch to [BridgeYAML] or add `json:`
+//     tags.
+//   - nested structs deserialize as nil — yaml's anchor / merge keys
+//     are normalized to map[string]any by the decoder but json's
+//     struct decoder reads field names, not tags, when no `json:` tag
+//     is present.
+//   - time.Time fields fail to parse — yaml's native time type encodes
+//     as `2006-01-02T15:04:05Z` strings; the json bridge accepts those
+//     only with a `time.Time`-aware typed hook.
+//
+// When in doubt, set [BridgeYAML] for YAML-tagged configs.
+func WithCodecBridge(b CodecBridge) Option {
+	return func(o *options) { o.CodecBridge = iopts.CodecBridge(b) }
+}
+
 func WithRawMapAccess(fn func(root map[string]any)) Option {
 	if fn == nil {
 		return func(*options) {}
 	}
-	return func(o *options) { o.rawMapHook = fn }
+	return func(o *options) { o.RawMapHook = fn }
 }
 
-// ---------------------------------------------------------------------
-// Filesystem + logging
-// ---------------------------------------------------------------------
+func WithDir(dir string) Option     { return func(o *options) { o.Dir = dir } }
+func WithFS(f fs.FS) Option         { return func(o *options) { o.FS = f } }
+func WithStrict(strict bool) Option { return func(o *options) { o.Strict = strict } }
 
-// WithDir sets the configuration root directory. Default: DefaultDir.
-func WithDir(dir string) Option { return func(o *options) { o.dir = dir } }
-
-// WithFS sets the fs.FS used to load configs. It overrides WithDir.
-func WithFS(f fs.FS) Option { return func(o *options) { o.fsys = f } }
-
-// WithStrict enables strict file and merge validation.
-func WithStrict(strict bool) Option { return func(o *options) { o.strict = strict } }
-
-// WithLogger injects the logger used by FastConf. The default discards
-// every log line (io.Discard), so callers must opt in to see them. Pass
-// nil to keep the current default.
-//
-// Any slog.Handler-backed *slog.Logger works: stdlib JSON/Text handlers,
-// the phuslu adapter under integrations/log/phuslu, the zerolog adapter
-// under integrations/log/zerolog, or any third-party Handler. Internally
-// FastConf wraps the logger in pkg/flog for zerolog-style fluent calls,
-// so swapping the backend never affects call-site code.
-//
-// If you already have an slog.Handler instead of *slog.Logger, wrap it:
-//
-//	fastconf.WithLogger(slog.New(myHandler))
+// WithLogger overrides the default slog logger. Passing nil records a
+// deferred error so a misconfigured logger fails loudly at New(), rather
+// than silently routing every log line into the default backend.
 func WithLogger(l *slog.Logger) Option {
 	return func(o *options) {
-		if l != nil {
-			o.logger = l
+		if l == nil {
+			o.DeferredErrs = append(o.DeferredErrs,
+				fmt.Errorf("%w: WithLogger(nil)", fcerr.ErrFastConf))
+			return
+		}
+		o.Logger = l
+	}
+}
+
+// CoalesceOptions tunes the file-watcher event coalescer. All three
+// fields are optional — zero means "use the default for that field".
+// See DefaultCoalesceQuiet / DefaultCoalesceMaxLag / DefaultCoalesceSwapHint.
+type CoalesceOptions struct {
+	// Quiet is the no-event silence window after which a burst of
+	// fsnotify events is delivered as a single reload.
+	Quiet time.Duration
+	// MaxLag is the upper bound on how long a reload may be deferred
+	// regardless of Quiet — protects against pathological streams.
+	MaxLag time.Duration
+	// SwapHint accelerates the ConfigMap atomic-rename detection so
+	// Kubernetes deployments do not need to wait the full Quiet window
+	// to publish.
+	SwapHint time.Duration
+}
+
+// WatchOptions bundles the file-watcher knobs. Enabled defaults to
+// false; set it explicitly to opt into reload-on-change. Paths and
+// Coalesce / CoalesceProfile only apply when Enabled is true.
+type WatchOptions struct {
+	Enabled         bool
+	Paths           []string
+	Coalesce        CoalesceOptions
+	CoalesceProfile coalesce.Profile
+}
+
+// WithWatch installs the file-watcher with the supplied [WatchOptions].
+// A zero WatchOptions{} disables the watcher (same as omitting this
+// Option). The CoalesceProfile selector applies before the per-field
+// Coalesce values, so Coalesce overrides anything the profile set.
+func WithWatch(w WatchOptions) Option {
+	return func(o *options) {
+		o.Watch = w.Enabled
+		if len(w.Paths) > 0 {
+			o.WatchPaths = append(o.WatchPaths, w.Paths...)
+		}
+		if w.CoalesceProfile != 0 {
+			o.Coalesce = w.CoalesceProfile.Apply()
+		}
+		if w.Coalesce.Quiet > 0 {
+			o.Coalesce.Quiet = w.Coalesce.Quiet
+		}
+		if w.Coalesce.MaxLag > 0 {
+			o.Coalesce.MaxLag = w.Coalesce.MaxLag
+		}
+		if w.Coalesce.SwapHint > 0 {
+			o.Coalesce.SwapHint = w.Coalesce.SwapHint
 		}
 	}
 }
 
-// ---------------------------------------------------------------------
-// Watcher + coalescer
-// ---------------------------------------------------------------------
-
-// WithWatch enables file-system driven reloads.
-func WithWatch(enabled bool) Option { return func(o *options) { o.watch = enabled } }
-
-// WithCoalesceQuiet sets the silent-window after which a watcher event
-// burst on a single parent directory fires a reload. Default:
-// DefaultCoalesceQuiet (30 ms). The window is reset by every new event
-// in the same burst, subject to MaxLag.
-func WithCoalesceQuiet(d time.Duration) Option {
-	return func(o *options) { o.coalesce.Quiet = d }
+// WithCoalesce overrides just the coalescer windows without touching
+// the Watch enabled flag or paths. Useful when a Preset already enabled
+// Watch with a profile-based timing set and the caller wants to fine-
+// tune one knob:
+//
+//	fastconf.PresetK8s(K8sOpts{Watch: true, CoalesceProfile: ProfileK8s}),
+//	fastconf.WithCoalesce(CoalesceOptions{Quiet: 75*time.Millisecond}),
+func WithCoalesce(c CoalesceOptions) Option {
+	return func(o *options) {
+		if c.Quiet > 0 {
+			o.Coalesce.Quiet = c.Quiet
+		}
+		if c.MaxLag > 0 {
+			o.Coalesce.MaxLag = c.MaxLag
+		}
+		if c.SwapHint > 0 {
+			o.Coalesce.SwapHint = c.SwapHint
+		}
+	}
 }
-
-// WithCoalesceMaxLag sets the absolute upper bound on a watcher event
-// burst's lifetime. Once exceeded the burst is force-flushed even if new
-// events keep arriving. Default: DefaultCoalesceMaxLag (250 ms).
-func WithCoalesceMaxLag(d time.Duration) Option {
-	return func(o *options) { o.coalesce.MaxLag = d }
-}
-
-// WithCoalesceSwapHint sets the much shorter quiet window applied once a
-// Kubernetes ConfigMap atomic-swap commit is detected (CREATE/RENAME on
-// "..data" or "..data_tmp_*"). Trailing CHMOD events on inner symlinks do
-// not extend the window further. Default: DefaultCoalesceSwapHint (5 ms).
-// Clamped to <= Quiet.
-func WithCoalesceSwapHint(d time.Duration) Option {
-	return func(o *options) { o.coalesce.SwapHint = d }
-}
-
-// WithCoalesceProfile applies all three coalescer windows from a preset.
-// Use ProfileK8s (default) in production and ProfileLocalDev when
-// iterating against editors that write via unlink-rename cascades.
-func WithCoalesceProfile(p coalesce.Profile) Option {
-	return func(o *options) { o.coalesce = p.Apply() }
-}
-
-// WithWatchPaths appends additional paths to watch.
-func WithWatchPaths(paths ...string) Option {
-	return func(o *options) { o.watchPaths = append(o.watchPaths, paths...) }
-}
-
-// ---------------------------------------------------------------------
-// Multi-axis overlays (base + regions/<r> + zones/<z> + hosts/<h>)
-// ---------------------------------------------------------------------
-
-// OverlayAxis describes a single overlay axis: a directory under the config
-// root that contains named subdirectories, where the active subdirectory is
-// determined by an environment variable.
-//
-// Example:
-//
-//	OverlayAxis{Dir: "hosts", EnvVar: "HOST", Priority: 3200, DefaultFromHostname: true}
-//
-// With HOST=ua and config root "config/", FastConf loads all files under
-// "config/hosts/ua/" as additional file layers with priority 3200.
-// Files in this axis override base layers (priority 1000-1999) and standard
-// overlays (2000-2999), but are themselves overridden by providers (8000+).
-//
-// Axis value resolution order:
-//  1. If EnvVar is non-empty and the environment variable is set to a non-empty
-//     value, that value is used.
-//  2. If EnvVar is non-empty and the environment variable is explicitly empty,
-//     the axis is skipped (operator opt-out).
-//  3. If the environment variable is absent (not set at all) and DefaultFromHostname
-//     is true, os.Hostname() is used as the axis value.
-//  4. If EnvVar is empty ("") and DefaultFromHostname is true, os.Hostname() is
-//     used unconditionally (no env var override is possible — hostname-only axis).
-//  5. Otherwise the axis is skipped.
-type OverlayAxis struct {
-	Dir      string // directory name relative to config root, e.g. "hosts"
-	EnvVar   string // environment variable that selects the active subdirectory
-	Priority int    // base priority for layers in this axis (suggested: 3000+)
-	// DefaultFromHostname controls whether os.Hostname() is used as the axis
-	// value when EnvVar is absent from the environment. This is useful for
-	// host-specific overlays that should activate automatically based on the
-	// machine name without requiring an explicit environment variable.
-	//
-	// When EnvVar is non-empty: DefaultFromHostname only activates if the
-	// variable is absent (not set at all). Setting the variable to an empty
-	// string explicitly disables the axis, giving operators a way to opt out.
-	//
-	// When EnvVar is empty (""): DefaultFromHostname always activates —
-	// the axis unconditionally uses os.Hostname() with no env var override.
-	DefaultFromHostname bool
-}
-
-// WithMultiAxisOverlays registers one or more overlay axes. Each axis maps
-// an environment variable to a subdirectory under the config root. When the
-// environment variable is set to a name that matches an existing subdirectory,
-// that subdirectory's files are loaded as additional file layers at the
-// declared priority level, after base and overlays but before providers.
-//
-// Axes are loaded in declaration order; assign increasing Priority values to
-// establish a clear override hierarchy (e.g. regions < zones < hosts).
-//
-// Directories that do not exist are silently skipped.
-//
-// When DefaultFromHostname is true on an axis, os.Hostname() is used as the
-// axis value if the environment variable is absent (not set). The env var
-// still takes precedence when present, and an explicitly empty env var
-// disables the axis.
-//
-// Usage:
-//
-//	fastconf.New[Config](ctx,
-//	    fastconf.WithDir("config"),
-//	    fastconf.WithMultiAxisOverlays(
-//	        fastconf.OverlayAxis{Dir: "regions", EnvVar: "REGION", Priority: 3000},
-//	        fastconf.OverlayAxis{Dir: "zones",   EnvVar: "ZONE",   Priority: 3100},
-//	        fastconf.OverlayAxis{Dir: "hosts",   EnvVar: "HOST",   Priority: 3200, DefaultFromHostname: true},
-//	    ),
-//	)
+// WithMultiAxisOverlays adds multi-axis overlay layers (region, tier,
+// hostname, ...). Each [OverlayAxis] resolves at assemble time to a
+// concrete extra overlay directory via its EnvVar /
+// DefaultFromHostname rules. Append-only across calls.
 func WithMultiAxisOverlays(axes ...OverlayAxis) Option {
 	return func(o *options) {
-		o.overlayAxes = append(o.overlayAxes, axes...)
-	}
-}
-
-// ---------------------------------------------------------------------
-// Metrics / secret redactor / provenance / history
-// ---------------------------------------------------------------------
-
-// WithMetrics injects the metrics sink used by the reload pipeline.
-func WithMetrics(m MetricsSink) Option {
-	return func(o *options) {
-		if m != nil {
-			o.metrics = newMetricsBridge(m)
+		for _, a := range axes {
+			o.OverlayAxes = append(o.OverlayAxes, discovery.AxisSpec{
+				Dir:                 a.Dir,
+				EnvVar:              a.EnvVar,
+				Priority:            a.Priority,
+				DefaultFromHostname: a.DefaultFromHostname,
+			})
 		}
 	}
 }
 
-// WithSecretRedactor installs the secret redactor used by dumps and snapshots.
 func WithSecretRedactor(r SecretRedactor) Option {
-	return func(o *options) { o.secretRedactor = r }
+	return func(o *options) { o.SecretRedactor = r }
 }
-
-// WithProvenance enables field-level origin tracking at the requested
-// level. The default (ProvenanceOff) keeps the reload pipeline
-// allocation-free; ProvenanceTopLevel adds O(top-level keys) work and
-// ProvenanceFull adds O(leaves). Once enabled,
-// Manager.Snapshot().Origins().Explain("a.b.c") returns the chain of
-// layers that wrote to that path, oldest→newest.
 func WithProvenance(level ProvenanceLevel) Option {
-	return func(o *options) { o.provenance = level }
+	return func(o *options) { o.Provenance = level }
 }
-
-// WithHistory keeps the last n successfully committed states in an
-// in-memory ring buffer so Manager.Rollback / Manager.History can
-// surface them. The default (0) disables history. Each retained state
-// holds one *T plus its sources slice, so size the buffer with care
-// for very large configs.
 func WithHistory(n int) Option {
 	return func(o *options) {
 		if n < 0 {
 			n = 0
 		}
-		o.historyCap = n
+		o.HistoryCap = n
 	}
 }
 
-// ---------------------------------------------------------------------
-// Providers + bytes sources
-// ---------------------------------------------------------------------
-
-// WithProvider registers an external provider merged after file layers.
 func WithProvider(p contracts.Provider) Option {
 	return func(o *options) {
 		if p != nil {
-			o.providers = append(o.providers, p)
+			o.Providers = append(o.Providers, p)
 		}
 	}
 }
 
-// WithSource registers a byte-stream Source paired with a Parser.
-// Internally Bind composes them into a Provider, so a Source is a
-// first-class participant of the merge order alongside Provider.
-//
-// Use this for byte-blob sources (file, http, inline bytes) where
-// the decoder is named at the call site for discoverability:
-//
-//	fastconf.WithSource(file.New("/etc/app/config.yaml"), yaml.Parser())
-//
-// Pass a nil Parser to defer parser selection to the registry: the
-// content-type hint returned by Source.Read picks the parser
-// automatically (file extension for FileSource, Content-Type header
-// for HTTPSource, the contentType ctor argument for BytesSource).
-//
-// For already-structured sources (env, cli, kv-with-one-key-per-setting)
-// continue to use WithProvider directly; there is no Parser to attach.
 func WithSource(src contracts.Source, p contracts.Parser) Option {
 	return func(o *options) {
-		if src == nil {
-			return
+		if src != nil {
+			o.Providers = append(o.Providers, Bind(src, p))
 		}
-		o.providers = append(o.providers, Bind(src, p))
 	}
 }
 
-// WithProviderOrdered is a let-me-keep-it-simple helper for users who prefer
-// the Viper "last call wins" mental model over FastConf's explicit Priority()
-// integers. It wraps each supplied provider in a thin priorityOverride that
-// assigns a strictly increasing priority starting just above PriorityCLI, so
-// providers later in the argument list always win.
-//
-// Use it when you have a fixed call order and don't want to think about the
-// priority table. For mixed deployments (file + env + multiple remote
-// providers) the explicit Priority() approach is still clearer.
 func WithProviderOrdered(ps ...contracts.Provider) Option {
 	return func(o *options) {
 		base := contracts.PriorityCLI + 100
@@ -448,234 +257,62 @@ func WithProviderOrdered(ps ...contracts.Provider) Option {
 				continue
 			}
 			if p.Priority() != 0 {
-				o.deferredErrs = append(o.deferredErrs,
+				o.DeferredErrs = append(o.DeferredErrs,
 					fmt.Errorf("WithProviderOrdered: provider #%d already has Priority=%d", i, p.Priority()))
 				continue
 			}
-			o.providers = append(o.providers, wrapWithPriority(p, base+i))
+			o.Providers = append(o.Providers, iopts.WrapWithPriority(p, base+i))
 		}
 	}
 }
 
-// priorityOverride wraps a non-Resumable Provider with an explicit priority.
-type priorityOverride struct {
-	contracts.Provider
-	priority int
-}
-
-func (p *priorityOverride) Priority() int { return p.priority }
-
-// WatchPaths preserves the optional WatchPathProvider extension when a
-// provider is wrapped by WithProviderOrdered. Providers without watch paths
-// simply yield nil.
-func (p *priorityOverride) WatchPaths() []string {
-	if wp, ok := p.Provider.(contracts.WatchPathProvider); ok {
-		return wp.WatchPaths()
-	}
-	return nil
-}
-
-// priorityOverrideResumable preserves Resumable.WatchFrom when wrapping
-// a provider whose dynamic type also implements contracts.Resumable.
-type priorityOverrideResumable struct {
-	contracts.Provider
-	contracts.Resumable
-	priority int
-}
-
-func (p *priorityOverrideResumable) Priority() int { return p.priority }
-
-// WatchPaths preserves the optional WatchPathProvider extension when a
-// resumable provider is wrapped by WithProviderOrdered.
-func (p *priorityOverrideResumable) WatchPaths() []string {
-	if wp, ok := p.Provider.(contracts.WatchPathProvider); ok {
-		return wp.WatchPaths()
-	}
-	return nil
-}
-
-// wrapWithPriority returns the smallest wrapper type that preserves
-// every interface p satisfies (Provider always, Resumable when present).
-func wrapWithPriority(p contracts.Provider, prio int) contracts.Provider {
-	if r, ok := p.(contracts.Resumable); ok {
-		return &priorityOverrideResumable{Provider: p, Resumable: r, priority: prio}
-	}
-	return &priorityOverride{Provider: p, priority: prio}
-}
-
-// WithDotEnvAuto auto-discovers ".env" files in the config directory
-// (WithDir value) and the current working directory, loading them as the
-// lowest-priority provider.
-//
-// Resolution is deferred to the end of option application so option order
-// no longer matters — WithDotEnvAuto("APP_") placed before WithDir("conf.d")
-// works correctly. The prefix is stashed and resolved once just before
-// New() builds its Manager. This is the one Option whose mechanics cannot
-// be replaced by a single WithProvider call (because it needs the final
-// o.dir value). For structured contributors use WithProvider with
-// provider.NewEnv / NewDotEnv / NewLabels / NewCLI; for byte-blob layers
-// use WithSource with source.NewFile / NewHTTP / NewBytes.
 func WithDotEnvAuto(prefix string) Option {
-	return func(o *options) {
-		o.dotEnvAutoPrefixes = append(o.dotEnvAutoPrefixes, prefix)
-	}
+	return func(o *options) { o.DotEnvAutoPrefixes = append(o.DotEnvAutoPrefixes, prefix) }
 }
 
-// applyDeferredDotEnvAuto resolves every pending WithDotEnvAuto call
-// against the final o.dir value. Invoked at the top of New() after all
-// user Options have run.
-func (o *options) applyDeferredDotEnvAuto() {
-	for _, prefix := range o.dotEnvAutoPrefixes {
-		paths := provider.AutoDotEnvPaths(o.dir)
-		if len(paths) > 0 {
-			o.providers = append(o.providers, provider.NewDotEnv(prefix, paths...))
-		}
-	}
-	o.dotEnvAutoPrefixes = nil
-}
-
-// WithGenerator registers a Source generator that runs during the
-// assemble stage of every reload. Generators synthesise layers
-// dynamically (Kustomize ConfigMapGenerator / SecretGenerator style):
-// inject build info, query a downward-api volume, or shell out for a
-// JSON blob. A failing generator aborts the reload and preserves the
-// previous *State[T]. See contracts.Generator.
 func WithGenerator(g contracts.Generator) Option {
 	if g == nil {
 		return func(*options) {}
 	}
-	return func(o *options) { o.generators = append(o.generators, g) }
+	return func(o *options) { o.Generators = append(o.Generators, g) }
 }
 
-// WithTypedHook registers an additional decoder hook beyond the default
-// Duration / IP / URL / Regex set. Hooks rewrite merged map leaves into the
-// typed wire form that encoding/json can natively unmarshal into *T's
-// strongly-typed fields ("30s" → int64 nanoseconds, "10.0.0.1" → canonical
-// IP string, etc).
-//
-// Hooks are evaluated in (defaults ++ extras) order; the first Match wins per
-// field. Use WithoutDefaultTypedHooks to drop the built-in set when a project
-// wants its own end-to-end policy.
 func WithTypedHook(h decoder.TypedHook) Option {
 	if h == nil {
 		return func(*options) {}
 	}
-	return func(o *options) { o.typedHooks = append(o.typedHooks, h) }
+	return func(o *options) { o.TypedHooks = append(o.TypedHooks, h) }
 }
 
-// WithoutDefaultTypedHooks disables the built-in Duration / IP / URL / Regex
-// hooks. Use it when the application has installed its own typed-hook policy
-// via WithTypedHook and the defaults would conflict.
 func WithoutDefaultTypedHooks() Option {
-	return func(o *options) { o.typedHooksOff = true }
+	return func(o *options) { o.TypedHooksOff = true }
 }
 
-// WithMergeKeys installs Kustomize-style strategic merge keys without requiring
-// a _meta.yaml file. Each entry maps a dotted path in the merged tree to the
-// field name that identifies "the same item" across overlays. Programmatic
-// option values are merged with any _meta.yaml mergeKeys; programmatic entries
-// win on conflict.
 func WithMergeKeys(keys map[string]string) Option {
+	return func(o *options) { iopts.WithMergeKeys(o, keys) }
+}
+
+// WithTransformers appends raw-map transformers that run in declared
+// order after merge and before the typed decoder. Implementations
+// satisfy the root [Transformer] interface (Name + Transform).
+func WithTransformers(t ...Transformer) Option {
 	return func(o *options) {
-		if o.mergeKeys == nil {
-			o.mergeKeys = map[string]string{}
+		for _, x := range t {
+			o.Transformers = append(o.Transformers, x)
 		}
-		maps.Copy(o.mergeKeys, keys)
 	}
 }
 
-// ---------------------------------------------------------------------
-// Transformer / MigrationApplier interfaces + builders
-// ---------------------------------------------------------------------
-
-// Transformer mutates the merged configuration tree before it is decoded
-// into the user's strongly typed snapshot.
-//
-// This is a type alias for [transform.Transformer]: any value satisfying
-// pkg/transform.Transformer satisfies fastconf.Transformer too — they
-// are the same Go type. The alias keeps fastconf's option surface
-// ergonomic while letting the built-in transformer set (Defaults /
-// SetIfAbsent / EnvSubst / DeletePaths / Aliases) live in its own
-// package.
-type Transformer = transform.Transformer
-
-// MigrationApplier rewrites the merged configuration tree before
-// transformers and decode run. The single-method shape lets a plain
-// function adapt via [MigrationFunc].
-//
-// The reload pipeline invokes Migrate exactly once per reload on the
-// single writer goroutine; implementations therefore do not need to
-// be safe for concurrent calls. Returning an error aborts the reload
-// and preserves the previous *State[T].
-type MigrationApplier interface {
-	Migrate(map[string]any) error
-}
-
-// MigrationFunc adapts a plain function to [MigrationApplier].
-type MigrationFunc func(map[string]any) error
-
-// Migrate implements [MigrationApplier].
-func (fn MigrationFunc) Migrate(root map[string]any) error { return fn(root) }
-
-// WithTransformers appends post-merge / pre-decode transformers to the
-// reload pipeline. They run in order, after every layer has been
-// merged/patched but before the merged tree is decoded into the user's
-// strongly-typed *T. A failing transformer aborts the reload and the
-// previous state is preserved.
-//
-// Transformers are designed to host cross-cutting concerns such as
-// applying defaults, env-var interpolation, key aliases / deprecations,
-// and stripping operator-only fields.
-func WithTransformers(t ...Transformer) Option {
-	return func(o *options) { o.transformers = append(o.transformers, t...) }
-}
-
-// WithMigrations installs a schema-migration callback that runs after
-// the merged map is assembled but before transformers and decode. It
-// addresses the long-lived-config / evolving-struct mismatch by letting
-// operators rename or restructure ageing keys on the fly.
 func WithMigrations(run func(map[string]any) error) Option {
 	return func(o *options) {
 		if run == nil {
-			o.migrationRun = nil
+			o.MigrationRun = nil
 			return
 		}
-		o.migrationRun = MigrationFunc(run)
+		o.MigrationRun = MigrationFunc(run)
 	}
 }
 
-// ---------------------------------------------------------------------
-// Validator
-// ---------------------------------------------------------------------
-
-// validatorEntry stores a type-erased validator. The exported generic
-// helper WithValidator[T] is responsible for type-asserting back to *T.
-type validatorEntry struct {
-	fn func(any) error
-}
-
-// WithValidator registers a strongly-typed validator. Runs after the
-// merged document has been decoded into *T but BEFORE the new state is
-// published. If any registered validator returns an error, the reload
-// fails atomically: the previous state is preserved and Get() continues
-// to return the prior value.
-//
-// Validators are the canonical way to enforce cross-field invariants
-// (e.g. "if mTLS is enabled, certificateFile must be non-empty") that
-// cannot be expressed in struct tags or JSON Schema.
-//
-// Multiple validators may be registered; they run in registration order
-// and the first error short-circuits the rest.
-//
-//	fastconf.New[AppConfig](ctx,
-//	    fastconf.WithValidator(func(cfg *AppConfig) error {
-//	        if cfg.Server.Addr == "" { return errors.New("server.addr required") }
-//	        return nil
-//	    }),
-//	)
-//
-// Validators must be deterministic and side-effect-free; they MAY run
-// repeatedly during shadow loads.
 func WithValidator[T any](v func(*T) error) Option {
 	if v == nil {
 		return func(*options) {}
@@ -683,166 +320,74 @@ func WithValidator[T any](v func(*T) error) Option {
 	wrapped := func(target any) error {
 		t, ok := target.(*T)
 		if !ok {
-			// Should be unreachable: WithValidator[T] is only meaningful
-			// when used with the matching New[T]. Guard regardless.
-			return ErrValidator
+			return fcerr.ErrValidator
 		}
 		return v(t)
 	}
 	return func(o *options) {
-		o.validators = append(o.validators, validatorEntry{fn: wrapped})
+		o.Validators = append(o.Validators, iopts.ValidatorEntry{Fn: wrapped})
 	}
 }
 
-// ---------------------------------------------------------------------
-// Profile selectors
-// ---------------------------------------------------------------------
+// ProfileOptions bundles the profile-selection knobs. Single and Multi
+// are mutually exclusive: when Multi is non-empty it takes precedence
+// and Single is ignored. Expr is the global expression AND-ed with each
+// overlay's `_meta.yaml.match` predicate. EnvVar / Default control the
+// fallback chain when neither Single nor Multi is set:
+//
+//	1. ProfileOptions.Single (when non-empty)
+//	2. ProfileOptions.Multi  (when non-empty; turns on expression matching)
+//	3. $EnvVar / $DefaultProfileEnv
+//	4. ProfileOptions.Default
+//	5. _meta.yaml's spec.defaultProfile
+type ProfileOptions struct {
+	// Single is the active profile name for the legacy single-profile
+	// path. Set this when you want one overlay subdirectory selected
+	// by name. Mutually exclusive with Multi.
+	Single string
+	// Multi enables expression-based overlay matching by populating
+	// the active profile set. Each overlay's `_meta.yaml.match`
+	// predicate (or, lacking _meta.yaml, the subdirectory name) is
+	// evaluated against this set.
+	Multi []string
+	// Expr is an additional global expression that must hold for any
+	// overlay to be selected. AND-ed with each overlay's per-meta
+	// match. Empty disables the global filter.
+	Expr string
+	// EnvVar names the environment variable read when Single / Multi
+	// are both empty. Empty falls back to DefaultProfileEnv
+	// ("APP_PROFILE").
+	EnvVar string
+	// Default is the profile name used when EnvVar is unset / empty.
+	Default string
+}
 
-// WithProfile sets the active overlay profile explicitly.
-func WithProfile(p string) Option { return func(o *options) { o.profile = p } }
-
-// WithProfiles activates the multi-profile model. When at least one
-// profile is supplied, FastConf evaluates each overlay subdirectory's
-// optional `_meta.yaml.match:` boolean expression against this active
-// set instead of the legacy single-profile lookup. Subdirectories
-// without a match expression fall back to membership: they are included
-// iff their directory name is one of the supplied profiles. WithProfile
-// remains supported for the simple single-tag case and is preserved as
-// a fallback when WithProfiles is not used.
-func WithProfiles(p ...string) Option {
+// WithProfile installs the supplied [ProfileOptions]. A zero value is
+// valid (loads base only).
+func WithProfile(p ProfileOptions) Option {
 	return func(o *options) {
-		for _, x := range p {
-			x = strings.TrimSpace(x)
-			if x != "" {
-				o.profiles = append(o.profiles, x)
-			}
+		if p.Single != "" {
+			o.Profile = p.Single
+		}
+		if len(p.Multi) > 0 {
+			o.Profiles = iopts.TrimProfiles(o.Profiles, p.Multi)
+		}
+		if p.Expr != "" {
+			o.ProfileExpr = p.Expr
+		}
+		if p.EnvVar != "" {
+			o.ProfileEnv = p.EnvVar
+		}
+		if p.Default != "" {
+			o.DefaultProf = p.Default
 		}
 	}
 }
 
-// WithProfileExpr appends a global match expression to every overlay.
-func WithProfileExpr(expr string) Option { return func(o *options) { o.profileExpr = expr } }
-
-// WithProfileEnv sets the environment variable used to resolve the profile.
-func WithProfileEnv(name string) Option { return func(o *options) { o.profileEnv = name } }
-
-// WithDefaultProfile sets the fallback profile when no explicit profile exists.
-func WithDefaultProfile(p string) Option { return func(o *options) { o.defaultProf = p } }
-
-// effectiveProfile resolves the profile using options, _meta.yaml, and defaults.
-func (o *options) effectiveProfile(metaProfileEnv, metaDefault string) string {
-	if o.profile != "" {
-		return o.profile
-	}
-	env := o.profileEnv
-	if env == "" {
-		env = metaProfileEnv
-	}
-	if env == "" {
-		env = DefaultProfileEnv
-	}
-	if v := os.Getenv(env); v != "" {
-		return v
-	}
-	if o.defaultProf != "" {
-		return o.defaultProf
-	}
-	return metaDefault
-}
-
-// ---------------------------------------------------------------------
-// Policy
-// ---------------------------------------------------------------------
-
-// WithPolicy registers a typed Policy[T] that is evaluated on the
-// reload goroutine after decode + validation but BEFORE the atomic
-// state swap. Multiple WithPolicy calls fan-out (all policies run,
-// findings aggregate). A SeverityError finding aborts the reload
-// and the previous *State[T] remains in place — the failure-safe
-// invariant is preserved.
-//
-// Use:
-//
-//	mgr, err := fastconf.New[MyApp](ctx,
-//	    fastconf.WithDir("conf.d"),
-//	    fastconf.WithPolicy(policy.Func[MyApp]{
-//	        N: "deny-debug-in-prod",
-//	        Fn: func(_ context.Context, in policy.Input[MyApp]) ([]policy.Violation, error) {
-//	            if in.Config.Profile == "prod" && in.Config.Debug {
-//	                return []policy.Violation{{Path: "debug", Severity: policy.SeverityError}}, nil
-//	            }
-//	            return nil, nil
-//	        },
-//	    }),
-//	)
 func WithPolicy[T any](p policy.Policy[T]) Option {
-	return func(o *options) {
-		o.policies = append(o.policies, policy.Adapt(p))
-	}
+	return func(o *options) { o.Policies = append(o.Policies, policy.Adapt(p)) }
 }
 
-// ErrPolicyDenied is returned by reload() when one or more SeverityError
-// violations fired. The error message lists every violation; callers
-// can inspect the structured slice via errors.As(err, *PolicyError).
-var ErrPolicyDenied = errors.New("fastconf: policy denied")
-
-// PolicyError aggregates the violations that aborted a reload. It
-// satisfies errors.Is(ErrPolicyDenied) so callers don't need to know
-// the concrete type to special-case policy failures.
-type PolicyError struct {
-	Violations []policy.Violation
+func WithSecretResolver(r SecretResolver) Option {
+	return func(o *options) { o.SecretResolver = secret.Resolver(r) }
 }
-
-func (e *PolicyError) Error() string {
-	parts := make([]string, 0, len(e.Violations))
-	for _, v := range e.Violations {
-		parts = append(parts, fmt.Sprintf("%s@%s: %s", v.Rule, v.Path, v.Message))
-	}
-	return "fastconf: policy denied: " + strings.Join(parts, "; ")
-}
-
-func (e *PolicyError) Is(target error) bool {
-	return target == ErrPolicyDenied || target == ErrFastConf
-}
-
-// evaluatePolicies runs every registered policy against cfg and
-// returns a *PolicyError if any SeverityError fires; warnings are
-// returned via the second slice for the caller to forward to logs
-// and audit.
-func (m *Manager[T]) evaluatePolicies(ctx context.Context, cfg *T, reason string) (*PolicyError, []policy.Violation) {
-	if len(m.opts.policies) == 0 {
-		return nil, nil
-	}
-	var errs []policy.Violation
-	var warns []policy.Violation
-	for _, p := range m.opts.policies {
-		vs, err := p.EvaluateAny(ctx, cfg, reason, m.tenantTag())
-		if err != nil {
-			errs = append(errs, policy.Violation{
-				Rule:     p.Name(),
-				Message:  "evaluation error: " + err.Error(),
-				Severity: policy.SeverityError,
-			})
-			continue
-		}
-		for _, v := range vs {
-			if v.Rule == "" {
-				v.Rule = p.Name()
-			}
-			if v.Severity == policy.SeverityError {
-				errs = append(errs, v)
-			} else {
-				warns = append(warns, v)
-			}
-		}
-	}
-	if len(errs) == 0 {
-		return nil, warns
-	}
-	return &PolicyError{Violations: errs}, warns
-}
-
-// tenantTag returns the Tenant id stamped on this manager (if any).
-// Resolved once during New() and cached, so callers on the reload
-// hot path (policy evaluation) pay zero allocations per call.
-func (m *Manager[T]) tenantTag() string { return m.tenant }

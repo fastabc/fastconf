@@ -1,20 +1,24 @@
-// Package merger 实现 Kustomize 风格的 map[string]any 深度合并。
+// Package merger implements Kustomize-style deep merge for map[string]any
+// trees.
 package merger
 
 import (
+	"encoding/json"
 	"fmt"
 )
 
-// Options 控制合并行为。
+// Options controls deep-merge behavior.
 type Options struct {
-	// AppendSlices 为 true 时，slice 不被替换而是追加（罕见，需在 _meta 中显式启用）。
+	// AppendSlices, when true, appends source slices onto destination
+	// slices instead of replacing them. Rare and must be enabled
+	// explicitly in _meta.
 	AppendSlices bool
-	// Strict 为 true 时类型不一致直接报错；否则后者覆盖前者。
+	// Strict, when true, errors on type mismatch. Otherwise the source
+	// value silently overwrites the destination value.
 	Strict bool
-	// MergeKeys (Phase 132 / SPEC-132) enables Kustomize-style strategic
-	// merge for list-of-object slices. Each entry maps a dotted path in
-	// the merged tree to the field name that identifies "the same item"
-	// across overlays. Example:
+	// MergeKeys enables Kustomize-style strategic merge for list-of-object
+	// slices. Each entry maps a dotted path in the merged tree to the
+	// field name that identifies "the same item" across overlays. Example:
 	//
 	//	MergeKeys: map[string]string{
 	//	  "spec.containers": "name",
@@ -27,15 +31,17 @@ type Options struct {
 	MergeKeys map[string]string
 }
 
-// Deep 把 src 合并进 dst（dst 被原地修改）。
-// 复杂度 O(n)，不分配新顶层 map。
+// Deep merges src into dst (dst is mutated in place). Runs in O(n) and
+// does not allocate a new top-level map.
 //
-// 规则：
-//   - 若 dst[k] 不存在 → dst[k] = src[k]；
-//   - 若两侧都为 map → 递归；
-//   - 若两侧都为 slice 且 AppendSlices → 追加；否则 src 替换 dst；
-//   - 若 path 在 MergeKeys 表中 → 按 mergeKey 字段做 strategic merge；
-//   - 类型不一致：Strict=true 报错，否则 src 替换 dst。
+// Rules:
+//   - dst[k] missing → dst[k] = src[k];
+//   - both sides are maps → recurse;
+//   - both sides are slices and AppendSlices → append; otherwise src
+//     replaces dst;
+//   - path is registered in MergeKeys → strategic merge by that key
+//     field;
+//   - type mismatch: Strict=true errors, otherwise src replaces dst.
 func Deep(dst, src map[string]any, opt Options) error {
 	return deepAt(dst, src, "", opt)
 }
@@ -82,9 +88,9 @@ func mergeValue(path string, dv, sv any, opt Options) (any, error) {
 			}
 			return sv, nil
 		}
-		// Phase 132 strategic merge: if this path is registered in
-		// MergeKeys, align entries by the configured key field and
-		// merge in place rather than append/replace.
+		// Strategic merge: if this path is registered in MergeKeys,
+		// align entries by the configured key field and merge in place
+		// rather than append/replace.
 		if key, ok := opt.MergeKeys[path]; ok && key != "" {
 			return strategicMergeList(path, ds, ss, key, opt)
 		}
@@ -165,21 +171,21 @@ func sameKind(a, b any) bool {
 		_, ok := b.(string)
 		return ok
 	default:
-		// 数字类型放宽：int/int64/float64/json.Number 都视作可互换
 		return isNumber(a) && isNumber(b)
 	}
 }
 
+// isNumber matches the canonical Go numeric kinds plus json.Number.
+// Stringer types deliberately do NOT count — time.Time, *os.File and
+// other Stringers must not be silently treated as numbers in strict
+// merges. Callers that need lenient "looks-like-a-number" semantics
+// should opt into pkg/typed.Coerce instead.
 func isNumber(v any) bool {
 	switch v.(type) {
 	case int, int8, int16, int32, int64,
 		uint, uint8, uint16, uint32, uint64,
-		float32, float64:
-		return true
-	}
-	// json.Number 与 yaml 的字符串数字不在此处理；用 fmt.Stringer 兜底
-	if s, ok := v.(fmt.Stringer); ok {
-		_ = s
+		float32, float64,
+		json.Number:
 		return true
 	}
 	return false

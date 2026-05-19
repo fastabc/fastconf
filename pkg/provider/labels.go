@@ -10,48 +10,28 @@ import (
 // LabelOptions configures a LabelProvider. Mirrors mappath.LabelOptions so
 // callers do not need to import two packages.
 type LabelOptions struct {
-	// Name overrides the default Provider name (otherwise "labels:<prefix>"
-	// or "labels:" when prefix is empty).
+	// Name overrides the default provider name.
 	Name string
-	// Priority sets the merge priority. Defaults to PriorityStatic (10):
-	// labels have no inherent precedence, so callers integrating with a
-	// Kubernetes controller should pass PriorityK8s explicitly, while
-	// startup override use cases may choose PriorityCLI.
+	// Priority sets the merge priority. Defaults to PriorityStatic.
 	Priority int
-	// Prefix, when non-empty, restricts expansion to labels whose key starts
-	// with this prefix (e.g. "routing.").
+	// Prefix restricts expansion to matching labels when non-empty.
 	Prefix string
 	// StripPrefix removes Prefix from each key before expansion.
 	StripPrefix bool
-	// Separator splits a flat key into nested segments. Default ".". Use
-	// Separators (plural) when multiple delimiters are in play (e.g.
-	// K8s recommended labels with both "/" and ".").
+	// Separator splits a flat key into nested segments. Default ".".
 	Separator string
-	// Separators is the ordered list of delimiters applied to each key,
-	// left to right. Pass {"/", "."} to make K8s-style
-	// "app.kubernetes.io/name" decompose into ["app","kubernetes","io","name"].
-	// When set, takes precedence over Separator.
+	// Separators is the ordered delimiter list. It takes precedence over Separator.
 	Separators []string
-	// Coerce, when true, converts "true"/"false"/int/float strings into typed
-	// values. Default false: values are kept verbatim, matching common
-	// object-metadata and dotted-label inputs.
+	// Coerce converts bool/int/float strings into typed values.
 	Coerce bool
 }
 
-// DottedLabelOptions names the intent of labels that are deliberately used as
-// dotted application configuration keys.
+// DottedLabelOptions marks labels that encode dotted application config keys.
 type DottedLabelOptions = LabelOptions
 
 // LabelProvider injects a flat list (or map) of labels as a single
-// configuration layer. NewLabels / NewLabelMap are low-level primitives for
-// callers that already know how their label keys should be interpreted. Prefer
-// NewDottedLabels / NewDottedLabelMap when the labels intentionally encode
-// dotted application configuration. Use NewRoutingLabels / NewRoutingLabelMap
-// when the source also carries routing-DSL value semantics such as typed leaves,
-// comma lists, or indexed siblings.
-//
-// LabelProvider is read-only and does not implement Watch; pair it with a
-// fastconf.Reload(ctx) call when the upstream label set changes.
+// configuration layer. Use NewRoutingLabels when values need routing-DSL
+// semantics such as comma lists or indexed siblings.
 type LabelProvider struct {
 	labels any
 	opts   LabelOptions
@@ -63,7 +43,7 @@ func NewLabels(labels []string, opts LabelOptions) *LabelProvider {
 	return newLabelProvider(labels, opts)
 }
 
-// NewLabelMap constructs a LabelProvider from a key→value map, matching the
+// NewLabelMap constructs a LabelProvider from a key/value map, matching the
 // Docker engine API / K8s annotation form.
 func NewLabelMap(labels map[string]string, opts LabelOptions) *LabelProvider {
 	return newLabelProvider(labels, opts)
@@ -75,8 +55,7 @@ func NewDottedLabels(labels []string, opts DottedLabelOptions) *LabelProvider {
 	return newLabelProvider(labels, opts)
 }
 
-// NewDottedLabelMap is the map[string]string variant for labels that
-// intentionally encode dotted application configuration keys.
+// NewDottedLabelMap is the map variant for dotted application labels.
 func NewDottedLabelMap(labels map[string]string, opts DottedLabelOptions) *LabelProvider {
 	return newLabelProvider(labels, opts)
 }
@@ -93,13 +72,10 @@ func newLabelProvider(labels any, opts LabelOptions) *LabelProvider {
 	return &LabelProvider{labels: labels, opts: opts}
 }
 
-// Name implements Provider.
 func (p *LabelProvider) Name() string { return p.opts.Name }
 
-// Priority implements Provider.
 func (p *LabelProvider) Priority() int { return p.opts.Priority }
 
-// Load implements Provider.
 func (p *LabelProvider) Load(_ context.Context) (map[string]any, error) {
 	return mappath.ExpandLabels(p.labels, mappath.LabelOptions{
 		Prefix:      p.opts.Prefix,
@@ -110,7 +86,5 @@ func (p *LabelProvider) Load(_ context.Context) (map[string]any, error) {
 	}), nil
 }
 
-// Watch implements Provider. Labels are static after registration; users who
-// need live updates should call Manager.Reload(ctx) when the upstream label
-// set changes.
+// Watch returns nil because label providers are static after registration.
 func (p *LabelProvider) Watch(_ context.Context) (<-chan contracts.Event, error) { return nil, nil }

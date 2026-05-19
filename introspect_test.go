@@ -95,16 +95,16 @@ func TestIntrospect_AtEmptyEqualsSettings(t *testing.T) {
 	}
 }
 
-func TestSub_ReturnsLivePointer(t *testing.T) {
+func TestExtract_ReturnsLivePointer(t *testing.T) {
 	mgr := newMgr122(t)
 	defer mgr.Close()
-	dbView := fastconf.Sub(mgr.Snapshot(), func(c *cfg122) *struct {
+	dbView := fastconf.Extract(mgr.Snapshot(), func(c *cfg122) *struct {
 		DSN  string `json:"dsn"`
 		Pool int    `json:"pool"`
 	} {
 		return &c.Database
 	})
 	if dbView == nil || dbView.DSN != "postgres://prod" {
-		t.Fatalf("Sub failed: %#v", dbView)
+		t.Fatalf("Extract failed: %#v", dbView)
 	}
 }

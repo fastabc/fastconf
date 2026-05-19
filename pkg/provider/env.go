@@ -1,14 +1,105 @@
+// Package provider abstracts external configuration sources (env, CLI, KV,
+// Vault, ...). Providers are second-class citizens of the reload pipeline:
+// their output is merged into the same map[string]any that file discovery
+// produces, after which the merged document is decoded into the user's
+// strongly-typed *T.
+//
+// The Provider/Event interface itself lives in fastconf/contracts; this
+// package consumes that interface via re-exports and ships the built-in
+// Env / CLI / File / Labels / RoutingLabels / DotEnv implementations.
 package provider
 
 import (
 	"context"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/pkg/mappath"
+	"github.com/fastabc/fastconf/pkg/typed"
 )
+
+// =====================================================================
+//   ENV KEY REPLACERS
+// =====================================================================
+//
+// The default DotReplacer (single "_" → ".") matches Viper and Spring
+// Boot's relaxed binding — the broadly expected behavior across the Go
+// ecosystem. DoubleUnderscoreReplacer is the alternate convention that
+// preserves single "_" as part of the key and uses "__" as the level
+// separator. Custom replacers can implement any naming scheme.
+
+// EnvKeyReplacer transforms the post-prefix portion of an env var name
+// into a dotted-path string. An empty result means "skip this key".
+type EnvKeyReplacer interface {
+	Replace(s string) string
+}
+
+// EnvKeyReplacerFunc is an EnvKeyReplacer adapter for plain funcs.
+type EnvKeyReplacerFunc func(string) string
+
+// Replace implements EnvKeyReplacer.
+func (f EnvKeyReplacerFunc) Replace(s string) string { return f(s) }
+
+// DotReplacer is the canonical "single underscore → dot" replacer,
+// matching Viper's SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+// and Spring Boot relaxed binding. Runs of underscores collapse to a
+// single dot so SCREAMING__SNAKE keys produce sane nested paths even
+// when copy-pasted from a deployment that previously used the
+// DoubleUnderscoreReplacer convention.
+//
+//	APP_DATABASE_DSN,  prefix="APP_" → "database.dsn"
+//	APP_DATABASE__DSN, prefix="APP_" → "database.dsn"  (consecutive runs collapse)
+var DotReplacer EnvKeyReplacer = EnvKeyReplacerFunc(func(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	prevDot := true // suppress leading separator
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '_' {
+			c = '.'
+		}
+		if c == '.' {
+			if prevDot {
+				continue
+			}
+			prevDot = true
+		} else {
+			prevDot = false
+			if c >= 'A' && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+		}
+		b.WriteByte(c)
+	}
+	return strings.TrimSuffix(b.String(), ".")
+})
+
+// DoubleUnderscoreReplacer preserves single "_" as part of the key and
+// uses "__" (double underscore) as the nesting separator. Use when env
+// keys legitimately carry underscores that must survive flattening
+// (e.g. SCREAMING_SNAKE feature flag names).
+//
+//	APP_FEATURE_FLAGS,  prefix="APP_" → "feature_flags"  (one level)
+//	APP_DATABASE__POOL, prefix="APP_" → "database.pool"   (two levels)
+var DoubleUnderscoreReplacer EnvKeyReplacer = EnvKeyReplacerFunc(func(s string) string {
+	parts := strings.Split(s, "__")
+	for i, part := range parts {
+		parts[i] = strings.ToLower(part)
+	}
+	return strings.Join(parts, ".")
+})
+
+// NewEnvReplacer is a thin shortcut for
+// NewEnv(prefix).WithReplacer(replacer). A nil replacer means
+// DotReplacer (the EnvProvider default).
+func NewEnvReplacer(prefix string, replacer EnvKeyReplacer) *EnvProvider {
+	return NewEnv(prefix).WithReplacer(replacer)
+}
+
+// =====================================================================
+//   ENV PROVIDER
+// =====================================================================
 
 // EnvProvider reads process environment variables matching a prefix and
 // translates them into a nested map. Key conversion is delegated to an
@@ -49,8 +140,8 @@ type EnvProvider struct {
 
 // NewEnv builds an EnvProvider with the given prefix (e.g. "APP_"),
 // the default Env priority, and the DotReplacer (single "_" → ".") key
-// strategy. Coerce defaults to false; call WithCoerce(true) to restore
-// the legacy eager bool/int/float coercion.
+// strategy. Coerce defaults to false; call WithCoerce(true) to opt into
+// eager bool/int/float coercion at Load time.
 //
 // Switch the key strategy with WithReplacer when the default does not
 // match your deployment's env-naming convention:
@@ -75,10 +166,10 @@ func NewEnv(prefix string) *EnvProvider {
 // WithPriority overrides the default priority.
 func (p *EnvProvider) WithPriority(prio int) *EnvProvider { p.priority = prio; return p }
 
-// WithCoerce toggles eager value coercion. When true (legacy behavior),
-// values are converted to bool / int64 / float64 / string at Load time.
-// When false (default), values stay as strings and the typed decoder
-// chain converts them to the destination field type.
+// WithCoerce toggles eager value coercion. When true, values are
+// converted to bool / int64 / float64 / string at Load time (opt-in
+// scalar coercion). When false (default), values stay as strings and
+// the typed decoder chain converts them to the destination field type.
 func (p *EnvProvider) WithCoerce(on bool) *EnvProvider { p.coerce = on; return p }
 
 // WithReplacer swaps the key-conversion strategy. Passing nil restores
@@ -161,17 +252,5 @@ func maybeCoerce(s string, on bool) any {
 }
 
 func coerce(s string) any {
-	switch strings.ToLower(s) {
-	case "true":
-		return true
-	case "false":
-		return false
-	}
-	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return n
-	}
-	if f, err := strconv.ParseFloat(s, 64); err == nil {
-		return f
-	}
-	return s
+	return typed.Coerce(s, typed.CoerceOptions{IgnoreCase: true})
 }

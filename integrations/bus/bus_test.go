@@ -47,7 +47,7 @@ func TestBusProvider_WithManager(t *testing.T) {
 	mgr, err := fastconf.New[cfg](context.Background(),
 		fastconf.WithFS(mfs), fastconf.WithDir("conf.d"),
 		fastconf.WithProvider(bp),
-		fastconf.WithWatch(true),
+		fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
 	)
 	if err != nil {
 		t.Fatalf("New: %v", err)

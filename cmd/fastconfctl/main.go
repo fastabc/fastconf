@@ -7,8 +7,8 @@
 //
 // The tool reuses the public fastconf engine — no special access to
 // internal packages — so its behaviour matches what the application
-// would observe at runtime. `explain` is a stub in v0.2 and is filled
-// in by Phase 7 (Provenance / OriginIndex).
+// would observe at runtime. The `explain` subcommand uses
+// WithProvenance(ProvenanceFull) to print the per-path origin chain.
 package main
 
 import (
@@ -30,7 +30,7 @@ Commands:
   dump      Print the merged configuration as JSON.
   diff      Diff merged configuration between two profiles.
   validate  Run the assemble+merge pipeline and report errors.
-  explain   Show the origin chain for a dotted path (Phase 7 — stub).
+  explain   Show the origin chain for a dotted path.
   version   Print the binary version and exit.
 
 Run 'fastconfctl <command> -h' for command-specific flags.`
@@ -109,7 +109,7 @@ func runDump(args []string) error {
 }
 
 // dumpYAML loads a manager and writes the deterministic YAML form
-// produced by State.MarshalYAML. Phase 134.
+// produced by State.Dump(DumpYAML, nil).
 func dumpYAML(f cli.Flags) error {
 	mgr, err := cli.LoadConfig[map[string]any](context.Background(), f)
 	if err != nil {
@@ -120,7 +120,7 @@ func dumpYAML(f cli.Flags) error {
 	if st == nil {
 		return fmt.Errorf("no state available")
 	}
-	b, err := st.MarshalYAML(nil)
+	b, err := st.Dump(fastconf.DumpYAML, nil)
 	if err != nil {
 		return err
 	}

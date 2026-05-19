@@ -25,7 +25,7 @@ func TestProfile_ProfilesMatchExpression(t *testing.T) {
 	}
 	mgr, err := New[cfg](context.Background(),
 		WithFS(mfs), WithDir("conf.d"),
-		WithProfiles("prod", "eu"),
+		WithProfile(ProfileOptions{Multi: []string{"prod", "eu"}}),
 	)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -47,7 +47,7 @@ func TestProfile_FallbackToNameMembership(t *testing.T) {
 	}
 	mgr, err := New[cfg](context.Background(),
 		WithFS(mfs), WithDir("conf.d"),
-		WithProfiles("prod"),
+		WithProfile(ProfileOptions{Multi: []string{"prod"}}),
 	)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -70,8 +70,7 @@ func TestProfile_GlobalProfileExpr(t *testing.T) {
 	}
 	mgr, err := New[cfg](context.Background(),
 		WithFS(mfs), WithDir("conf.d"),
-		WithProfiles("prod"),
-		WithProfileExpr("!canary"),
+		WithProfile(ProfileOptions{Multi: []string{"prod"}, Expr: "!canary"}),
 	)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -92,14 +91,14 @@ func TestProfile_LegacySingleProfile(t *testing.T) {
 	}
 	mgr, err := New[cfg](context.Background(),
 		WithFS(mfs), WithDir("conf.d"),
-		WithProfile("prod"),
+		WithProfile(ProfileOptions{Single: "prod"}),
 	)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	defer mgr.Close()
 	if got := mgr.Get().Name; got != "prod" {
-		t.Fatalf("legacy WithProfile broken, got %q", got)
+		t.Fatalf("single-profile path broken, got %q", got)
 	}
 }
 
@@ -107,10 +106,10 @@ func TestProfile_InvalidExprFailsAtNew(t *testing.T) {
 	_, err := New[struct{}](context.Background(),
 		WithFS(emptyFS()),
 		WithSource(source.NewBytes("inline", "yaml", []byte("{}")), nil),
-		WithProfileExpr("prod & ("),
+		WithProfile(ProfileOptions{Expr: "prod & ("}),
 	)
-	if err == nil || !strings.Contains(err.Error(), "WithProfileExpr") {
-		t.Fatalf("expected WithProfileExpr decode error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "WithProfile.Expr") {
+		t.Fatalf("expected WithProfile.Expr decode error, got %v", err)
 	}
 	if !errors.Is(err, ErrDecode) {
 		t.Fatalf("expected ErrDecode, got %v", err)

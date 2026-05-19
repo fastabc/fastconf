@@ -1,4 +1,4 @@
-# Sub-tree introspection (`AllKeys` / `AllSettings` / `Sub` / `Sub`)
+# Sub-tree introspection (`Keys` / `Settings` / `At` / `Extract`)
 
 FastConf's hot read path is `mgr.Get() *T` — strong-typed, zero-alloc, no string paths. Sometimes you need the **opposite**: a flat dotted-key view for debug endpoints, CLI dumps, or DI helpers. That lives on `State[T]`.
 
@@ -7,7 +7,7 @@ FastConf's hot read path is `mgr.Get() *T` — strong-typed, zero-alloc, no stri
 | `state.Introspect().Keys()` | sorted `[]string` of dotted leaves | CLI listings, completion |
 | `state.Introspect().Settings()` | fresh `map[string]any` with dotted keys | `/dump` JSON, diff tools |
 | `state.Introspect().At("database")` | fresh `map[string]any`, prefix stripped | inject a sub-tree into a sub-module |
-| `Sub[T,M](state, extract)` | live `*M` pointing into `state.Value` | strong-typed DI for a sub-struct |
+| `Extract[T,M](state, extract)` | live `*M` pointing into `state.Value` | strong-typed DI for a sub-struct |
 
 The flat dotted-key view is **lazy** — built on first access via an `atomic.Pointer` cache on the State, so normal reload paths pay nothing.
 
@@ -31,10 +31,12 @@ fmt.Println(db["dsn"]) // "postgres://..."
 
 // strong-typed sub-tree pointer (read-only, aliases state.Value)
 type DBView struct{ DSN string `json:"dsn"` }
-dbv := fastconf.Sub(state, func(c *AppConfig) *DBView {
+dbv := fastconf.Extract(state, func(c *AppConfig) *DBView {
     return &c.Database
 })
 ```
+
+`Extract` is the synchronous, one-shot counterpart to `Subscribe` — pair them when you want both an immediate view and a callback on subsequent commits.
 
 ## Why no `mgr.GetString("a.b")` shortcut?
 

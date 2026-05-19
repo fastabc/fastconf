@@ -20,8 +20,8 @@ volumes:
 ```go
 mgr, err := fastconf.New[MyApp](ctx,
     fastconf.WithDir("/etc/myapp/conf.d"),
-    fastconf.WithProfileEnv("APP_PROFILE"),
-    fastconf.WithWatch(true),
+    fastconf.WithProfile(fastconf.ProfileOptions{EnvVar: "APP_PROFILE"}),
+    fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
 )
 ```
 
@@ -75,3 +75,9 @@ configuration paths.
 Run `fastconfd` next to your app container; the app polls
 `http://localhost:8650/config` once per startup and follows
 `/events` for live updates. See [sidecar.md](sidecar.md).
+
+## Runnable example
+
+[`examples/basic/example_test.go`](../../examples/basic/example_test.go) —
+profile-aware overlay loading with `fastconf.WithProfile`. Run it with
+`go test ./examples/basic/...`.

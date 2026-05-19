@@ -8,10 +8,13 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/fastabc/fastconf/internal/secret"
 	"github.com/fastabc/fastconf/pkg/source"
 )
 
 func reflectTypeOf(v any) reflect.Type { return reflect.TypeOf(v) }
+
+func secretPathsFor(t reflect.Type) []string { return secret.Paths(t) }
 
 type phase8Cfg struct {
 	Name string `json:"name" yaml:"name"`

@@ -1,6 +1,7 @@
 package fastconf_test
 
 import (
+	"context"
 	"os"
 	"testing"
 	"testing/fstest"
@@ -38,16 +39,18 @@ func TestOverlayAxis_DefaultFromHostname_UsesHostname(t *testing.T) {
 		t.Skip("os.Hostname() failed, skipping:", err)
 	}
 
-	type cfg struct{ Name string `yaml:"name"` }
+	type cfg struct {
+		Name string `yaml:"name"`
+	}
 
 	mfs := fstest.MapFS{
-		"conf.d/base/00.yaml":                              {Data: []byte("name: base\n")},
-		"conf.d/hosts/" + hostname + "/00.yaml":            {Data: []byte("name: from-hostname\n")},
+		"conf.d/base/00.yaml":                   {Data: []byte("name: base\n")},
+		"conf.d/hosts/" + hostname + "/00.yaml": {Data: []byte("name: from-hostname\n")},
 	}
 
 	unsetEnvForTest(t, testHostAxisEnv)
 
-	mgr, err := fastconf.New[cfg](t.Context(),
+	mgr, err := fastconf.New[cfg](context.Background(),
 		fastconf.WithFS(mfs),
 		fastconf.WithDir("conf.d"),
 		fastconf.WithMultiAxisOverlays(
@@ -77,17 +80,19 @@ func TestOverlayAxis_DefaultFromHostname_EnvVarWins(t *testing.T) {
 		t.Skip("os.Hostname() failed, skipping:", err)
 	}
 
-	type cfg struct{ Name string `yaml:"name"` }
+	type cfg struct {
+		Name string `yaml:"name"`
+	}
 
 	mfs := fstest.MapFS{
-		"conf.d/base/00.yaml":                              {Data: []byte("name: base\n")},
-		"conf.d/hosts/" + hostname + "/00.yaml":            {Data: []byte("name: from-hostname\n")},
-		"conf.d/hosts/explicit-host/00.yaml":               {Data: []byte("name: from-explicit\n")},
+		"conf.d/base/00.yaml":                   {Data: []byte("name: base\n")},
+		"conf.d/hosts/" + hostname + "/00.yaml": {Data: []byte("name: from-hostname\n")},
+		"conf.d/hosts/explicit-host/00.yaml":    {Data: []byte("name: from-explicit\n")},
 	}
 
 	t.Setenv(testHostAxisEnv, "explicit-host")
 
-	mgr, err := fastconf.New[cfg](t.Context(),
+	mgr, err := fastconf.New[cfg](context.Background(),
 		fastconf.WithFS(mfs),
 		fastconf.WithDir("conf.d"),
 		fastconf.WithMultiAxisOverlays(
@@ -118,17 +123,19 @@ func TestOverlayAxis_DefaultFromHostname_EmptyEnvVarSkips(t *testing.T) {
 		t.Skip("os.Hostname() failed, skipping:", err)
 	}
 
-	type cfg struct{ Name string `yaml:"name"` }
+	type cfg struct {
+		Name string `yaml:"name"`
+	}
 
 	mfs := fstest.MapFS{
-		"conf.d/base/00.yaml":                    {Data: []byte("name: base\n")},
-		"conf.d/hosts/" + hostname + "/00.yaml":  {Data: []byte("name: from-hostname\n")},
+		"conf.d/base/00.yaml":                   {Data: []byte("name: base\n")},
+		"conf.d/hosts/" + hostname + "/00.yaml": {Data: []byte("name: from-hostname\n")},
 	}
 
 	// Set env var to empty string to disable the axis.
 	t.Setenv(testHostAxisEnv, "")
 
-	mgr, err := fastconf.New[cfg](t.Context(),
+	mgr, err := fastconf.New[cfg](context.Background(),
 		fastconf.WithFS(mfs),
 		fastconf.WithDir("conf.d"),
 		fastconf.WithMultiAxisOverlays(
@@ -158,16 +165,18 @@ func TestOverlayAxis_DefaultFromHostname_FalseSkips(t *testing.T) {
 		t.Skip("os.Hostname() failed, skipping:", err)
 	}
 
-	type cfg struct{ Name string `yaml:"name"` }
+	type cfg struct {
+		Name string `yaml:"name"`
+	}
 
 	mfs := fstest.MapFS{
-		"conf.d/base/00.yaml":                    {Data: []byte("name: base\n")},
-		"conf.d/hosts/" + hostname + "/00.yaml":  {Data: []byte("name: from-hostname\n")},
+		"conf.d/base/00.yaml":                   {Data: []byte("name: base\n")},
+		"conf.d/hosts/" + hostname + "/00.yaml": {Data: []byte("name: from-hostname\n")},
 	}
 
 	unsetEnvForTest(t, testHostAxisEnv)
 
-	mgr, err := fastconf.New[cfg](t.Context(),
+	mgr, err := fastconf.New[cfg](context.Background(),
 		fastconf.WithFS(mfs),
 		fastconf.WithDir("conf.d"),
 		fastconf.WithMultiAxisOverlays(
@@ -199,17 +208,19 @@ func TestPresetHierarchical_HostsAxisHasDefaultFromHostname(t *testing.T) {
 		t.Skip("os.Hostname() failed, skipping:", err)
 	}
 
-	type cfg struct{ Name string `yaml:"name"` }
+	type cfg struct {
+		Name string `yaml:"name"`
+	}
 
 	// Ensure the default HOST env var is absent so hostname fallback can activate.
 	unsetEnvForTest(t, "HOST")
 
 	mfs := fstest.MapFS{
-		"conf.d/base/00.yaml":                    {Data: []byte("name: base\n")},
-		"conf.d/hosts/" + hostname + "/00.yaml":  {Data: []byte("name: from-hostname\n")},
+		"conf.d/base/00.yaml":                   {Data: []byte("name: base\n")},
+		"conf.d/hosts/" + hostname + "/00.yaml": {Data: []byte("name: from-hostname\n")},
 	}
 
-	mgr, err := fastconf.New[cfg](t.Context(),
+	mgr, err := fastconf.New[cfg](context.Background(),
 		fastconf.WithFS(mfs),
 		fastconf.PresetHierarchical(fastconf.HierarchicalOpts{}),
 	)

@@ -2,6 +2,7 @@ package phuslu_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -64,7 +65,7 @@ func TestHandler_LevelMapping(t *testing.T) {
 		var buf bytes.Buffer
 		h, _ := newLogger(&buf)
 		l := slog.New(h)
-		l.Log(t.Context(), c.slogLvl, "msg")
+		l.Log(context.Background(), c.slogLvl, "msg")
 		got := parse(t, &buf)
 		if got["level"] != c.want {
 			t.Fatalf("for %v: level got %v want %s", c.slogLvl, got["level"], c.want)

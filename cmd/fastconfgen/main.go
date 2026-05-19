@@ -1,5 +1,5 @@
 // fastconfgen reads a YAML or JSON configuration sample and emits an
-// equivalent Go struct definition. Phase 27 — pragmatic
+// equivalent Go struct definition. Pragmatic
 // YAML-by-example codegen with no external deps beyond yaml.v3.
 package main
 

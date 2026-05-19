@@ -22,10 +22,11 @@ type FileSource struct {
 	priority int
 }
 
-// NewFile constructs a FileSource. Default priority is 8000 (above
-// generator layers, below provider/CLI). Override via WithPriority.
+// NewFile constructs a FileSource. Default priority is
+// contracts.BandProvider (above generator layers, below
+// provider/CLI). Override via WithPriority.
 func NewFile(path string) *FileSource {
-	return &FileSource{path: path, priority: 8000}
+	return &FileSource{path: path, priority: contracts.BandProvider}
 }
 
 // WithPriority overrides the default priority.

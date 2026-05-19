@@ -1,17 +1,17 @@
-# Dumping the merged state to YAML
+# Dumping the merged state
 
-When something looks wrong in production, the fastest debug move is to *see the merged config the running process actually has*. FastConf produces a deterministic YAML rendering via `State.MarshalYAML`.
+When something looks wrong in production, the fastest debug move is to *see the merged config the running process actually has*. FastConf produces a deterministic rendering via `State[T].Dump(format, redactor)` — YAML, JSON, or TOML — over the same merged tree the typed snapshot was built from.
 
 ## Library
 
 ```go
 state := mgr.Snapshot()
-b, err := state.MarshalYAML(nil)
+b, err := state.Dump(fastconf.DumpYAML, nil) // or DumpJSON / DumpTOML
 if err != nil { return err }
 _ = os.WriteFile("/tmp/cur.yaml", b, 0o644)
 ```
 
-Keys are sorted lexicographically inside every map, so two snapshots whose values match produce **byte-identical** YAML — diff tools work without flake.
+Map keys are sorted lexicographically inside every YAML mapping, so two snapshots whose merged values match produce **byte-identical** YAML — diff tools work without flake. JSON uses two-space indent; TOML uses BurntSushi/toml's canonical output.
 
 ## `fastconfctl dump --format=yaml`
 
@@ -35,12 +35,25 @@ curl -s http://localhost:8650/dump
 curl -s http://localhost:8650/dump?format=json
 ```
 
-## Redaction (optional)
+## Redaction
 
-`MarshalYAML(redactor)` reserves the parameter for a future field-tag walker; today, redact-before-dump by calling `state.Redact(redactor)` and marshalling the result yourself:
+Pass a redactor to mask secret-tagged paths in place:
 
 ```go
-b, _ := yaml.Marshal(state.Redact(mgr.Redactor()))
+b, _ := state.Dump(fastconf.DumpYAML, fastconf.DefaultSecretRedactor)
 ```
 
-`/config?redact=true` on the sidecar already uses this path — see the [sidecar recipe](sidecar.md).
+The redactor walks fields tagged `fastconf:"secret"` (or registered via `WithSecretRedactor`) and replaces them with `***REDACTED***` (default) or a custom marker. `/config?redact=true` on the sidecar already uses this path — see the [sidecar recipe](sidecar.md).
+
+## Migration from v0.17
+
+`State[T].MarshalYAML(redactor)` has been removed in v0.18. Replace each call site:
+
+```go
+// before
+b, err := state.MarshalYAML(redactor)
+// after
+b, err := state.Dump(fastconf.DumpYAML, redactor)
+```
+
+JSON and TOML callers no longer need to reach into `state.Value` and pick their own encoder.

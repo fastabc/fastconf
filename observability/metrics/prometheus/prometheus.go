@@ -11,7 +11,7 @@
 // The Sink implements both fastconf.MetricsSink (reload counters,
 // state generation, layer count) and the optional
 // fastconf.ProviderMetricsSink (per-provider error / dropped event
-// counters introduced in Phase 5).
+// counters).
 package prometheus
 
 import (
@@ -105,7 +105,7 @@ func (s *Sink) EventDropped(provider string) {
 	s.eventDropped.WithLabelValues(provider).Inc()
 }
 
-// StageDuration satisfies fastconf.StageMetricsSink (Phase 28).
+// StageDuration satisfies fastconf.StageMetricsSink.
 // stage ∈ {"assemble","merge","migration","transform","decode","validate","commit"}.
 func (s *Sink) StageDuration(stage string, dur time.Duration, ok bool) {
 	label := "ok"

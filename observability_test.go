@@ -15,11 +15,11 @@ import (
 	"github.com/fastabc/fastconf"
 )
 
-// ── Folded from observability_internal_test.go (Phase 84 SPEC-84) ──
+// ── Folded from observability_internal_test.go ──
 
-// TestAuditSink_EncoderReuse pins BUG-208: NewJSONAuditSink must reuse
-// a single json.Encoder under its mutex so successive Audit calls do
-// not allocate a fresh encoder per line.
+// TestAuditSink_EncoderReuse asserts that NewJSONAuditSink reuses a
+// single json.Encoder under its mutex so successive Audit calls do not
+// allocate a fresh encoder per line.
 func TestAuditSink_EncoderReuse(t *testing.T) {
 	var buf bytes.Buffer
 	sink := fastconf.NewJSONAuditSink(&buf)
@@ -193,5 +193,42 @@ func TestObservability_SlogAndMetrics(t *testing.T) {
 	logs := buf.String()
 	if !strings.Contains(logs, `"reason":"initial"`) || !strings.Contains(logs, "fastconf reload swap") {
 		t.Errorf("expected reload log entries, got:\n%s", logs)
+	}
+}
+
+// TestObs_NilOptionsAreDeferredErrors locks in SPEC-D3: passing nil to
+// WithLogger / WithMetrics / WithTracer must surface as a DeferredErr
+// from New(), not be silently dropped.
+func TestObs_NilOptionsAreDeferredErrors(t *testing.T) {
+	mfs := fstest.MapFS{
+		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("name: x\n")},
+	}
+	type cfg struct {
+		Name string `json:"name"`
+	}
+
+	cases := []struct {
+		name string
+		opt  fastconf.Option
+		want string
+	}{
+		{"WithLogger", fastconf.WithLogger(nil), "WithLogger(nil)"},
+		{"WithMetrics", fastconf.WithMetrics(nil), "WithMetrics(nil)"},
+		{"WithTracer", fastconf.WithTracer(nil), "WithTracer(nil)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := fastconf.New[cfg](context.Background(),
+				fastconf.WithFS(mfs),
+				fastconf.WithDir("conf.d"),
+				tc.opt,
+			)
+			if err == nil {
+				t.Fatal("expected nil-option to surface as deferred error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not mention %q", err, tc.want)
+			}
+		})
 	}
 }

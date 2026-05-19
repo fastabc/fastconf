@@ -163,10 +163,10 @@ func (p *Provider) Watch(ctx context.Context) (<-chan contracts.Event, error) {
 		go p.watchLoop(ctx, out)
 	} else {
 		// Interval=0 + auth: only the renewer keeps the channel alive.
-		// BUG-1205: explicitly close out when ctx ends so the
-		// subscribe() drain goroutine in fastconf/provider_watch.go
-		// observes a clean termination instead of leaking. The renewer
-		// goroutine handles its own exit independently.
+		// Why: explicitly close `out` when ctx ends so the subscribe()
+		// drain goroutine in fastconf observes clean termination instead
+		// of leaking. The renewer goroutine handles its own exit
+		// independently.
 		go p.keepaliveLoop(ctx, out)
 	}
 	return out, nil

@@ -40,6 +40,8 @@ diff -u conf.d/base/00.yaml /tmp/live.yaml
 curl -s 'http://localhost:8650/config?redact=true' | jq .
 ```
 
-## Python client
+## Runnable example
 
-See [`example_sidecar_test.go`](../../example_sidecar_test.go) for a runnable sidecar-style example.
+[`examples/sidecar/example_test.go`](../../examples/sidecar/example_test.go) —
+the in-process sidecar manager (PresetSidecar) that `cmd/fastconfd`
+wraps in an HTTP+SSE server. Run it with `go test ./examples/sidecar/...`.

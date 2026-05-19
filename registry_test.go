@@ -16,7 +16,7 @@ func TestProviderRegistryRoundTrip(t *testing.T) {
 	RegisterProviderFactory("memtest", func(map[string]any) (contracts.Provider, error) {
 		return &memProvider{name: "memtest", data: map[string]any{"hello": "world"}}, nil
 	})
-	mgr, err := New[cfg](t.Context(),
+	mgr, err := New[cfg](context.Background(),
 		WithFS(fstest.MapFS{"conf.d/base/.keep": &fstest.MapFile{Data: []byte("")}}),
 		WithProviderByName("memtest", nil),
 	)
@@ -31,7 +31,7 @@ func TestProviderRegistryRoundTrip(t *testing.T) {
 
 func TestProviderRegistryUnknownName(t *testing.T) {
 	type cfg struct{}
-	_, err := New[cfg](t.Context(),
+	_, err := New[cfg](context.Background(),
 		WithFS(fstest.MapFS{"conf.d/base/.keep": &fstest.MapFile{Data: []byte("")}}),
 		WithProviderByName("nope-no-such", nil),
 	)
@@ -69,7 +69,7 @@ func TestProviderRegistry_ManagerLocal(t *testing.T) {
 	// Order intentionally inverted: WithProviderByName appears BEFORE
 	// WithProviderRegistry. Deferred resolution must still see the
 	// final registry state.
-	mgr, err := New[cfg](t.Context(),
+	mgr, err := New[cfg](context.Background(),
 		WithFS(fstest.MapFS{"conf.d/base/.keep": &fstest.MapFile{Data: []byte("")}}),
 		WithProviderByName("scoped", nil),
 		WithProviderRegistry(local),
@@ -98,9 +98,8 @@ func TestProviderRegistry_ManagerLocalOverridesGlobal(t *testing.T) {
 	})
 	t.Cleanup(func() {
 		// Drop the global registration so other tests do not race.
-		defaultProviderRegistry.mu.Lock()
-		delete(defaultProviderRegistry.m, "dualname")
-		defaultProviderRegistry.mu.Unlock()
+		// Drop the global registration so other tests do not race.
+		unregisterProviderFactory("dualname")
 	})
 
 	local := NewProviderRegistry()
@@ -108,7 +107,7 @@ func TestProviderRegistry_ManagerLocalOverridesGlobal(t *testing.T) {
 		return &memProvider{name: "dualname", data: map[string]any{"hello": "from-local"}}, nil
 	})
 
-	mgr, err := New[cfg](t.Context(),
+	mgr, err := New[cfg](context.Background(),
 		WithFS(fstest.MapFS{"conf.d/base/.keep": &fstest.MapFile{Data: []byte("")}}),
 		WithProviderRegistry(local),
 		WithProviderByName("dualname", nil),
@@ -133,12 +132,10 @@ func TestProviderRegistry_FallbackToGlobal(t *testing.T) {
 		return &memProvider{name: "globalonly", data: map[string]any{"hello": "global"}}, nil
 	})
 	t.Cleanup(func() {
-		defaultProviderRegistry.mu.Lock()
-		delete(defaultProviderRegistry.m, "globalonly")
-		defaultProviderRegistry.mu.Unlock()
+		unregisterProviderFactory("globalonly")
 	})
 
-	mgr, err := New[cfg](t.Context(),
+	mgr, err := New[cfg](context.Background(),
 		WithFS(fstest.MapFS{"conf.d/base/.keep": &fstest.MapFile{Data: []byte("")}}),
 		WithProviderRegistry(NewProviderRegistry()), // empty local
 		WithProviderByName("globalonly", nil),

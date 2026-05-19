@@ -39,6 +39,12 @@ func TestPlan_ProducesDiff(t *testing.T) {
 	if plan.Proposed == nil || plan.Proposed.Value.Port != 9090 {
 		t.Fatalf("expected proposed port 9090, got %+v", plan.Proposed)
 	}
+	// PlanResult.Diff is structured ([]DiffEntry), so consumers do not
+	// have to parse rendered strings to filter / sort by change kind.
+	// dryMgr starts from base port=8080 already, so its Plan vs current
+	// state is empty; assert the slice is the new type without
+	// asserting non-emptiness.
+	var _ []DiffEntry = plan.Diff
 	gen := mgr.Snapshot().Generation
 	if _, err := mgr.Plan().Run(context.Background()); err != nil {
 		t.Fatalf("plan idempotent: %v", err)
@@ -88,9 +94,9 @@ type bug1208Cfg struct {
 	Region string `json:"region"`
 }
 
-// BUG-1208: Plan() on a CI runner picked up the runner's hostname when
-// a multi-axis overlay used DefaultFromHostname=true, producing a diff
-// that did not reflect the target production environment. The new
+// Regression: Plan() on a CI runner picked up the runner's hostname
+// when a multi-axis overlay used DefaultFromHostname=true, producing a
+// diff that did not reflect the target production environment. The
 // WithPlanHostname Option pins the hostname for a single Plan call.
 func TestPlan_HostnameOverride(t *testing.T) {
 	fs := fstest.MapFS{

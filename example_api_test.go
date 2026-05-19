@@ -172,3 +172,45 @@ func ExampleReplay_Rollback() {
 	// Output:
 	// :9090 :8080
 }
+
+// ExampleMustNew demonstrates the one-line top-level initialisation
+// pattern. MustNew panics when the initial reload fails, so it is
+// intended for main / init in command-line tools and tests — not for
+// long-running daemons that should degrade gracefully.
+func ExampleMustNew() {
+	mgr := fastconf.MustNew[apiExampleConfig](context.Background(),
+		fastconf.PresetTesting(fastconf.TestingOpts{
+			FS: fstest.MapFS{
+				"conf.d/base/00-app.yaml": &fstest.MapFile{
+					Data: []byte("server:\n  addr: \":8080\"\n"),
+				},
+			},
+		}),
+	)
+	defer mgr.Close()
+
+	fmt.Println(mgr.Get().Server.Addr)
+	// Output:
+	// :8080
+}
+
+func mustExampleTempDir(pattern string) string {
+	dir, err := os.MkdirTemp(".", pattern)
+	if err != nil {
+		panic(err)
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		panic(err)
+	}
+	return abs
+}
+
+func mustWriteExampleFile(path, content string) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		panic(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		panic(err)
+	}
+}

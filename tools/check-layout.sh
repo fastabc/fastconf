@@ -10,21 +10,37 @@ error() { echo "MISSING: $1" >&2; FAIL=1; }
 
 # Root package files
 for f in \
-  manager.go options.go errors.go state.go defaults.go secret.go presets.go \
-  registry.go tenant.go pipeline.go pipeline_stages.go provider_watch.go \
-  obs_audit.go obs_metrics.go obs_tracer.go watch.go watcher.go doc.go feature.go introspect.go \
-  field_meta.go secret_resolver.go bind.go
+  aliases.go bind.go defaults.go doc.go errors.go feature.go \
+  manager.go obs.go options.go presets.go registry.go state.go
 do
   [ -f "$ROOT/$f" ] || error "root/$f"
 done
 
+# Top-level directories
+while IFS= read -r dir; do
+  [ -z "$dir" ] && continue
+  [ -d "$ROOT/$dir" ] || error "$dir"
+done < "$ROOT/tools/allowed-dirs.txt"
+
+while IFS= read -r dir; do
+  [ "$dir" = "$ROOT" ] && continue
+  name="${dir#"$ROOT/"}"
+  case "$name" in
+    .|.git|.github|.idea|.code-review-graph|.worktrees|.claude|logs) continue ;;
+  esac
+  if ! grep -Fxq "$name/" "$ROOT/tools/allowed-dirs.txt"; then
+    echo "UNEXPECTED: $name" >&2
+    FAIL=1
+  fi
+done < <(find "$ROOT" -maxdepth 1 -type d)
+
 # pkg/ packages
-for d in decoder discovery mappath merger migration parser profile provider source transform validate; do
+for d in cliadapter decoder discovery feature flog generator mappath merger migration parser profile provider source transform validate; do
   [ -d "$ROOT/pkg/$d" ] || error "pkg/$d"
 done
 
 # internal/ packages
-for d in coalesce obs typeinfo watcher; do
+for d in coalesce diffreport fcerr fctypes manager obs options pipeline provenance registry secret state tenant testutil typeinfo watcher; do
   [ -d "$ROOT/internal/$d" ] || error "internal/$d"
 done
 
@@ -39,6 +55,10 @@ done
 [ -d "$ROOT/providers/consul" ] || error "providers/consul"
 [ -d "$ROOT/providers/vault" ]  || error "providers/vault"
 [ -d "$ROOT/providers/http" ]   || error "providers/http"
+[ -d "$ROOT/providers/k8s" ]    || error "providers/k8s"
+[ -d "$ROOT/providers/nats" ]   || error "providers/nats"
+[ -d "$ROOT/providers/redisstream" ] || error "providers/redisstream"
+[ -d "$ROOT/providers/s3" ]     || error "providers/s3"
 
 # tools/
 [ -f "$ROOT/tools/loc-budget.sh" ]         || error "tools/loc-budget.sh"

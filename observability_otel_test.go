@@ -6,10 +6,12 @@ import (
 	"context"
 	"testing"
 	"testing/fstest"
+
+	"github.com/fastabc/fastconf/internal/testutil"
 )
 
 func TestOTELRunStagesEnrichesStageSpans(t *testing.T) {
-	tr := &recordingTracer{}
+	tr := &testutil.RecordingTracer{}
 	mgr, err := New[map[string]any](context.Background(),
 		WithFS(fstest.MapFS{
 			"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("a: 1\n")},
@@ -20,9 +22,6 @@ func TestOTELRunStagesEnrichesStageSpans(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	defer mgr.Close()
-
-	tr.mu.Lock()
-	defer tr.mu.Unlock()
 
 	want := []struct {
 		name string
@@ -39,37 +38,31 @@ func TestOTELRunStagesEnrichesStageSpans(t *testing.T) {
 		{name: "policy", idx: 8},
 	}
 	for _, tc := range want {
-		sp := findSpan(tr.spans, "fastconf."+tc.name)
+		sp := tr.FindSpan("fastconf." + tc.name)
 		if sp == nil {
 			t.Fatalf("missing span %q", tc.name)
 		}
-		if got := sp.attrs["fastconf.stage"]; got != tc.name {
+		if !sp.Ended {
+			t.Errorf("span %q was not ended", tc.name)
+		}
+		if got := sp.Attrs["fastconf.stage"]; got != tc.name {
 			t.Fatalf("span %q fastconf.stage = %v, want %q", tc.name, got, tc.name)
 		}
-		if got := sp.attrs["fastconf.stage.index"]; got != tc.idx {
+		if got := sp.Attrs["fastconf.stage.index"]; got != tc.idx {
 			t.Fatalf("span %q fastconf.stage.index = %v, want %d", tc.name, got, tc.idx)
 		}
-		if got := sp.attrs["fastconf.stage.success"]; got != true {
+		if got := sp.Attrs["fastconf.stage.success"]; got != true {
 			t.Fatalf("span %q fastconf.stage.success = %v, want true", tc.name, got)
 		}
-		if got := sp.attrs["fastconf.reload.reason"]; got != "initial" {
+		if got := sp.Attrs["fastconf.reload.reason"]; got != "initial" {
 			t.Fatalf("span %q fastconf.reload.reason = %v, want %q", tc.name, got, "initial")
 		}
-		elapsed, ok := sp.attrs["fastconf.stage.elapsed_ms"].(int64)
+		elapsed, ok := sp.Attrs["fastconf.stage.elapsed_ms"].(int64)
 		if !ok {
-			t.Fatalf("span %q fastconf.stage.elapsed_ms type = %T, want int64", tc.name, sp.attrs["fastconf.stage.elapsed_ms"])
+			t.Fatalf("span %q fastconf.stage.elapsed_ms type = %T, want int64", tc.name, sp.Attrs["fastconf.stage.elapsed_ms"])
 		}
 		if elapsed < 0 {
 			t.Fatalf("span %q fastconf.stage.elapsed_ms = %d, want >= 0", tc.name, elapsed)
 		}
 	}
-}
-
-func findSpan(spans []*recordingSpan, name string) *recordingSpan {
-	for _, sp := range spans {
-		if sp.name == name {
-			return sp
-		}
-	}
-	return nil
 }

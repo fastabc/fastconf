@@ -4,7 +4,7 @@
 > backward-compatibility commitments yet.
 
 FastConf is a strongly-typed, lock-free dynamic configuration loading
-and overlay framework for Go 1.26+ cloud-native applications. Design
+and overlay framework for Go 1.22+ cloud-native applications. Design
 tenets:
 
 - **Convention over configuration** — sensible defaults at every layer.
@@ -112,8 +112,8 @@ Any stage failure preserves the previous `*State[T]` and publishes one
 | Plan dry-run       | `Manager.Plan().WithHostname(s).Run(ctx) (*PlanResult[T], error)` |
 | Sidecar            | `cmd/fastconfd` HTTP+SSE: `/healthz / /version / /config / /dump / /reload / /events` |
 | Introspection      | `state.Introspect().Keys / Settings / At(path)` |
-| Typed subtree      | `fastconf.Sub[T,M](state, extract) *M` |
-| Marshal back       | `State.MarshalYAML(redactor)` |
+| Typed subtree      | `fastconf.Extract[T,M](state, extract) *M` |
+| Marshal back       | `State.Dump(DumpYAML \| DumpJSON \| DumpTOML, redactor)` |
 
 ## 7. Module topology
 

@@ -91,10 +91,10 @@ func LoadConfig[T any](ctx context.Context, f Flags, extra ...fastconf.Option) (
 	opts := []fastconf.Option{
 		fastconf.WithDir(f.Dir),
 		fastconf.WithStrict(f.Strict),
-		fastconf.WithWatch(f.Watch),
+		fastconf.WithWatch(fastconf.WatchOptions{Enabled: f.Watch}),
 	}
 	if f.Profile != "" {
-		opts = append(opts, fastconf.WithProfile(f.Profile))
+		opts = append(opts, fastconf.WithProfile(fastconf.ProfileOptions{Single: f.Profile}))
 	}
 	if err := f.Providers.Apply(&opts); err != nil {
 		return nil, err

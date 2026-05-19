@@ -1,4 +1,4 @@
-// fastconfd is the Phase 26 sidecar daemon. It runs an embedded
+// fastconfd is the sidecar daemon. It runs an embedded
 // fastconf.Manager[map[string]any] and exposes the live configuration
 // over a tiny HTTP API so that polyglot workloads (Python, Node,
 // Rust, shell) can pull strongly-versioned config out-of-process
@@ -187,8 +187,8 @@ func (s *server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no state", http.StatusServiceUnavailable)
 		return
 	}
-	// BUG-1207: opt-in redaction via ?redact=true. Uses the Manager's
-	// configured SecretRedactor (DefaultSecretRedactor when none set).
+	// Opt-in redaction via ?redact=true. Uses the Manager's configured
+	// SecretRedactor (DefaultSecretRedactor when none set).
 	if r.URL.Query().Get("redact") == "true" {
 		redacted := s.mgr.Snapshot().Redacted()
 		if path := r.URL.Query().Get("path"); path != "" {
@@ -216,7 +216,7 @@ func (s *server) handleConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDump returns the current merged state as YAML (default) or JSON
-// when the query parameter format=json is set. Phase 134.
+// when the query parameter format=json is set.
 func (s *server) handleDump(w http.ResponseWriter, r *http.Request) {
 	st := s.mgr.Snapshot()
 	if st == nil {
@@ -228,7 +228,7 @@ func (s *server) handleDump(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, st.Introspect().Settings())
 		return
 	}
-	b, err := st.MarshalYAML(nil)
+	b, err := st.Dump(fastconf.DumpYAML, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

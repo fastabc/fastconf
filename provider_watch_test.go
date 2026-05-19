@@ -122,7 +122,7 @@ func TestProviderWatch_TriggersReload(t *testing.T) {
 		fastconf.WithFS(mfs),
 		fastconf.WithDir("conf.d"),
 		fastconf.WithProvider(p),
-		fastconf.WithWatch(true),
+		fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
 	)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -162,7 +162,7 @@ func TestProviderWatch_BurstDoesNotBlock(t *testing.T) {
 		fastconf.WithFS(mfs),
 		fastconf.WithDir("conf.d"),
 		fastconf.WithProvider(p),
-		fastconf.WithWatch(true),
+		fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
 	)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -213,7 +213,7 @@ func TestProviderWatch_EventDroppedWhenReloadQueueFull(t *testing.T) {
 		fastconf.WithFS(mfs),
 		fastconf.WithDir("conf.d"),
 		fastconf.WithProvider(p),
-		fastconf.WithWatch(true),
+		fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
 		fastconf.WithMetrics(metrics),
 	)
 	if err != nil {
@@ -258,7 +258,7 @@ func TestProviderWatch_ResumeUnsupportedFallsBackToWatch(t *testing.T) {
 		fastconf.WithFS(mfs),
 		fastconf.WithDir("conf.d"),
 		fastconf.WithProvider(p),
-		fastconf.WithWatch(true),
+		fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
 		fastconf.WithMetrics(metrics),
 	)
 	if err != nil {

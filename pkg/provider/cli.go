@@ -12,14 +12,20 @@ import (
 // flag set. The map should contain only explicitly provided flags; parser
 // defaults belong in lower-priority layers or they will override file config
 // even when the user never typed the flag.
+type CLIProvider struct {
+	data     map[string]any
+	priority int
+}
+
+// NewCLI wraps a map as the CLI layer at [contracts.PriorityCLI].
 //
-// # Footgun: do not pass every flag's current value
+// # Footgun: pass only flags the user explicitly typed
 //
 // Spreading every defined flag — including those whose value is still the
 // default — into the map causes the default to silently override values
-// already set in the YAML / env / KV layers. This is the same trap that
+// already set in YAML / env / KV layers. This is the same trap that
 // spf13/viper's BindPFlag is known for; fastconf does not insulate you from
-// it. Always feed only the flags whose Changed / IsSet bit is true.
+// it.
 //
 //	// WRONG: defaults leak into CLI layer
 //	all := map[string]any{}
@@ -30,31 +36,18 @@ import (
 //
 //	// RIGHT: only flags the user explicitly typed
 //	import cliflag "github.com/fastabc/fastconf/integrations/cli/pflag"
-//	mgr.Add(provider.NewCLIChanged(cliflag.FromChanged(cmd.Flags())))
+//	mgr.Add(provider.NewCLI(cliflag.FromChanged(cmd.Flags())))
 //
-// See pkg/cliadapter and integrations/cli/pflag for ready-made helpers that
-// extract the "changed" subset for stdlib flag and spf13/pflag respectively.
-type CLIProvider struct {
-	data     map[string]any
-	priority int
-}
-
-// NewCLI wraps a map as the CLI layer. Prefer passing only explicitly changed
-// flags; NewCLIChanged is a semantic alias when you want that intent visible
-// at the call site. See the package-level footgun note on CLIProvider for the
-// hazard of passing flag defaults.
+// See [github.com/fastabc/fastconf/pkg/cliadapter] and
+// [github.com/fastabc/fastconf/integrations/cli/pflag] for ready-made helpers
+// that extract the "changed" subset for stdlib flag and spf13/pflag
+// respectively.
 func NewCLI(data map[string]any) *CLIProvider {
 	if data == nil {
 		data = map[string]any{}
 	}
 	return &CLIProvider{data: data, priority: contracts.PriorityCLI}
 }
-
-// NewCLIChanged wraps an explicit-override map as the CLI layer. It behaves
-// exactly like NewCLI; the name exists to make "changed flags only" obvious
-// at call sites and to pair cleanly with cliadapter.FromStdFlag /
-// integrations/cli/pflag.FromChanged, which yield such a map.
-func NewCLIChanged(data map[string]any) *CLIProvider { return NewCLI(data) }
 
 // WithPriority overrides the default priority.
 func (p *CLIProvider) WithPriority(prio int) *CLIProvider { p.priority = prio; return p }

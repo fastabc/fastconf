@@ -1,11 +1,11 @@
 // Package fastconf provides a strongly typed, lock-free, Kustomize-style
-// configuration loader built on Go 1.26 generics.
+// configuration loader built for Go 1.22+.
 //
 // # Start here
 //
 // A typical application reads FastConf in this order:
 //
-//   - Build a Manager[T] with New.
+//   - Build a Manager[T] with New (or MustNew for one-line main / init).
 //   - Read the live typed snapshot with Manager.Get.
 //   - React to successful commits with Subscribe and failed reloads with
 //     Manager.Errors.
@@ -13,8 +13,9 @@
 //   - Inspect provenance through Manager.Snapshot and recover retained states
 //     through Manager.Replay when WithHistory was enabled.
 //
-// The package examples mirror that path: ExampleNew, ExampleSubscribe,
-// ExampleManager_Errors, ExampleManager_Plan, and ExampleReplay_Rollback.
+// The package examples mirror that path: ExampleNew, ExampleMustNew,
+// ExampleSubscribe, ExampleManager_Errors, ExampleManager_Plan, and
+// ExampleReplay_Rollback.
 //
 // # Core ideas
 //
@@ -29,12 +30,15 @@
 //
 // # Reading by need
 //
-//   - Loading and overlays: New, Option, PresetK8s, PresetSidecar,
-//     WithProvider, WithProfile, WithMultiAxisOverlays.
+//   - Constructors: New, MustNew.
+//   - Preset bundles: PresetK8s, PresetSidecar, PresetTesting,
+//     PresetHierarchical.
+//   - Loading and overlays: Option, WithProvider, WithProfile, WithWatch,
+//     WithCoalesce, WithMultiAxisOverlays, WithDir, WithFS.
 //   - Runtime reaction: Subscribe, Manager.Errors, Manager.Watcher,
 //     DiffReporter.
 //   - Inspection and recovery: Manager.Snapshot, State.Introspect,
-//     State.Explain, Manager.Plan, Manager.Replay.
+//     State.Explain, State.Dump, Manager.Plan, Manager.Replay.
 //   - Extension points: Transformer, WithTypedHook, WithSecretResolver,
 //     WithValidator, WithPolicy, AuditSink, MetricsSink, Tracer.
 //
@@ -58,17 +62,16 @@
 //
 // # Key files
 //
-//	manager.go            — Manager[T] lifecycle + serialized reload loop
-//	provider_watch.go     — provider event subscription + resume fallback
-//	pipeline.go           — assemble / commit / Plan / codec registry
-//	pipeline_stages.go    — canonical merge→policy stage definitions
-//	state.go              — State[T], provenance, history, diff, watcher views
-//	options.go            — WithXxx option builders
-//	feature.go            — feature-rule extraction + Eval[T,V]
-//	introspect.go         — dotted-key diagnostics + Sub[T,M]
-//	obs_audit.go          — audit sinks and JSON audit output
-//	obs_metrics.go        — metrics extension points and bridge
-//	obs_tracer.go         — tracing extension points and noop tracer
-//	errors.go             — public sentinel errors and reload error stream
-//	watch.go / watcher.go — subscriptions + file-system watcher runtime
+//	manager.go   — Manager[T] facade + New + Subscribe + Eval
+//	state.go     — State[T], ReloadCause, Origins/Explain/Lookup facades
+//	options.go   — WithXxx option builders
+//	aliases.go   — codec, secret, field-meta, and replay public facades
+//	errors.go    — public sentinel errors and ReloadError stream
+//	obs.go       — metrics, tracer, audit-sink facades
+//	defaults.go  — WithStructDefaults + DefaulterFunc
+//	feature.go   — FeatureRule extraction + Eval[T,V]
+//	presets.go   — PresetK8s, PresetSidecar, PresetTesting
+//	registry.go  — RegisterProviderFactory + WithProviderByName
+//	bind.go      — WithSource content-type helpers
+//	doc.go       — package-level godoc
 package fastconf

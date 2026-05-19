@@ -1,4 +1,4 @@
-// Package policy defines the Phase 23 policy interface. Policies run
+// Package policy defines the policy interface. Policies run
 // inside the reload pipeline AFTER decode and validation but BEFORE
 // the atomic state swap, so a violation cleanly aborts the reload
 // without breaking the failure-safe contract: the previous *State[T]

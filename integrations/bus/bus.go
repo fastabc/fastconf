@@ -177,8 +177,8 @@ type BusProvider struct {
 	hasFirst bool
 
 	// onDecodeError, when non-nil, is invoked for every payload the
-	// Decoder rejects. Phase 20 BUG-207: surface malformed bus
-	// messages instead of silently dropping them.
+	// Decoder rejects. Surfaces malformed bus messages instead of
+	// silently dropping them.
 	onDecodeError func(subject string, payload []byte, err error)
 }
 

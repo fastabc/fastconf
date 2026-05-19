@@ -1,6 +1,6 @@
 // Package opa adapts an OPA Rego policy bundle to fastconf.policy.Policy.
 //
-// This is a Phase 23 thin wrapper: the heavy
+// This is a thin wrapper: the heavy
 // github.com/open-policy-agent/opa dependency stays out of the core
 // module and lives here in a dedicated Go submodule. Users who do
 // not need OPA pay no compile-time or binary-size cost.

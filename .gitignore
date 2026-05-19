@@ -69,6 +69,7 @@ go.work.sum
 
 # Logs
 /logs
+logs/CHANGELOG.md
 
 # Docs
 /docs/superpowers

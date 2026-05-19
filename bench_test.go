@@ -34,7 +34,10 @@ func newBenchManager(b testing.TB) *Manager[benchCfg] {
 	return mgr
 }
 
-func BenchmarkGetInternalNoState(b *testing.B) {
+// BenchmarkGetWarmState measures Get() against a manager whose State[T]
+// has been populated by an initial reload — the canonical hot-path
+// shape (single atomic.Pointer.Load + struct-pointer return).
+func BenchmarkGetWarmState(b *testing.B) {
 	mgr := newBenchManager(b)
 	defer mgr.Close()
 	b.ReportAllocs()
@@ -44,10 +47,6 @@ func BenchmarkGetInternalNoState(b *testing.B) {
 		sink = mgr.Get()
 	}
 	_ = sink
-}
-
-func BenchmarkReload(b *testing.B) {
-	benchmarkReloadNoop(b)
 }
 
 func BenchmarkReloadNoop(b *testing.B) {
@@ -65,6 +64,23 @@ func benchmarkReloadNoop(b *testing.B) {
 	}
 }
 
+// BenchmarkReloadAllocs is the v0.18 alloc baseline for the
+// reload-with-commit path. Pairs with BenchmarkReloadCommitSmall (which
+// has the same fixture) and is consumed by tools/bench-guard.sh as the
+// SPEC-C1 regression guard.
+func BenchmarkReloadAllocs(b *testing.B) {
+	mgr := newBenchManager(b)
+	defer mgr.Close()
+	ctx := context.Background()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = mgr.Reload(ctx, WithSourceOverride(map[string]any{
+			"a": 2 + i%2,
+		}))
+	}
+}
+
 func BenchmarkReloadCommitSmall(b *testing.B) {
 	mgr := newBenchManager(b)
 	defer mgr.Close()
@@ -76,6 +92,44 @@ func BenchmarkReloadCommitSmall(b *testing.B) {
 			"a": 2 + i%2, // alternate so every reload publishes a new State
 		}))
 	}
+}
+
+// BenchmarkSubscribeContention exercises the RWMutex path: 100 quiet
+// subscribers (read side) compete with frequent Subscribe/cancel churn
+// (write side) under continuous reload. Pre-SPEC-C2 the sync.Mutex
+// serialised both sides; under sync.RWMutex the read path runs in
+// parallel with itself, which this benchmark surfaces.
+func BenchmarkSubscribeContention(b *testing.B) {
+	const subscriberCount = 100
+	mgr := newBenchManager(b)
+	defer mgr.Close()
+	var dummyA int
+	for range subscriberCount {
+		Subscribe(mgr,
+			func(c *benchCfg) *int { return &c.A },
+			func(_, next *int) {
+				if next != nil {
+					dummyA += *next
+				}
+			},
+		)
+	}
+	ctx := context.Background()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// One churning Subscribe+cancel pair on every reload exercises
+		// the write side under read-path contention.
+		cancel := Subscribe(mgr,
+			func(c *benchCfg) *int { return &c.A },
+			func(_, _ *int) {},
+		)
+		_ = mgr.Reload(ctx, WithSourceOverride(map[string]any{
+			"a": 2 + i%2,
+		}))
+		cancel()
+	}
+	benchIntSink = dummyA
 }
 
 func BenchmarkReloadManySubscribers(b *testing.B) {
@@ -183,19 +237,6 @@ func BenchmarkIntrospectWarmKeys(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		benchKeysSink = intro.Keys()
-	}
-}
-
-func BenchmarkExplainDeep(b *testing.B) {
-	idx := newOriginIndex(ProvenanceFull)
-	path := strings.Repeat("node.", 31) + "leaf"
-	for i := 0; i < 16; i++ {
-		idx.record(path, SourceRef{Path: fmt.Sprintf("layer-%02d", i)})
-	}
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		benchOriginsSink = idx.Explain(path)
 	}
 }
 

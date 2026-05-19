@@ -2,8 +2,10 @@ package discovery
 
 import "io/fs"
 
-// MetaFile 是 conf.d/_meta.yaml 的反序列化目标。
-// 不存在时使用编译期默认值。Phase 2 仅消费其中字段子集；其余保留以便前向兼容。
+// MetaFile is the deserialization target for conf.d/_meta.yaml.
+// Compile-time defaults are used when the file is absent. Only a subset
+// of fields is consumed today; the rest is reserved for forward
+// compatibility.
 type MetaFile struct {
 	APIVersion string   `yaml:"apiVersion"`
 	Kind       string   `yaml:"kind"`
@@ -23,13 +25,15 @@ type MetaSpec struct {
 	Strict         bool     `yaml:"strict"`
 	AppendSlices   bool     `yaml:"appendSlices"`
 	RedactEnvKeys  []string `yaml:"redactEnvKeys"`
-	// MergeKeys (Phase 132) enables Kustomize-style strategic merge on
+	// MergeKeys enables Kustomize-style strategic merge on
 	// list-of-object slices. Each entry maps a dotted merged-tree path
 	// to the field name that identifies "the same item" across overlays.
 	MergeKeys map[string]string `yaml:"mergeKeys"`
 }
 
-// Apply 把 meta 中显式字段叠加到 ScanOptions（meta 优先于代码默认值，但低于显式 Option）。
+// Apply overlays the explicit fields from meta onto ScanOptions. Meta
+// takes precedence over compile-time defaults but yields to explicit
+// caller-provided Options.
 func (m *MetaFile) Apply(opt *ScanOptions) {
 	if m == nil {
 		return
@@ -48,12 +52,12 @@ func (m *MetaFile) Apply(opt *ScanOptions) {
 	}
 }
 
-// LoadMeta 尝试从 root/_meta.yaml 加载；不存在则返回 nil, nil。
+// LoadMeta tries to read root/_meta.yaml. Returns (nil, nil) when the
+// file is absent — _meta.yaml is optional.
 func LoadMeta(fsys fs.FS, root string) ([]byte, error) {
 	p := root + "/_meta.yaml"
 	data, err := readFile(fsys, p)
 	if err != nil {
-		// 不存在视为可选
 		return nil, nil
 	}
 	return data, nil

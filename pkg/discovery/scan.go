@@ -6,15 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"iter"
 	"os"
 	"path"
 	"path/filepath"
-	"slices"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/pkg/profile"
 )
 
@@ -49,12 +49,13 @@ type ExtraOverlay struct {
 	Priority int    // base priority for layers in this directory
 }
 
-// ScanOptions controls scan behaviour.
+// ScanOptions controls scan behaviour. The single-profile use case
+// goes through Profiles with one element; there is no separate
+// scalar field.
 type ScanOptions struct {
 	BaseDir       string         // default "base"
 	OverlayDir    string         // default "overlays"
-	Profile       string         // current overlay name ("" loads base only) — legacy single-profile path
-	Profiles      []string       // Active profile set; non-nil enables expression-based overlay matching.
+	Profiles      []string       // Active profile set; empty = base-only, one element = single-profile, more = multi-axis expression matching.
 	MatchAnd      string         // Optional global expression AND-ed with each overlay's match.
 	PatchSuffixes []string       // default [".patch.yaml", ".patch.json"]
 	Strict        bool           // when true, an unrecognised extension errors instead of being skipped
@@ -74,19 +75,23 @@ func (o *ScanOptions) defaults() {
 	}
 }
 
+// LayerSeq is a callback stream of discovered layers. It keeps early-stop
+// behavior without importing Go 1.23's iterator package.
+type LayerSeq func(yield func(Layer, error) bool)
+
 // Scan walks root and yields layers in base→overlay priority order,
 // lexicographic within each tier.
 //
-// The function returns iter.Seq2 instead of []Layer so that:
+// The function returns a callback stream instead of []Layer so that:
 //   - callers can early-stop (e.g. on a per-layer decode error);
 //   - large directory trees do not balloon peak memory;
-//   - the surface is consistent with Go 1.23+ range-over-func idioms.
-func Scan(root string, opt ScanOptions) iter.Seq2[Layer, error] {
+//   - Go 1.22 callers avoid the Go 1.23 iter/range-over-func dependency.
+func Scan(root string, opt ScanOptions) LayerSeq {
 	opt.defaults()
 
 	return func(yield func(Layer, error) bool) {
-		// 1) base layers (priority 1000-1999)
-		baseLayers, err := collect(opt.FS, root, opt.BaseDir, "", 1000, opt)
+		// 1) base layers (BandFileBase..BandFileBase+999)
+		baseLayers, err := collect(opt.FS, root, opt.BaseDir, "", contracts.BandFileBase, opt)
 		if err != nil {
 			yield(Layer{}, err)
 			return
@@ -97,27 +102,15 @@ func Scan(root string, opt ScanOptions) iter.Seq2[Layer, error] {
 			}
 		}
 
-		// 2) overlay layers (priority 2000-2999)
+		// 2) overlay layers (BandFileOverlay..BandFileOverlay+999)
 		// When Profiles is non-empty we walk every direct subdirectory of
 		// OverlayDir, read its optional _meta.yaml (with the `match:`
-		// expression), and include the directory iff the expression evaluates
-		// true against the active set. When Profiles is empty we keep the
-		// legacy single-Profile behaviour for full backward compatibility.
+		// expression), and include the directory iff the expression
+		// evaluates true against the active set. The single-profile case
+		// is just a Profiles with one element: an overlays/<profile>/
+		// without a _meta.yaml is auto-included.
 		if len(opt.Profiles) > 0 {
 			overlayLayers, err := collectOverlaysByExpression(opt.FS, root, opt)
-			if err != nil {
-				yield(Layer{}, err)
-				return
-			}
-			for _, l := range overlayLayers {
-				if !yield(l, nil) {
-					return
-				}
-			}
-			// Fall through to ExtraOverlays below — do NOT early-return here.
-		} else if opt.Profile != "" {
-			overlayPath := path.Join(opt.OverlayDir, opt.Profile)
-			overlayLayers, err := collect(opt.FS, root, overlayPath, opt.Profile, 2000, opt)
 			if err != nil {
 				yield(Layer{}, err)
 				return
@@ -130,8 +123,9 @@ func Scan(root string, opt ScanOptions) iter.Seq2[Layer, error] {
 		}
 
 		// 3) Extra overlay layers from multi-axis configuration (priority
-		//    supplied by caller, typically 3000+). Missing directories are
-		//    silently skipped so callers do not need to pre-check existence.
+		//    supplied by caller, typically BandExtraOverlay or above).
+		//    Missing directories are silently skipped so callers do not
+		//    need to pre-check existence.
 		for _, extra := range opt.ExtraOverlays {
 			extraLayers, err := collect(opt.FS, root, extra.Dir, extra.Profile, extra.Priority, opt)
 			if err != nil {
@@ -162,8 +156,8 @@ func collectOverlaysByExpression(fsys fs.FS, root string, opt ScanOptions) ([]La
 		}
 		return nil, fmt.Errorf("discovery: read overlays %q: %w", dir, err)
 	}
-	slices.SortFunc(entries, func(a, b fs.DirEntry) int {
-		return strings.Compare(a.Name(), b.Name())
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].Name() < entries[j].Name()
 	})
 	active := profile.NewSet(opt.Profiles...)
 	var globalExpr string
@@ -175,7 +169,7 @@ func collectOverlaysByExpression(fsys fs.FS, root string, opt ScanOptions) ([]La
 		globalExpr = opt.MatchAnd
 	}
 	var out []Layer
-	priorityBase := 2000
+	priorityBase := contracts.BandFileOverlay
 	for _, e := range entries {
 		if !e.IsDir() || strings.HasPrefix(e.Name(), "_") || strings.HasPrefix(e.Name(), ".") {
 			continue
@@ -213,8 +207,8 @@ func collectOverlaysByExpression(fsys fs.FS, root string, opt ScanOptions) ([]La
 	return out, nil
 }
 
-// overlayMeta is the per-overlay-directory _meta.yaml subset Phase 13
-// consumes. Other fields are reserved for forward compatibility.
+// overlayMeta is the per-overlay-directory _meta.yaml subset the
+// discovery scanner consumes. Other fields are reserved for forward compatibility.
 type overlayMeta struct {
 	Match string `yaml:"match"`
 }
@@ -251,9 +245,9 @@ func collect(fsys fs.FS, root, sub, profile string, base int, opt ScanOptions) (
 		return nil, fmt.Errorf("discovery: read dir %q: %w", dir, err)
 	}
 
-	// Stable lexicographic sort (Go 1.23+ slices.SortFunc + cmp).
-	slices.SortFunc(entries, func(a, b fs.DirEntry) int {
-		return strings.Compare(a.Name(), b.Name())
+	// Stable lexicographic sort.
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].Name() < entries[j].Name()
 	})
 
 	out := make([]Layer, 0, len(entries))

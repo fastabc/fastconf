@@ -23,7 +23,7 @@
 //	fs.Int("server.port", 8080, "listen port")
 //	_ = fs.Parse(os.Args[1:])
 //
-//	mgr.Add(provider.NewCLIChanged(cliflag.FromChanged(fs)))
+//	mgr.Add(provider.NewCLI(cliflag.FromChanged(fs)))
 //
 // When wired through a spf13/cobra command, pass cmd.Flags() (or
 // PersistentFlags()) to FromChanged.

@@ -6,7 +6,7 @@
 // every flag (including unset ones still holding their default) causes the
 // default to silently override file / env config the user did set. By only
 // emitting flags whose value was actually provided, the resulting map can
-// safely be wrapped by provider.NewCLIChanged at PriorityCLI without
+// safely be wrapped by provider.NewCLI at PriorityCLI without
 // poisoning lower-priority layers.
 //
 // # Adapters
@@ -55,12 +55,12 @@ func From(visit func(yield func(name, value string))) map[string]any {
 // FromStdFlag returns a nested map of only the flags explicitly set on fs.
 // It uses (*flag.FlagSet).Visit, which by contract walks set flags only.
 //
-// Pass the result to provider.NewCLIChanged at the call site:
+// Pass the result to provider.NewCLI at the call site:
 //
 //	fs := flag.NewFlagSet("app", flag.ExitOnError)
 //	fs.String("database.dsn", "", "db connection string")
 //	_ = fs.Parse(os.Args[1:])
-//	mgr.Add(provider.NewCLIChanged(cliadapter.FromStdFlag(fs)))
+//	mgr.Add(provider.NewCLI(cliadapter.FromStdFlag(fs)))
 func FromStdFlag(fs *flag.FlagSet) map[string]any {
 	return From(func(yield func(name, value string)) {
 		fs.Visit(func(f *flag.Flag) {

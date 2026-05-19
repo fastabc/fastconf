@@ -5,8 +5,9 @@
 package mappath
 
 import (
-	"strconv"
 	"strings"
+
+	"github.com/fastabc/fastconf/pkg/typed"
 )
 
 // Split splits a dotted path "a.b.c" into ["a", "b", "c"]. Empty path
@@ -138,10 +139,11 @@ type LabelOptions struct {
 func ExpandLabels(input any, opts LabelOptions) map[string]any {
 	seps := resolveSeparators(opts)
 	out := map[string]any{}
-	visit := func(k, v string) {
+	for _, pair := range NormalizeLabelInput(input) {
+		k := pair.Key
 		if opts.Prefix != "" {
 			if !strings.HasPrefix(k, opts.Prefix) {
-				return
+				continue
 			}
 			if opts.StripPrefix {
 				k = strings.TrimPrefix(k, opts.Prefix)
@@ -156,51 +158,16 @@ func ExpandLabels(input any, opts LabelOptions) map[string]any {
 			}
 		}
 		if k == "" {
-			return
+			continue
 		}
 		parts := splitMulti(k, seps)
-		var value any = v
+		var value any = pair.Value
 		if opts.Coerce {
-			value = coerceLabelValue(v)
+			value = coerceLabelValue(pair.Value)
 		}
 		Set(out, parts, value)
 	}
-	switch x := input.(type) {
-	case []string:
-		for _, kv := range x {
-			if k, v, ok := splitLabel(kv); ok {
-				visit(k, v)
-			}
-		}
-	case []any:
-		for _, item := range x {
-			s, ok := item.(string)
-			if !ok {
-				continue
-			}
-			if k, v, ok := splitLabel(s); ok {
-				visit(k, v)
-			}
-		}
-	case map[string]string:
-		for k, v := range x {
-			visit(k, v)
-		}
-	case map[string]any:
-		for k, v := range x {
-			s, ok := v.(string)
-			if !ok {
-				continue
-			}
-			visit(k, s)
-		}
-	}
 	return out
-}
-
-// splitLabel returns the (key, value, ok) split at the first '='.
-func splitLabel(kv string) (string, string, bool) {
-	return strings.Cut(kv, "=")
 }
 
 // resolveSeparators returns the effective separator list, honoring
@@ -247,20 +214,10 @@ func splitMulti(s string, seps []string) []string {
 }
 
 // coerceLabelValue mirrors pkg/provider env coercion: bool / int64 / float64
-// / string in that order. Kept private to mappath to avoid a sibling import
-// dependency.
+// / string in that order. Case-sensitive and whitespace-preserving — labels
+// that have already been canonicalized by ExpandLabels do not need either
+// rung. Use pkg/typed.Coerce directly for callers that need a different
+// policy.
 func coerceLabelValue(s string) any {
-	switch s {
-	case "true":
-		return true
-	case "false":
-		return false
-	}
-	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return n
-	}
-	if f, err := strconv.ParseFloat(s, 64); err == nil {
-		return f
-	}
-	return s
+	return typed.Coerce(s, typed.CoerceOptions{})
 }

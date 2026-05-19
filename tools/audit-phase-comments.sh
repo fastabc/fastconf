@@ -19,7 +19,8 @@ if [ "${1:-}" = "--strict" ]; then
 fi
 
 # grep the whole tree, excluding archive/worktree/git noise.
-MATCHES=$(grep -rn "// Phase [0-9]" --include='*.go' . \
+# Pattern covers "Phase N" anywhere in a comment line, not just at the start.
+MATCHES=$(grep -rn "Phase [0-9]" --include='*.go' . \
   --exclude-dir='.git' \
   --exclude-dir='.worktrees' \
   --exclude-dir='archive' 2>/dev/null \

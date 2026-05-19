@@ -80,7 +80,7 @@ func TestCodec_TOMLBuiltIn(t *testing.T) {
 }
 
 // TestCodec_UnknownExtensionStillRejected pins the strict-mode contract
-// for genuinely unrecognised extensions: even after Phase 90 added TOML,
+// for genuinely unrecognised extensions: even after TOML was added,
 // .hcl / .ini / .json5 must still error unless RegisterCodecExt wires
 // them in.
 func TestCodec_UnknownExtensionStillRejected(t *testing.T) {
@@ -104,8 +104,8 @@ func TestRegisterCodec_NilPanics(t *testing.T) {
 
 // TestTOMLCodec_EndToEnd verifies that a `.toml` configuration layer
 // is discovered, decoded, deep-merged, and decoded into *T through
-// the full reload pipeline. Phase 90 (v0.8) introduced the built-in
-// TOML codec; this test pins the contract from discovery through Get.
+// the full reload pipeline. The built-in TOML codec was introduced in
+// v0.8; this test pins the contract from discovery through Get.
 func TestTOMLCodec_EndToEnd(t *testing.T) {
 	type Server struct {
 		Addr string `json:"addr" toml:"addr"`
@@ -181,7 +181,7 @@ func TestTOMLCodec_OverlayPatchYAML(t *testing.T) {
 	mgr, err := fastconf.New[Cfg](context.Background(),
 		fastconf.WithFS(mfs),
 		fastconf.WithDir("conf.d"),
-		fastconf.WithProfile("prod"),
+		fastconf.WithProfile(fastconf.ProfileOptions{Single: "prod"}),
 	)
 	if err != nil {
 		t.Fatalf("New: %v", err)

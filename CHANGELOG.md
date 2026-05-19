@@ -1,14 +1,16 @@
 # Changelog
 
 All notable changes to FastConf are documented here.
-
-FastConf is currently **pre-public**: the API may change without notice
-and there is no migration commitment. The changelog tracks the current
-state of `main`, not a release history. Earlier iterations have been
-collapsed into a single baseline — the project is the API described in
-[`README.md`](./README.md), not the path that got there.
+See [`docs/cookbook/migration-v0.18.md`](docs/cookbook/migration-v0.18.md)
+for the step-by-step migration guide.
 
 ## [Unreleased]
+
+_Nothing yet._
+
+## [v0.18.0] — 2026-05-19
+
+First public release.
 
 ### Breaking changes (import path migration)
 
@@ -25,11 +27,48 @@ CUE sub-modules (`policy/cue` and `validate/cue/cuelang`), merging them under a 
 shared `cuelang.org/go` runtime. `providers/s3events` is now a subpackage of `providers/s3`
 (same `go get github.com/fastabc/fastconf/providers/s3@latest` install).
 
+### Breaking changes (API)
+
+See [`docs/cookbook/migration-v0.18.md`](docs/cookbook/migration-v0.18.md) for full
+examples and migration recipes.
+
+- **Bucketed options (SPEC-A1):** 11 flat `With*` setters replaced by
+  `WithProfile(ProfileOptions{…})`, `WithWatch(WatchOptions{…})`, and
+  `WithCoalesce(CoalesceOptions{…})`. The old names are deleted.
+- **`WithDefaulterFunc` → `WithDefaults` (SPEC-A6).**
+- **`Sub` → `Extract` (SPEC-A8).**
+- **`State[T].Diff` now returns `[]DiffEntry` (SPEC-A4).** Use
+  `fastconf.FormatDiff(entries)` to get the previous `[]string` line list.
+- **`provider.NewCLIChanged` removed (SPEC-E2).** Use `provider.NewCLI`.
+- **`OverlayAxis`, `Transformer`, `MigrationApplier`, `MigrationFunc`,
+  `CodecBridge` are now root-native types (SPEC-A3).** Field names are
+  unchanged; existing struct literals compile without modification.
+
+### Architecture
+
+- Moved `Manager[T]`, the reload pipeline, plan/replay/watch helpers, and
+  receiver-method internals behind `internal/manager`.
+- Moved option storage into `internal/options`, observability contracts into
+  `internal/obs`, tenant registry into `internal/tenant`, and generic
+  `State[T]` implementation into `internal/state`.
+- Root package is now a 12-file public facade of type aliases,
+  constructors, and `With*` wrappers. Public API signatures are unchanged.
+- `go.mod` minimum version lowered to `go 1.22`; all language features in
+  use (`generics`, `atomic.Pointer`) are available since Go 1.18/1.19.
+
+### Compatibility
+
+- `fastconf.Manager[T]`, `State[T]`, `Option`, `TenantManager[T]`,
+  `Replay[T]`, `Watcher[T]`, `PlanResult[T]`, and observability interfaces
+  remain available at the root package through aliases.
+- `Manager.Get` remains zero allocation; bench guard reports 0.4339 ns/op,
+  0 B/op, 0 allocs/op on the local arm64 baseline.
+
 ## [v0.15.0] — 2026-05-16
 
 First numbered pre-public release. Tracks the contract-polish wave that
 collapses every "shape-before-semantics" rough edge surfaced in
-`docs/plans/2026-05-16-project-evaluation.md` and lays the groundwork
+`docs/plans/archive/2026-05-16-project-evaluation.md` and lays the groundwork
 for a 9+/10 publish-readiness score.
 
 ### Reload pipeline

@@ -156,8 +156,11 @@ func NewDefault() *DownwardProvider {
 	})
 }
 
-// NewExpandedDefault preserves the pre-v0.17 expanded-root behavior for
-// callers that intentionally use metadata keys as configuration paths.
+// NewExpandedDefault returns a DownwardProvider that splices labels and
+// annotations into the configuration root using each metadata key as a
+// dotted path. Use this when metadata keys are intentionally treated as
+// configuration paths; the default NewDefault nests them under
+// `k8s.metadata` to avoid clobbering business keys.
 func NewExpandedDefault() *DownwardProvider {
 	return New(Options{
 		LabelsPath:      DefaultLabelsPath,

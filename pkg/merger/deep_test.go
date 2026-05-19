@@ -1,6 +1,10 @@
 package merger
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestDeep_AddNewKey(t *testing.T) {
 	dst := map[string]any{"a": 1}
@@ -57,5 +61,21 @@ func TestDeep_StrictTypeMismatch(t *testing.T) {
 	src := map[string]any{"a": "not-a-map"}
 	if err := Deep(dst, src, Options{Strict: true}); err == nil {
 		t.Error("expected strict error")
+	}
+}
+
+// TestDeep_StrictRejectsStringerVsInt locks in that a fmt.Stringer such as
+// time.Time is NOT silently treated as a number under strict merge. The
+// pre-SPEC-E3 isNumber fallback returned true for any Stringer, which let
+// time/file types pass the numeric mismatch guard.
+func TestDeep_StrictRejectsStringerVsInt(t *testing.T) {
+	dst := map[string]any{"at": time.Unix(0, 0)}
+	src := map[string]any{"at": 42}
+	err := Deep(dst, src, Options{Strict: true})
+	if err == nil {
+		t.Fatal("expected strict type-mismatch error between time.Time and int")
+	}
+	if !strings.Contains(err.Error(), "type mismatch") {
+		t.Fatalf("error %q should mention type mismatch", err)
 	}
 }

@@ -61,11 +61,9 @@ func PresetK8s(p K8sOpts) Option {
 			def = defaultK8sProfile
 		}
 		WithDir(dir)(o)
-		WithProfileEnv(env)(o)
-		WithDefaultProfile(def)(o)
-		WithWatch(p.Watch)(o)
+		WithProfile(ProfileOptions{EnvVar: env, Default: def})(o)
+		WithWatch(WatchOptions{Enabled: p.Watch, CoalesceProfile: p.CoalesceProfile})(o)
 		WithStrict(true)(o)
-		WithCoalesceProfile(p.CoalesceProfile)(o)
 	}
 }
 
@@ -93,7 +91,7 @@ func PresetSidecar(p SidecarOpts) Option {
 			n = DefaultSidecarHistoryCap
 		}
 		WithDir(dir)(o)
-		WithWatch(p.Watch)(o)
+		WithWatch(WatchOptions{Enabled: p.Watch})(o)
 		WithHistory(n)(o)
 		WithStrict(p.Strict)(o)
 	}
@@ -115,9 +113,9 @@ func PresetTesting(p TestingOpts) Option {
 			WithFS(p.FS)(o)
 		}
 		if p.Profile != "" {
-			WithProfile(p.Profile)(o)
+			WithProfile(ProfileOptions{Single: p.Profile})(o)
 		}
-		WithWatch(false)(o)
+		WithWatch(WatchOptions{Enabled: false})(o)
 		WithStrict(true)(o)
 	}
 }
@@ -179,7 +177,6 @@ func PresetHierarchical(p HierarchicalOpts) Option {
 			OverlayAxis{Dir: "zones", EnvVar: zoneEnv, Priority: 3100},
 			OverlayAxis{Dir: "hosts", EnvVar: hostEnv, Priority: 3200, DefaultFromHostname: true},
 		)(o)
-		WithWatch(p.Watch)(o)
-		WithCoalesceProfile(p.CoalesceProfile)(o)
+		WithWatch(WatchOptions{Enabled: p.Watch, CoalesceProfile: p.CoalesceProfile})(o)
 	}
 }

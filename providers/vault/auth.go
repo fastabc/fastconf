@@ -135,8 +135,9 @@ func (p *Provider) renewLoop(ctx context.Context, out chan<- contracts.Event) {
 		}
 		token, newTTL, err := p.auth.Login(ctx)
 		if err != nil {
-			// retry interval = min(currentTTL/2, 15s) (BUG-204)
-			// so short-lived dynamic secrets don't blow past expiry.
+			// Retry interval = min(currentTTL/2, 15s) so short-lived dynamic
+			// secrets don't blow past expiry while we wait for the next
+			// auth.Login round.
 			retry := int64(15)
 			if half := ttl / 2; half > 0 && half < retry {
 				retry = half

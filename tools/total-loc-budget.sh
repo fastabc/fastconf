@@ -22,8 +22,18 @@ set -euo pipefail
 #     nil-safety, secret-aware MarshalYAML, isolated provider clients): 11964
 #   v0.15.0 T1..T6 absorb (queue-depth telemetry, manager-local registry,
 #     deferred WithProviderByName resolution): 12146
-# Keep ~100 LOC of maintenance headroom while preventing quiet growth.
-MAX_TOTAL_LOC="${MAX_TOTAL_LOC:-12246}"
+#   v0.17 absorb (env/labels/CLI/k8s semantics; pkg/cliadapter,
+#     pkg/provider/labels.go + routing_labels.go, multi-axis overlay
+#     resolution, sub-module merges): 14874.
+#   v0.18.0 H5 absorb (SPEC-A2 Dump replaces MarshalYAML, SPEC-A5
+#     YAML-only tag warner, SPEC-A9 MustNew + docstring expansion on
+#     WithCodecBridge / MustNew / New): 15188.
+#   v0.18.0 pre-release polish absorb (internal/testutil/tracer.go
+#     consolidating duplicated recordingTracer/recordingSpan across
+#     manager + otel tests; Go 1.22 watcher backport):  ~15520.
+# Set to 16200 to allow ~680 LOC of headroom for post-release patches
+# while still blocking silent growth.
+MAX_TOTAL_LOC="${MAX_TOTAL_LOC:-16200}"
 
 # Discover every nested sub-module (go.mod at depth ≥ 2) and convert
 # them into find-friendly prune predicates. Built dynamically so adding
