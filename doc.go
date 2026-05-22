@@ -35,8 +35,8 @@
 //     PresetHierarchical.
 //   - Loading and overlays: Option, WithProvider, WithProfile, WithWatch,
 //     WithCoalesce, WithMultiAxisOverlays, WithDir, WithFS.
-//   - Runtime reaction: Subscribe, Manager.Errors, Manager.Watcher,
-//     DiffReporter.
+//   - Runtime reaction: Subscribe, WithEqual, Manager.Errors,
+//     Manager.Watcher, DiffReporter.
 //   - Inspection and recovery: Manager.Snapshot, State.Introspect,
 //     State.Explain, State.Dump, Manager.Plan, Manager.Replay.
 //   - Extension points: Transformer, WithTypedHook, WithSecretResolver,

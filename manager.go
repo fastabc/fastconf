@@ -204,11 +204,82 @@ func (w *Watcher[T]) Paused() bool {
 var ErrUnknownGeneration = imanager.ErrUnknownGeneration
 var ErrHistoryDisabled = imanager.ErrHistoryDisabled
 
-func Subscribe[T any, M any](m *Manager[T], extract func(*T) *M, fn func(old, new *M)) (cancel func()) {
+// SubscribeOption customises a [Subscribe] registration. The only
+// constructor today is [WithEqual]; the type is exported so callers can
+// write helper functions that return options.
+type SubscribeOption[M any] func(*subscribeOpts[M])
+
+// subscribeOpts carries the resolved per-subscriber knobs.
+type subscribeOpts[M any] struct {
+	equal func(old, new *M) bool
+}
+
+// WithEqual replaces the default [reflect.DeepEqual] comparator used by
+// [Subscribe] to decide whether the extracted value actually changed.
+//
+// The framework invokes equal only with two non-nil pointers; nil ↔
+// non-nil transitions are unambiguous changes and never consult equal.
+// Return true to mark old and new as unchanged (the callback is skipped).
+//
+// Common uses:
+//
+//   - Ignore a noisy field: return a.URL == b.URL && a.Pool == b.Pool
+//   - Hash-compare large structs: return a.Hash == b.Hash
+//   - Force fire-on-every-reload (e.g. audit, mirror, heartbeat):
+//     WithEqual(func(_, _ *T) bool { return false })
+func WithEqual[M any](equal func(old, new *M) bool) SubscribeOption[M] {
+	return func(o *subscribeOpts[M]) { o.equal = equal }
+}
+
+// Subscribe registers a callback that fires after a successful reload
+// when the value extracted by extract has actually changed.
+//
+// Change detection uses [reflect.DeepEqual] on the dereferenced values by
+// default. Pass [WithEqual] to substitute a custom comparator (skip
+// noisy fields, hash-compare large structs, force fire-on-every-reload).
+//
+//	cancel := fastconf.Subscribe(mgr,
+//	    func(c *AppConfig) *DBConfig { return &c.Database },
+//	    func(old, new *DBConfig) {
+//	        reconnect(new) // guaranteed: database config actually changed
+//	    },
+//	)
+//	defer cancel()
+//
+// nil ↔ non-nil transitions always fire (unambiguous changes; equality
+// function is not consulted). Two nil values do not fire.
+//
+// Callbacks run synchronously on the reload goroutine. They must return
+// quickly; blocking I/O postpones the next reload. Spawn a goroutine
+// inside the callback if needed.
+//
+// A panic in fn (or in a [WithEqual] comparator) is recovered and
+// surfaced on [Manager.Errors]; it does not poison the writer or affect
+// other subscribers. The returned cancel removes the subscription;
+// calling it after Close() is a no-op.
+//
+// # v0.19 breaking change
+//
+// In v0.18 Subscribe fired unconditionally on every reload and callers
+// implemented equality themselves. v0.19 inverts the default: the
+// framework does the diff. To restore the v0.18 fire-always behavior,
+// pass WithEqual(func(_, _ *T) bool { return false }).
+func Subscribe[T any, M any](
+	m *Manager[T],
+	extract func(*T) *M,
+	fn func(old, new *M),
+	opts ...SubscribeOption[M],
+) (cancel func()) {
 	if m == nil || m.inner == nil {
 		return func() {}
 	}
-	return imanager.Subscribe[T, M](m.inner, extract, fn)
+	cfg := subscribeOpts[M]{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	return imanager.Subscribe[T, M](m.inner, extract, fn, cfg.equal)
 }
 
 type TenantManager[T any] struct {

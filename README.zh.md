@@ -242,8 +242,10 @@ func (m *Manager[T]) Close() error
 包级泛型函数：
 
 ```go
-// 字段级订阅；每次成功 reload 后触发
-func Subscribe[T, M any](m *Manager[T], extract func(*T) *M, fn func(old, new *M)) (cancel func())
+// 字段级订阅；仅在提取出的值实际发生变化时触发。
+// 传入 WithEqual(eq) 可替换默认的 reflect.DeepEqual 比较器。
+func Subscribe[T, M any](m *Manager[T], extract func(*T) *M, fn func(old, new *M), opts ...SubscribeOption[M]) (cancel func())
+func WithEqual[M any](equal func(old, new *M) bool) SubscribeOption[M]
 
 // 类型安全的 feature flag 求值
 func Eval[T, V any](m *Manager[T], key string, ctx feature.EvalContext, def V) V
@@ -451,14 +453,32 @@ fastconf.WithMigrations(func(root map[string]any) error {
 
 ### 字段级订阅
 
+`Subscribe` 仅在提取出的值真正发生变化时触发回调（默认按 DeepEqual 对解
+引用后的值比较）。通过 `WithEqual` 传入自定义比较器，可忽略噪声字段、对
+大结构体走哈希比较，或恢复 v0.18 的"每次 reload 都触发"语义。
+
 ```go
 cancel := fastconf.Subscribe(mgr,
     func(app *AppConfig) *DatabaseConfig { return &app.Database },
     func(old, neu *DatabaseConfig) {
-        reconnect(neu.DSN)
+        reconnect(neu.DSN) // 框架保证：DB 配置确实变了
     },
 )
 defer cancel()
+
+// 自定义比较（忽略 Pool 字段）。
+fastconf.Subscribe(mgr,
+    func(app *AppConfig) *DatabaseConfig { return &app.Database },
+    func(_, neu *DatabaseConfig) { warmCache(neu) },
+    fastconf.WithEqual(func(a, b *DatabaseConfig) bool { return a.DSN == b.DSN }),
+)
+
+// 每次 reload 都触发（v0.18 行为的兼容写法）。
+fastconf.Subscribe(mgr,
+    func(app *AppConfig) *AppConfig { return app },
+    func(_, neu *AppConfig) { auditEveryReload(neu) },
+    fastconf.WithEqual(func(_, _ *AppConfig) bool { return false }),
+)
 ```
 
 ### 手动 Reload 与一次性覆盖

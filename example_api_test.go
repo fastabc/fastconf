@@ -40,7 +40,8 @@ func ExampleNew() {
 }
 
 // ExampleSubscribe demonstrates reacting to a typed subtree after a successful
-// commit while keeping the caller in charge of what counts as "changed".
+// commit. Subscribe fires only when the extracted value actually changes;
+// callers no longer need an inline equality check.
 func ExampleSubscribe() {
 	mgr, err := fastconf.New[apiExampleConfig](context.Background(),
 		fastconf.PresetTesting(fastconf.TestingOpts{
@@ -60,9 +61,7 @@ func ExampleSubscribe() {
 	cancel := fastconf.Subscribe(mgr,
 		func(c *apiExampleConfig) *string { return &c.Server.Addr },
 		func(old, next *string) {
-			if old != nil && next != nil && *old != *next {
-				fmt.Printf("%s -> %s\n", *old, *next)
-			}
+			fmt.Printf("%s -> %s\n", *old, *next)
 		},
 	)
 	defer cancel()

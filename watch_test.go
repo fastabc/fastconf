@@ -120,10 +120,15 @@ func TestSubscribe_FiresOnEveryReload(t *testing.T) {
 	defer mgr.Close()
 
 	var dbCalls, srvCalls atomic.Int64
-	fastconf.Subscribe(mgr, func(c *appCfg) *dbCfg { return &c.Database }, func(_, _ *dbCfg) { dbCalls.Add(1) })
-	fastconf.Subscribe(mgr, func(c *appCfg) *string { return &c.Server.Addr }, func(_, _ *string) { srvCalls.Add(1) })
+	// Force the v0.18 "fire on every reload" semantics via the documented
+	// idiom: a comparator that never reports equality.
+	fireAlwaysDB := fastconf.WithEqual(func(_, _ *dbCfg) bool { return false })
+	fireAlwaysStr := fastconf.WithEqual(func(_, _ *string) bool { return false })
+	fastconf.Subscribe(mgr, func(c *appCfg) *dbCfg { return &c.Database }, func(_, _ *dbCfg) { dbCalls.Add(1) }, fireAlwaysDB)
+	fastconf.Subscribe(mgr, func(c *appCfg) *string { return &c.Server.Addr }, func(_, _ *string) { srvCalls.Add(1) }, fireAlwaysStr)
 
-	// Subscribe fires on every commit; caller-side filtering is the user's job.
+	// With the fire-always idiom both subscribers fire on every commit
+	// regardless of which field changed.
 	mfs["conf.d/base/00-app.yaml"] = &fstest.MapFile{Data: []byte("server:\n  addr: \":9000\"\nfeatures: [a, b]\n")}
 	if err := mgr.Reload(context.Background()); err != nil {
 		t.Fatal(err)

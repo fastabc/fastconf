@@ -254,8 +254,10 @@ func (m *Manager[T]) Close() error
 Package-level generics:
 
 ```go
-// Per-field subscribe; fires on every successful reload.
-func Subscribe[T, M any](m *Manager[T], extract func(*T) *M, fn func(old, new *M)) (cancel func())
+// Per-field subscribe; fires only when the extracted value actually changes.
+// Pass WithEqual(eq) to override the default reflect.DeepEqual comparator.
+func Subscribe[T, M any](m *Manager[T], extract func(*T) *M, fn func(old, new *M), opts ...SubscribeOption[M]) (cancel func())
+func WithEqual[M any](equal func(old, new *M) bool) SubscribeOption[M]
 
 // Typed feature-flag evaluation.
 func Eval[T, V any](m *Manager[T], key string, ctx feature.EvalContext, def V) V
@@ -463,14 +465,33 @@ For multi-step schema migrations use `pkg/migration.NewChain`.
 
 ### Field-level Subscribe
 
+`Subscribe` fires the callback only when the extracted value actually
+changes (DeepEqual on the dereferenced values). Pass `WithEqual` for a
+custom comparator — e.g. ignore noisy fields, hash-compare large structs,
+or restore the v0.18 "fire on every reload" idiom.
+
 ```go
 cancel := fastconf.Subscribe(mgr,
     func(app *AppConfig) *DatabaseConfig { return &app.Database },
     func(old, neu *DatabaseConfig) {
-        reconnect(neu.DSN)
+        reconnect(neu.DSN) // guaranteed: DB config actually changed
     },
 )
 defer cancel()
+
+// Custom equality (ignore Pool).
+fastconf.Subscribe(mgr,
+    func(app *AppConfig) *DatabaseConfig { return &app.Database },
+    func(_, neu *DatabaseConfig) { warmCache(neu) },
+    fastconf.WithEqual(func(a, b *DatabaseConfig) bool { return a.DSN == b.DSN }),
+)
+
+// Fire on every reload regardless of value (v0.18 semantics).
+fastconf.Subscribe(mgr,
+    func(app *AppConfig) *AppConfig { return app },
+    func(_, neu *AppConfig) { auditEveryReload(neu) },
+    fastconf.WithEqual(func(_, _ *AppConfig) bool { return false }),
+)
 ```
 
 ### Manual reload with one-shot override

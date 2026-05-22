@@ -6,7 +6,45 @@ for the step-by-step migration guide.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Breaking changes (API)
+
+- **`Subscribe` is now diff-aware by default.** The callback fires only
+  when the value extracted by `extract` actually changes between two
+  consecutive reloads. Equality is determined by `reflect.DeepEqual` on
+  the dereferenced values. Two-nil transitions do not fire; nil ↔
+  non-nil transitions always fire.
+
+  ```go
+  // v0.18: callback ran on every reload, you wrote the filter yourself
+  fastconf.Subscribe(mgr, extract, func(old, new *T) {
+      if old != nil && *old == *new { return }
+      reconnect(new)
+  })
+
+  // v0.19: framework owns the diff
+  fastconf.Subscribe(mgr, extract, func(old, new *T) {
+      reconnect(new) // guaranteed: value actually changed
+  })
+  ```
+
+  **Quiet hazard.** A v0.18 subscriber whose side effect ran on every
+  reload (audit, mirror, heartbeat) without a caller-side filter will
+  see fewer invocations after upgrading. To restore the v0.18 semantics,
+  pass `WithEqual(func(_, _ *T) bool { return false })`.
+
+### Added
+
+- **`WithEqual[M any](equal func(old, new *M) bool) SubscribeOption[M]`** —
+  replaces the default `reflect.DeepEqual` comparator with a custom
+  function. Used to ignore noisy fields, hash-compare large structs, or
+  restore the fire-on-every-reload idiom.
+
+### Migration
+
+| v0.18 call                                                | v0.19 replacement                                                       |
+| --------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `Subscribe(m, ex, fn)` (callback expected every reload)   | `Subscribe(m, ex, fn, WithEqual(func(_,_ *T) bool { return false }))`   |
+| `Subscribe(m, ex, fn)` with inline `*old == *new` filter  | `Subscribe(m, ex, fn)` — delete the filter                              |
 
 ## [v0.18.0] — 2026-05-19
 

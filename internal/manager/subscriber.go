@@ -2,41 +2,39 @@ package manager
 
 import (
 	"fmt"
+	"reflect"
 	"runtime/debug"
 
 	istate "github.com/fastabc/fastconf/internal/state"
 )
 
-// Subscribe registers a callback that fires on every successful reload,
-// receiving the extracted M from the previous and new *T. Use it when you
-// want type-safe access to a struct field (or sub-struct) of *T without
-// reaching for reflection.
+// Subscribe registers a callback that fires after a successful reload when
+// the value extracted by extract has actually changed. The root facade
+// resolves any user-supplied [fastconf.WithEqual] option into the trailing
+// equal argument; passing nil here means "use [reflect.DeepEqual] on the
+// dereferenced values".
 //
-//	cancel := fastconf.Subscribe(mgr,
-//	    func(c *AppConfig) *DBConfig { return &c.Database },
-//	    func(old, new *DBConfig) {
-//	        if old != nil && *old == *new {
-//	            return // no real change in DBConfig — caller-side filter
-//	        }
-//	        reconnect(new)
-//	    },
-//	)
-//	defer cancel()
+// Behavior:
 //
-// The callback fires unconditionally on every commit; if the extracted M
-// is unchanged the caller is responsible for skipping (typical pattern:
-// compare old and new). This keeps Subscribe O(0) on the reload hot path
-// — no per-field hashing — and lets the caller decide what "changed"
-// means for their type.
+//   - Both nil   → callback skipped.
+//   - nil ↔ non-nil → callback fires (equality function not invoked).
+//   - Both non-nil → equality function (or DeepEqual fallback) decides:
+//     true means "unchanged, skip"; false means "changed, fire".
 //
 // Callbacks run synchronously on the reload goroutine. They must return
-// quickly; any blocking I/O (RPC, lock contention, time.Sleep) postpones
-// the next reload. Spawn a goroutine inside the callback if needed.
+// quickly; blocking I/O postpones the next reload. Spawn a goroutine
+// inside the callback if needed.
 //
-// A panic in fn is recovered and logged; it does not poison the writer
-// or affect other subscribers. The returned cancel removes the
-// subscription; calling it after Close() is a no-op.
-func Subscribe[T any, S any](m *M[T], extract func(*T) *S, fn func(old, new *S)) (cancel func()) {
+// A panic in fn (or in equal) is recovered, logged, and surfaced on the
+// manager's Errors() channel; it does not poison the writer or affect
+// other subscribers. The returned cancel removes the subscription;
+// calling it after Close() is a no-op.
+func Subscribe[T any, S any](
+	m *M[T],
+	extract func(*T) *S,
+	fn func(old, new *S),
+	equal func(old, new *S) bool,
+) (cancel func()) {
 	if m == nil || extract == nil || fn == nil {
 		return func() {}
 	}
@@ -48,6 +46,21 @@ func Subscribe[T any, S any](m *M[T], extract func(*T) *S, fn func(old, new *S))
 		if next != nil && next.Value != nil {
 			newV = extract(next.Value)
 		}
+		// Both nil — nothing to compare, nothing changed.
+		if oldV == nil && newV == nil {
+			return
+		}
+		// Both present — defer to equal (or DeepEqual fallback).
+		if oldV != nil && newV != nil {
+			if equal != nil {
+				if equal(oldV, newV) {
+					return
+				}
+			} else if reflect.DeepEqual(*oldV, *newV) {
+				return
+			}
+		}
+		// nil <-> non-nil transitions fall through and fire.
 		fn(oldV, newV)
 	}
 	id := m.watchSeq.Add(1)
