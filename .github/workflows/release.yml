@@ -41,4 +41,3 @@ jobs:
             dist/*.zip
             dist/SHA256SUMS
           generate_release_notes: true
-          body_path: CHANGELOG.md
