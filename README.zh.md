@@ -642,7 +642,7 @@ fastconfd --dir=/etc/config --profile=prod --addr=:8081
 
 | 端点 | 方法 | 说明 |
 |---|---|---|
-| `/healthz` | GET  | `{"status":"ok","generation":N}` |
+| `/healthz` | GET  | 首次加载成功后返回纯文本 `ok` |
 | `/version` | GET  | 版本、generation、hash、加载时间、原因 |
 | `/config`  | GET  | 当前配置 JSON；传 `?redact=true` 才脱敏 |
 | `/dump`    | GET  | 确定性 YAML（`?format=json` 输出 JSON） |

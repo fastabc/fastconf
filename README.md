@@ -655,7 +655,7 @@ fastconfd --dir=/etc/config --profile=prod --addr=:8081
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/healthz` | GET  | `{"status":"ok","generation":N}` |
+| `/healthz` | GET  | Plain text `ok` once the first reload succeeded |
 | `/version` | GET  | Version, generation, hash, load time, reason |
 | `/config`  | GET  | Current config JSON; pass `?redact=true` for masking |
 | `/dump`    | GET  | Deterministic YAML (`?format=json` for JSON) |
