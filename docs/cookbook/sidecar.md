@@ -11,6 +11,9 @@ go run github.com/fastabc/fastconf/cmd/fastconfd \
   -reload-token "$(cat /var/run/secrets/reload-token)"
 ```
 
+`-reload-token` also defaults from `FASTCONFD_RELOAD_TOKEN`, which is easier to
+wire from a Kubernetes Secret.
+
 ## Endpoints
 
 | Method | Path                          | Notes                              |
@@ -26,11 +29,82 @@ go run github.com/fastabc/fastconf/cmd/fastconfd \
 | POST   | `/reload`                     | `X-Reload-Token: <secret>` required |
 | GET    | `/events`                     | Server-Sent Events of `ReloadCause` |
 
+## Kubernetes sidecar
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fastconfd-reload
+type: Opaque
+stringData:
+  token: change-me
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+        - name: app
+          image: example/myapp:latest
+          env:
+            - name: FASTCONFD_ADDR
+              value: http://127.0.0.1:8650
+        - name: fastconfd
+          image: example/fastconfd:vX.Y.Z
+          args:
+            - -dir=/etc/myapp/conf.d
+            - -addr=:8650
+          env:
+            - name: FASTCONFD_RELOAD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fastconfd-reload
+                  key: token
+          ports:
+            - name: http
+              containerPort: 8650
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          volumeMounts:
+            - name: config
+              mountPath: /etc/myapp/conf.d
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: myapp-config
+```
+
+Do not create a Service or Ingress for `fastconfd` unless another workload
+genuinely needs cross-pod access. If `/reload` is exposed outside the pod,
+require TLS and rotate the token through the Secret.
+
 ## Examples
 
 ```bash
 # Watch reloads land in real time
 curl -N http://localhost:8650/events
+
+# Trigger a manual reload
+curl -X POST -H "X-Reload-Token: $FASTCONFD_RELOAD_TOKEN" \
+  http://localhost:8650/reload
 
 # Diff the live state against your repo
 curl -s http://localhost:8650/dump > /tmp/live.yaml

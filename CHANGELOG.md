@@ -39,6 +39,9 @@ for the step-by-step migration guide.
   function. Used to ignore noisy fields, hash-compare large structs, or
   restore the fire-on-every-reload idiom.
 
+See [`docs/cookbook/migration-v0.19.md`](docs/cookbook/migration-v0.19.md)
+for focused examples.
+
 ### Migration
 
 | v0.18 call                                                | v0.19 replacement                                                       |

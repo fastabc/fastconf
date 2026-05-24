@@ -24,7 +24,7 @@ BINS := fastconfd fastconfctl fastconfgen
 EXTRA_TARGETS ?=
 ALL_TARGETS := $(TARGETS) $(EXTRA_TARGETS)
 
-# Module path for each binary (each lives in its own go.mod as of phase-83).
+# Package path for each binary. CLI packages are root-versioned.
 fastconfd_DIR   := cmd/fastconfd
 fastconfctl_DIR := cmd/fastconfctl
 fastconfgen_DIR := cmd/fastconfgen
@@ -82,7 +82,7 @@ graph:
 	bash tools/code-review-graph.sh
 
 # List released root-module versions (filters out sub-module path-prefixed tags
-# like policy/cue/v0.16.0; those are required by Go's module system but add
+# like cue/v0.18.0; those are required by Go's module system but add
 # noise to `git tag -l`). Newest first.
 versions:
 	@git tag -l 'v[0-9]*' --sort=-v:refname

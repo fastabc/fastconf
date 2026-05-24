@@ -166,8 +166,8 @@ go install github.com/fastabc/fastconf/cmd/fastconfgen@latest
 | Item | Supported |
 |---|---|
 | Go toolchain | 1.22, 1.23, 1.24, 1.25, 1.26 (no toolchain pin in `go.mod`) |
-| OS / arch | linux/amd64, linux/arm64, darwin/amd64, darwin/arm64 (binaries published on each tag) |
-| Module form | one root module + independent sub-modules (`cue`, `policy/opa`, `validate/playground`, `observability/{otel,metrics/prometheus}`, `providers/s3`, `integrations/{cli/pflag,log/phuslu,log/zerolog}`, `cmd/{fastconfctl,fastconfd,fastconfgen}`) |
+| OS / arch | linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64 (binaries published on each tag) |
+| Module form | one root module + independent sub-modules (`cue`, `policy/opa`, `validate/playground`, `observability/{otel,metrics/prometheus}`, `providers/s3`, `integrations/{cli/pflag,log/phuslu,log/zerolog}`) |
 | Pre-release contract | semantic-version tags follow `vMAJOR.MINOR.PATCH`. The current line (`v0.18`) is the first public release and the rename / bucketed-Options boundary is locked in — see [migration-v0.18.md](docs/cookbook/migration-v0.18.md). |
 
 ### Versioning
@@ -384,8 +384,9 @@ hp, _ := httpprov.New("remote", "https://example.com/cfg.yaml", yamlCodec{})
 // Build tag to exclude: -tags no_provider_vault,no_provider_consul,no_provider_http
 ```
 
-Sub-module providers (`go get` as needed): S3 (`providers/s3`), NATS
-(`providers/nats`), Redis Streams (`providers/redisstream`).
+Root-versioned event providers: NATS (`providers/nats`) and Redis Streams
+(`providers/redisstream`). Independent provider sub-module (`go get` as
+needed): S3 (`providers/s3`).
 
 ### Priority constants
 
@@ -622,8 +623,11 @@ fastconf.PresetTesting(fastconf.TestingOpts{FS: memFS, Profile: "testing"})
 | contracts | `contracts` — public interfaces |
 | reusable primitives | `pkg/{decoder,discovery,feature,flog,generator,merger,migration,provider,transform,validate}` |
 | http / vault / consul | `providers/{http,vault,consul}` — build tags: `no_provider_{http,vault,consul}` |
+| nats / redis-streams | `providers/{nats,redisstream}` — caller injects the transport client |
 | policy | `policy` — `Func` adapter |
 | sidecar service | `cmd/fastconfd` |
+| CLI tools | `cmd/{fastconfctl,fastconfgen}` |
+| integrations | `integrations/{bus,openfeature,render}` |
 
 ### Independent sub-modules (`go get` as needed)
 
@@ -635,12 +639,7 @@ fastconf.PresetTesting(fastconf.TestingOpts{FS: memFS, Profile: "testing"})
 | cue (validation + policy) | `cue` | cuelang.org/go |
 | opa-policy | `policy/opa` | open-policy-agent/opa |
 | cli/pflag | `integrations/cli/pflag` | spf13/pflag |
-| nats provider | `providers/nats` | root module (inject `nats.Conn`) |
-| redis-streams provider | `providers/redisstream` | root module (inject redis client) |
 | s3 provider | `providers/s3` | AWS SDK v2 |
-| openfeature | `integrations/openfeature` | root module |
-| fastconfctl | `cmd/fastconfctl` | root module |
-| fastconfgen | `cmd/fastconfgen` | yaml.v3 |
 
 Tag all sub-modules at once: `./tools/tag-release.sh vX.Y.Z [--push]`
 
@@ -657,22 +656,25 @@ fastconfd --dir=/etc/config --profile=prod --addr=:8081
 | Endpoint | Method | Description |
 |---|---|---|
 | `/healthz` | GET  | `{"status":"ok","generation":N}` |
-| `/config`  | GET  | Current config JSON (secrets redacted) |
+| `/version` | GET  | Version, generation, hash, load time, reason |
+| `/config`  | GET  | Current config JSON; pass `?redact=true` for masking |
+| `/dump`    | GET  | Deterministic YAML (`?format=json` for JSON) |
 | `/reload`  | POST | Trigger a manual reload |
 | `/events`  | GET  | SSE stream of `ReloadCause` on each successful reload |
 
 ### `fastconfctl` — admin CLI
 
 ```bash
-fastconfctl snapshot --addr=:8081
-fastconfctl reload   --addr=:8081 --request-id=deploy-123
-fastconfctl rollback --addr=:8081 --generation=42
+fastconfctl dump     -dir conf.d -profile prod
+fastconfctl diff     -dir conf.d -from dev -to prod --json
+fastconfctl validate -dir conf.d -profile prod
+fastconfctl explain  -dir conf.d -profile prod database.dsn
 ```
 
 ### `fastconfgen` — code generator
 
 ```bash
-fastconfgen generate --input=conf.d/base/00-app.yaml --pkg=config --out=config/config_gen.go
+fastconfgen -in conf.d/base/00-app.yaml -pkg config -type Config -out config/config_gen.go
 ```
 
 ---
@@ -715,6 +717,7 @@ go test -bench=BenchmarkGet -benchmem ./...
 | [docs/cookbook/README.md](docs/cookbook/README.md) | Ready recipes ordered by user journey |
 | [docs/design/spec.md](docs/design/spec.md) | Runtime model, concurrency, module boundaries |
 | [docs/cookbook/migration-v0.18.md](docs/cookbook/migration-v0.18.md) | v0.18 rename / bucketed-Options migration table |
+| [docs/cookbook/migration-v0.19.md](docs/cookbook/migration-v0.19.md) | v0.19 `Subscribe` diff-aware migration notes |
 | [GitHub Releases](https://github.com/fastabc/fastconf/releases) | Release notes and prebuilt CLI binaries |
 | [pkg.go.dev](https://pkg.go.dev/github.com/fastabc/fastconf) | godoc and runnable examples |
 

@@ -8,14 +8,19 @@
 |---|---|---|
 | contracts | `contracts` | Public interfaces: Provider / Codec / Source / Event |
 | pkg/* | `pkg/{decoder,discovery,feature,flog,generator,mappath,merger,migration,profile,provider,transform,validate}` | Reusable primitives |
-| internal/* | `internal/{debounce,obs,typeinfo,watcher}` | Compile-time API boundary |
+| internal/* | `internal/{coalesce,diffreport,fcerr,fctypes,manager,obs,options,pipeline,provenance,registry,secret,state,tenant,testutil,typeinfo,watcher}` | Compile-time API boundary |
 | http        | `providers/http`   | HTTP / SSE provider (build tag `no_provider_http`) |
 | vault       | `providers/vault`  | HashiCorp Vault KV v2 (build tag `no_provider_vault`) |
 | consul      | `providers/consul` | Consul KV (build tag `no_provider_consul`) |
+| nats provider | `providers/nats` | Caller injects `nats.Conn`; root-versioned |
+| redis-streams provider | `providers/redisstream` | Caller injects redis client; root-versioned |
 | policy      | `policy`           | Policy interface + Func adapter |
 | integrations/bus | `integrations/bus` | Configuration change bus |
+| integrations/openfeature | `integrations/openfeature` | OpenFeature provider adapter |
 | integrations/render | `integrations/render` | Template render extension |
 | cmd/fastconfd | `cmd/fastconfd`  | Sidecar HTTP + SSE service |
+| cmd/fastconfctl | `cmd/fastconfctl` | Admin CLI |
+| cmd/fastconfgen | `cmd/fastconfgen` | Struct generator |
 
 ### Independent sub-modules (`go get` as needed)
 
@@ -29,13 +34,8 @@
 | log/phuslu | `integrations/log/phuslu` | `integrations/log/phuslu/vX.Y.Z` | phuslu/log |
 | log/zerolog | `integrations/log/zerolog` | `integrations/log/zerolog/vX.Y.Z` | rs/zerolog |
 | cli/pflag | `integrations/cli/pflag` | `integrations/cli/pflag/vX.Y.Z` | spf13/pflag |
-| nats provider | `providers/nats` | root-versioned (`vX.Y.Z`) | root module only (caller injects `nats.Conn`) |
-| redis-streams provider | `providers/redisstream` | root-versioned (`vX.Y.Z`) | root module only (caller injects redis client) |
-| openfeature | `integrations/openfeature` | root-versioned (`vX.Y.Z`) | root module only |
 | s3 provider | `providers/s3` | `providers/s3/vX.Y.Z` | AWS SDK v2 (load + ETag short-circuit, `FromURL` helper) |
-| s3events provider | `providers/s3/s3events` | root-versioned via `providers/s3` | AWS SDK v2 SQS (EventBridge S3 → SQS watch, subpackage of s3) |
-| cmd/fastconfctl | `cmd/fastconfctl` | `cmd/fastconfctl/vX.Y.Z` | root module only |
-| cmd/fastconfgen | `cmd/fastconfgen` | `cmd/fastconfgen/vX.Y.Z` | yaml.v3 |
+| s3events provider | `providers/s3/s3events` | `providers/s3/vX.Y.Z` | AWS SDK v2 SQS (EventBridge S3 → SQS watch, subpackage of s3) |
 
 Tag every sub-module at once via `tools/tag-release.sh`:
 
@@ -132,25 +132,25 @@ fastconfd --dir=/etc/config --profile=prod --addr=:8081
 | Endpoint | Method | Description |
 |---|---|---|
 | `/healthz` | GET  | `{"status":"ok","generation":N}` |
-| `/version` | GET  | Current state version (Hash + Generation) |
-| `/config`  | GET  | Current config JSON (secrets redacted) |
-| `/reload`  | POST | Trigger a manual reload; accepts `{"request_id":"…"}` |
+| `/version` | GET  | Version, generation, hash, load time, reason |
+| `/config`  | GET  | Current config JSON; pass `?redact=true` for masking |
+| `/dump`    | GET  | Deterministic YAML (`?format=json` for JSON) |
+| `/reload`  | POST | Trigger a manual reload; `X-Reload-Token` required when configured |
 | `/events`  | GET  | SSE stream of `ReloadCause` JSON on every successful reload |
 
 ### `fastconfctl` — admin CLI
 
 ```bash
-fastconfctl snapshot --addr=:8081
-fastconfctl reload   --addr=:8081 --request-id=deploy-123
-fastconfctl plan     --addr=:8081
-fastconfctl rollback --addr=:8081 --generation=42
-fastconfctl sources  --addr=:8081
+fastconfctl dump     -dir conf.d -profile prod
+fastconfctl diff     -dir conf.d -from dev -to prod --json
+fastconfctl validate -dir conf.d -profile prod
+fastconfctl explain  -dir conf.d -profile prod database.dsn
 ```
 
 ### `fastconfgen` — code generator
 
 ```bash
-fastconfgen generate --input=conf.d/base/00-app.yaml --pkg=config --out=config/config_gen.go
+fastconfgen -in conf.d/base/00-app.yaml -pkg config -type Config -out config/config_gen.go
 ```
 
 ---

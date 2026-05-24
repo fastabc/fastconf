@@ -40,14 +40,19 @@
 |---|---|---|
 | contracts | `contracts` | Provider / Codec / Source / Event 接口定义 |
 | pkg/* | `pkg/{decoder,discovery,feature,flog,generator,mappath,merger,migration,profile,provider,transform,validate}` | 公开可复用实现原语 |
-| internal/* | `internal/{debounce,obs,typeinfo,watcher}` | 编译时 API boundary 私有 helper |
+| internal/* | `internal/{coalesce,diffreport,fcerr,fctypes,manager,obs,options,pipeline,provenance,registry,secret,state,tenant,testutil,typeinfo,watcher}` | 编译时 API boundary 私有 helper |
 | http        | `providers/http`   | HTTP / SSE Provider（build tag `no_provider_http`） |
 | vault       | `providers/vault`  | HashiCorp Vault KV v2（build tag `no_provider_vault`） |
 | consul      | `providers/consul` | Consul KV（build tag `no_provider_consul`） |
+| nats provider | `providers/nats` | 调用方注入 `nats.Conn`；随根模块发布 |
+| redis-streams provider | `providers/redisstream` | 调用方注入 redis client；随根模块发布 |
 | policy      | `policy`           | Policy 接口 + Func adapter |
 | integrations/bus | `integrations/bus` | 配置变更事件总线 |
+| integrations/openfeature | `integrations/openfeature` | OpenFeature provider adapter |
 | integrations/render | `integrations/render` | 模板渲染扩展 |
 | cmd/fastconfd | `cmd/fastconfd`  | Sidecar HTTP + SSE 服务（与主模块同版） |
+| cmd/fastconfctl | `cmd/fastconfctl` | 管理 CLI |
+| cmd/fastconfgen | `cmd/fastconfgen` | struct 生成器 |
 
 ### 独立 Sub-module（按需 `go get`）
 
@@ -61,13 +66,8 @@
 | log/phuslu | `integrations/log/phuslu` | `integrations/log/phuslu/vX.Y.Z` | phuslu/log |
 | log/zerolog | `integrations/log/zerolog` | `integrations/log/zerolog/vX.Y.Z` | rs/zerolog |
 | cli/pflag | `integrations/cli/pflag` | `integrations/cli/pflag/vX.Y.Z` | spf13/pflag |
-| nats provider | `providers/nats` | 主模块（`vX.Y.Z`） | 仅根 module（注入用户的 `nats.Conn`） |
-| redis-streams provider | `providers/redisstream` | 主模块（`vX.Y.Z`） | 仅根 module（注入用户的 `redis.Client`） |
 | s3 provider | `providers/s3` | `providers/s3/vX.Y.Z` | AWS SDK v2（load + ETag 短路，`FromURL` 辅助函数） |
 | s3events provider | `providers/s3/s3events` | 随 `providers/s3` 版本 | AWS SDK v2 SQS（EventBridge S3 → SQS watch 子包） |
-| openfeature | `integrations/openfeature` | 主模块（`vX.Y.Z`） | OpenFeature SDK |
-| cmd/fastconfctl | `cmd/fastconfctl` | `cmd/fastconfctl/vX.Y.Z` | 仅根 module |
-| cmd/fastconfgen | `cmd/fastconfgen` | `cmd/fastconfgen/vX.Y.Z` | yaml.v3 |
 
 统一打 tag（`tools/tag-release.sh`）：
 
@@ -163,25 +163,25 @@ fastconfd --dir=/etc/config --profile=prod --addr=:8081
 | 端点 | 方法 | 说明 |
 |---|---|---|
 | `/healthz` | GET  | `{"status":"ok","generation":N}` |
-| `/version` | GET  | 当前 State 版本（Hash + Generation） |
-| `/config`  | GET  | 当前配置 JSON（secret 已脱敏） |
-| `/reload`  | POST | 触发手动 reload；接受 `{"request_id":"…"}` |
+| `/version` | GET  | 版本、generation、hash、加载时间、原因 |
+| `/config`  | GET  | 当前配置 JSON；传 `?redact=true` 才脱敏 |
+| `/dump`    | GET  | 确定性 YAML（`?format=json` 输出 JSON） |
+| `/reload`  | POST | 触发手动 reload；配置 token 时要求 `X-Reload-Token` |
 | `/events`  | GET  | SSE 流；每次成功 reload 推送 `ReloadCause` JSON |
 
 ### `fastconfctl` — 管理 CLI
 
 ```bash
-fastconfctl snapshot --addr=:8081
-fastconfctl reload   --addr=:8081 --request-id=deploy-123
-fastconfctl plan     --addr=:8081
-fastconfctl rollback --addr=:8081 --generation=42
-fastconfctl sources  --addr=:8081
+fastconfctl dump     -dir conf.d -profile prod
+fastconfctl diff     -dir conf.d -from dev -to prod --json
+fastconfctl validate -dir conf.d -profile prod
+fastconfctl explain  -dir conf.d -profile prod database.dsn
 ```
 
 ### `fastconfgen` — 代码生成器
 
 ```bash
-fastconfgen generate --input=conf.d/base/00-app.yaml --pkg=config --out=config/config_gen.go
+fastconfgen -in conf.d/base/00-app.yaml -pkg config -type Config -out config/config_gen.go
 ```
 
 ---

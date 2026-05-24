@@ -25,7 +25,8 @@ in sync when moving packages.
 │     tenant    testutil    typeinfo  watcher                          │
 │  pkg/*      : publicly reusable primitives                            │
 │     cliadapter decoder discovery feature flog generator mappath       │
-│     merger migration parser profile provider source transform validate│
+│     merger migration parser profile provider source transform typed   │
+│     validate                                                         │
 │  contracts/ : public stable interfaces (Provider/Codec/Event/...)    │
 └──────────────────────────────────────────────────────────────────────┘
                           │  read by sub-modules via require + replace
@@ -83,6 +84,8 @@ pkg/* 之间不得相互依赖，仅以下白名单例外（与 tools/check-deps
   pkg/generator → pkg/mappath   (leaf util)
   pkg/provider  → pkg/decoder
   pkg/provider  → pkg/mappath   (leaf util)
+  pkg/provider  → pkg/typed     (leaf util)
+  pkg/mappath   → pkg/typed     (leaf util)
   pkg/transform → pkg/mappath   (leaf util)
   pkg/parser    → pkg/decoder   (parser wraps codec; adds ContentTypes)
 internal/* 是实现层，可按需依赖同层包；对外只暴露 root facade。

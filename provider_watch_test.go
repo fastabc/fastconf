@@ -113,6 +113,33 @@ func (p *fallbackResumableProvider) WatchFrom(context.Context, string) (<-chan c
 	return nil, contracts.ErrResumeUnsupported
 }
 
+type successfulResumableProvider struct {
+	name          string
+	mu            sync.Mutex
+	watchCalls    int
+	watchFromLast string
+	ch1           chan contracts.Event
+	ch2           chan contracts.Event
+}
+
+func (p *successfulResumableProvider) Name() string  { return p.name }
+func (p *successfulResumableProvider) Priority() int { return contracts.PriorityKV }
+func (p *successfulResumableProvider) Load(context.Context) (map[string]any, error) {
+	return map[string]any{"server": map[string]any{"port": 7101}}, nil
+}
+func (p *successfulResumableProvider) Watch(context.Context) (<-chan contracts.Event, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.watchCalls++
+	return p.ch1, nil
+}
+func (p *successfulResumableProvider) WatchFrom(_ context.Context, last string) (<-chan contracts.Event, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.watchFromLast = last
+	return p.ch2, nil
+}
+
 func TestProviderWatch_TriggersReload(t *testing.T) {
 	mfs := fstest.MapFS{
 		"conf.d/base/00-app.yaml": &fstest.MapFile{Data: []byte("server: {port: 7777}")},
@@ -151,6 +178,45 @@ func TestProviderWatch_TriggersReload(t *testing.T) {
 	if got := cfg.Get().Server.Port; got != 8002 {
 		t.Fatalf("after event port: got %d want 8002", got)
 	}
+}
+
+func TestProviderWatch_PauseSkipsProviderReload(t *testing.T) {
+	mfs := fstest.MapFS{
+		"conf.d/base/00-app.yaml": &fstest.MapFile{Data: []byte("server: {port: 1}")},
+	}
+	p := &fakeWatcherProvider{name: "paused", priority: contracts.PriorityKV, ch: make(chan contracts.Event)}
+	cfg, err := fastconf.New[pwCfg](context.Background(),
+		fastconf.WithFS(mfs),
+		fastconf.WithDir("conf.d"),
+		fastconf.WithProvider(p),
+		fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer cfg.Close()
+
+	gen0 := cfg.Snapshot().Generation
+	load0 := p.loadCnt.Load()
+	cfg.Watcher().Pause()
+	if !cfg.Watcher().Paused() {
+		t.Fatal("watcher should report paused")
+	}
+
+	sendProviderEvent(t, p.ch, contracts.Event{Source: "paused", Reason: "ignored"})
+	time.Sleep(150 * time.Millisecond)
+	if got := p.loadCnt.Load(); got != load0 {
+		t.Fatalf("paused provider event triggered Load: got %d want %d", got, load0)
+	}
+	if got := cfg.Snapshot().Generation; got != gen0 {
+		t.Fatalf("paused provider event advanced generation: got %d want %d", got, gen0)
+	}
+
+	cfg.Watcher().Resume()
+	sendProviderEvent(t, p.ch, contracts.Event{Source: "paused", Reason: "resumed"})
+	waitForProviderWatch(t, 2*time.Second, "provider reload after resume", func() bool {
+		return cfg.Snapshot().Generation > gen0
+	})
 }
 
 func TestProviderWatch_BurstDoesNotBlock(t *testing.T) {
@@ -196,6 +262,36 @@ func TestProviderWatch_BurstDoesNotBlock(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("no reload after burst (loadCnt=%d)", p.loadCnt.Load())
+}
+
+func TestProviderWatch_ResumableUsesLastRevision(t *testing.T) {
+	mfs := fstest.MapFS{
+		"conf.d/base/00-app.yaml": &fstest.MapFile{Data: []byte("server: {port: 1}")},
+	}
+	p := &successfulResumableProvider{
+		name: "resume-ok",
+		ch1:  make(chan contracts.Event),
+		ch2:  make(chan contracts.Event),
+	}
+	cfg, err := fastconf.New[pwCfg](context.Background(),
+		fastconf.WithFS(mfs),
+		fastconf.WithDir("conf.d"),
+		fastconf.WithProvider(p),
+		fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer cfg.Close()
+
+	sendProviderEvent(t, p.ch1, contracts.Event{Source: p.name, Reason: "first", Revision: "rev-1"})
+	close(p.ch1)
+
+	waitForProviderWatch(t, 2*time.Second, "WatchFrom(last revision)", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.watchCalls == 1 && p.watchFromLast == "rev-1"
+	})
 }
 
 func TestProviderWatch_EventDroppedWhenReloadQueueFull(t *testing.T) {
@@ -284,4 +380,25 @@ func TestProviderWatch_ResumeUnsupportedFallsBackToWatch(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("expected WatchFrom fallback to plain Watch")
+}
+
+func waitForProviderWatch(t *testing.T, timeout time.Duration, what string, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if ok() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+func sendProviderEvent(t *testing.T, ch chan contracts.Event, ev contracts.Event) {
+	t.Helper()
+	select {
+	case ch <- ev:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out sending provider event %q", ev.Reason)
+	}
 }

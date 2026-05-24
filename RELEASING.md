@@ -15,13 +15,17 @@ FastConf publishes Go modules from a single repository:
 | `github.com/fastabc/fastconf/providers/s3` | yes | `providers/s3/vX.Y.Z` |
 | `github.com/fastabc/fastconf/validate/playground` | yes (v0.9.0+) | `validate/playground/vX.Y.Z` |
 
-Subpackages without their own `go.mod` inherit the root module's version.
-The following packages are root-versioned (no independent `go.mod`):
+Subpackages without their own `go.mod` inherit the nearest module's version.
+The following packages are root-versioned (no independent `go.mod` under the
+repository root module):
 `cmd/fastconfctl`, `cmd/fastconfgen`, `cmd/fastconfd`,
 `integrations/bus`, `integrations/openfeature`, `integrations/render`,
 `contracts`, `providers/http`, `providers/nats`, `providers/redisstream`,
-`providers/vault`, `providers/consul`, `providers/k8s`,
-`providers/s3/s3events`, `pkg/*`, `policy/` (root).
+`providers/vault`, `providers/consul`, `providers/k8s`, `pkg/*`,
+`policy/` (root).
+
+`providers/s3/s3events` is a subpackage of the `providers/s3` module and is
+therefore released by `providers/s3/vX.Y.Z`.
 
 > **Note on legacy tags (v0.9 and earlier)**: Prior to v0.10.0 the observability
 > sub-modules lived directly under `metrics/prometheus/` and `otel/`.

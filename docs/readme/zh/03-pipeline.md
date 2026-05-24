@@ -190,9 +190,10 @@ hp, _ := httpprov.New("remote", "https://example.com/cfg.yaml", yamlCodec{})
 go build -tags no_provider_vault,no_provider_consul,no_provider_http ./...
 ```
 
-### 独立 sub-module Provider
+### 外部依赖 Provider
 
-按需 `go get`，不污染根模块依赖图。
+S3 是独立 sub-module，按需 `go get`；NATS 与 Redis Streams 随根模块发布，
+但通过小接口注入已有客户端，不把上游客户端依赖带入 FastConf 根模块。
 
 ```go
 // AWS S3 — load + ETag 短路 + 显式静态凭证
@@ -284,10 +285,10 @@ provider 实现了 `contracts.Resumable.WatchFrom`，断线重连后不丢事件
 | `providers/http` | 主模块 | ETag + body-hash 轮询 | — | 必填 | 静态 header（Bearer 等） | `no_provider_http` |
 | `providers/consul` | 主模块 | blocking query（X-Consul-Index） | — | 可选（Mode KV/Blob） | ACL Token | `no_provider_consul` |
 | `providers/vault` | 主模块 | metadata 版本轮询 | — | （JSON，内建） | 静态 Token / `WithAuth` | `no_provider_vault` |
-| `providers/nats` | 独立 sub-module | JetStream subscribe | 是 | 必填 | 注入 `nats.Conn` adapter | （由 sub-module 提供） |
-| `providers/redisstream` | 独立 sub-module | `XREAD BLOCK` | 是 | 必填 | 注入 `redis.Client` adapter | （由 sub-module 提供） |
+| `providers/nats` | 主模块 | JetStream subscribe | 是 | 必填 | 注入 `nats.Conn` adapter | 无 |
+| `providers/redisstream` | 主模块 | `XREAD BLOCK` | 是 | 必填 | 注入 `redis.Client` adapter | 无 |
 | `providers/s3` | 独立 sub-module | load + ETag 短路 | — | 由 key 扩展名推断或显式 | 静态 AWS 凭证 | `no_provider_s3` |
-| `providers/s3/s3events` | 主模块包 | SQS 长轮询（EventBridge） | — | 无（watch-only） | 静态 AWS 凭证 | `no_provider_s3events` |
+| `providers/s3/s3events` | `providers/s3` 子包 | SQS 长轮询（EventBridge） | — | 无（watch-only） | 静态 AWS 凭证 | `no_provider_s3events` |
 
 注意事项：
 
@@ -381,4 +382,3 @@ mgr, _ := fastconf.New[AppConfig](ctx,
 ```
 
 ---
-

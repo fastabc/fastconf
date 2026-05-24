@@ -159,8 +159,8 @@ go install github.com/fastabc/fastconf/cmd/fastconfgen@latest
 | 项目 | 支持范围 |
 |---|---|
 | Go 工具链 | 1.22, 1.23, 1.24, 1.25, 1.26（`go.mod` 不再固定 toolchain） |
-| 操作系统 / 架构 | linux/amd64、linux/arm64、darwin/amd64、darwin/arm64（每个 tag 都会发布二进制） |
-| 模块形态 | 一个根模块 + 独立子模块（`cue`、`policy/opa`、`validate/playground`、`observability/{otel,metrics/prometheus}`、`providers/s3`、`integrations/{cli/pflag,log/phuslu,log/zerolog}`、`cmd/{fastconfctl,fastconfd,fastconfgen}`） |
+| 操作系统 / 架构 | linux/amd64、linux/arm64、darwin/amd64、darwin/arm64、windows/amd64（每个 tag 都会发布二进制） |
+| 模块形态 | 一个根模块 + 独立子模块（`cue`、`policy/opa`、`validate/playground`、`observability/{otel,metrics/prometheus}`、`providers/s3`、`integrations/{cli/pflag,log/phuslu,log/zerolog}`） |
 | 预发布约定 | 语义化版本 `vMAJOR.MINOR.PATCH`。当前 `v0.18` 是首个公开版本，rename / bucketed-Options 边界已锁定，详见 [migration-v0.18.md](docs/cookbook/migration-v0.18.md)。 |
 
 ### 版本策略
@@ -372,8 +372,9 @@ hp, _ := httpprov.New("remote", "https://example.com/cfg.yaml", yamlCodec{})
 // 裁剪：-tags no_provider_vault,no_provider_consul,no_provider_http
 ```
 
-独立子模块 Provider（按需 `go get`）：S3（`providers/s3`）、NATS（`providers/nats`）、
-Redis Streams（`providers/redisstream`）。
+随根模块发布的事件 Provider：NATS（`providers/nats`）和 Redis Streams
+（`providers/redisstream`）。独立 Provider 子模块（按需 `go get`）：
+S3（`providers/s3`）。
 
 ### 优先级常量
 
@@ -609,8 +610,11 @@ fastconf.PresetTesting(fastconf.TestingOpts{FS: memFS, Profile: "testing"})
 | contracts | `contracts` — 公开接口 |
 | 可复用原语 | `pkg/{decoder,discovery,feature,flog,generator,merger,migration,provider,transform,validate}` |
 | http / vault / consul | `providers/{http,vault,consul}` — build tag：`no_provider_{http,vault,consul}` |
+| nats / redis-streams | `providers/{nats,redisstream}` — 调用方注入传输客户端 |
 | policy | `policy` — `Func` 适配器 |
 | sidecar 服务 | `cmd/fastconfd` |
+| CLI 工具 | `cmd/{fastconfctl,fastconfgen}` |
+| integrations | `integrations/{bus,openfeature,render}` |
 
 ### 独立子模块（按需 `go get`）
 
@@ -622,12 +626,7 @@ fastconf.PresetTesting(fastconf.TestingOpts{FS: memFS, Profile: "testing"})
 | cue（校验 + 策略） | `cue` | cuelang.org/go |
 | opa-policy | `policy/opa` | open-policy-agent/opa |
 | cli/pflag | `integrations/cli/pflag` | spf13/pflag |
-| nats provider | `providers/nats` | 根模块（注入 `nats.Conn`） |
-| redis-streams provider | `providers/redisstream` | 根模块（注入 redis client） |
 | s3 provider | `providers/s3` | AWS SDK v2 |
-| openfeature | `integrations/openfeature` | 根模块 |
-| fastconfctl | `cmd/fastconfctl` | 根模块 |
-| fastconfgen | `cmd/fastconfgen` | yaml.v3 |
 
 一次性打所有子模块 tag：`./tools/tag-release.sh vX.Y.Z [--push]`
 
@@ -644,22 +643,25 @@ fastconfd --dir=/etc/config --profile=prod --addr=:8081
 | 端点 | 方法 | 说明 |
 |---|---|---|
 | `/healthz` | GET  | `{"status":"ok","generation":N}` |
-| `/config`  | GET  | 当前配置 JSON（secrets 已脱敏） |
+| `/version` | GET  | 版本、generation、hash、加载时间、原因 |
+| `/config`  | GET  | 当前配置 JSON；传 `?redact=true` 才脱敏 |
+| `/dump`    | GET  | 确定性 YAML（`?format=json` 输出 JSON） |
 | `/reload`  | POST | 触发手动 reload |
 | `/events`  | GET  | 每次成功 reload 的 SSE 事件流 |
 
 ### `fastconfctl` — 管理 CLI
 
 ```bash
-fastconfctl snapshot --addr=:8081
-fastconfctl reload   --addr=:8081 --request-id=deploy-123
-fastconfctl rollback --addr=:8081 --generation=42
+fastconfctl dump     -dir conf.d -profile prod
+fastconfctl diff     -dir conf.d -from dev -to prod --json
+fastconfctl validate -dir conf.d -profile prod
+fastconfctl explain  -dir conf.d -profile prod database.dsn
 ```
 
 ### `fastconfgen` — 代码生成器
 
 ```bash
-fastconfgen generate --input=conf.d/base/00-app.yaml --pkg=config --out=config/config_gen.go
+fastconfgen -in conf.d/base/00-app.yaml -pkg config -type Config -out config/config_gen.go
 ```
 
 ---
@@ -702,6 +704,7 @@ go test -bench=BenchmarkGet -benchmem ./...
 | [docs/cookbook/README.md](docs/cookbook/README.md) | 按使用旅程整理的实战配方 |
 | [docs/design/spec.md](docs/design/spec.md) | 运行时模型、并发、模块边界 |
 | [docs/cookbook/migration-v0.18.md](docs/cookbook/migration-v0.18.md) | v0.18 重命名 / bucketed-Options 迁移表 |
+| [docs/cookbook/migration-v0.19.md](docs/cookbook/migration-v0.19.md) | v0.19 `Subscribe` diff-aware 迁移说明 |
 | [GitHub Releases](https://github.com/fastabc/fastconf/releases) | 版本发布说明与预编译 CLI 二进制 |
 | [pkg.go.dev](https://pkg.go.dev/github.com/fastabc/fastconf) | godoc 与可运行示例 |
 

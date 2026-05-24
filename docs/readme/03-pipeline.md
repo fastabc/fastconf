@@ -301,7 +301,7 @@ events. "Codec" indicates whether the provider needs you to choose one.
 | `providers/nats` | root | JetStream subscribe | yes | required | inject `nats.Conn` adapter | — |
 | `providers/redisstream` | root | `XREAD BLOCK` | yes | required | inject `redis.Client` adapter | — |
 | `providers/s3` | sub-module | load + ETag short-circuit | — | inferred from key ext or explicit | static AWS creds | `no_provider_s3` |
-| `providers/s3/s3events` | root module pkg | SQS long-poll (EventBridge) | — | n/a (watch-only) | static AWS creds | `no_provider_s3events` |
+| `providers/s3/s3events` | `providers/s3` subpackage | SQS long-poll (EventBridge) | — | n/a (watch-only) | static AWS creds | `no_provider_s3events` |
 
 Notes:
 
@@ -398,4 +398,3 @@ mgr, _ := fastconf.New[AppConfig](ctx,
 Local registry wins on name collision; global names remain resolvable.
 
 ---
-

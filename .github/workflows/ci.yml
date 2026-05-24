@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go: ["1.26.x"]
+        go: ["1.22.x", "1.26.x"]
     steps:
       - uses: actions/checkout@v4
 
@@ -35,6 +35,10 @@ jobs:
       - name: Test (race)
         run: go test -race -count=1 -timeout=5m ./...
 
+      - name: BenchmarkGet guard
+        if: matrix.go == '1.26.x'
+        run: bash tools/bench-guard.sh
+
       - name: LOC budget – main package
         run: bash tools/loc-budget.sh
 
@@ -42,7 +46,7 @@ jobs:
         run: bash tools/total-loc-budget.sh
 
   # -----------------------------------------------------------------------
-  # Independent CLI sub-modules (have their own go.mod)
+  # Independent modules (have their own go.mod)
   # -----------------------------------------------------------------------
   test-submodules:
     name: test / ${{ matrix.module }}
@@ -51,12 +55,14 @@ jobs:
       fail-fast: false
       matrix:
         module:
-          - cmd/fastconfctl
-          - cmd/fastconfgen
           - cue
+          - integrations/cli/pflag
+          - integrations/log/phuslu
+          - integrations/log/zerolog
           - observability/metrics/prometheus
           - observability/otel
           - policy/opa
+          - providers/s3
           - validate/playground
     steps:
       - uses: actions/checkout@v4

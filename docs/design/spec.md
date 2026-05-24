@@ -1,7 +1,7 @@
 # FastConf Architecture Specification
 
-> Pre-public. The API in this document is the API; no
-> backward-compatibility commitments yet.
+> First-public. This document describes the intended runtime model and
+> compatibility boundaries for the v0.x line.
 
 FastConf is a strongly-typed, lock-free dynamic configuration loading
 and overlay framework for Go 1.22+ cloud-native applications. Design
@@ -121,22 +121,21 @@ Any stage failure preserves the previous `*State[T]` and publishes one
 |-----------------------------------------|:--:|
 | `.` (root package)                      | ✅ |
 | `contracts/`                            | inside root |
-| `pkg/*` (`decoder`, `discovery`, `flog`, `feature`, `generator`, `mappath`, `merger`, `migration`, `profile`, `provider`, `transform`, `validate`) | inside root |
-| `internal/*` (`debounce`, `obs`, `typeinfo`, `watcher`) | inside root |
-| `integrations/bus`, `integrations/render` | inside root |
+| `pkg/*` (`decoder`, `discovery`, `flog`, `feature`, `generator`, `mappath`, `merger`, `migration`, `parser`, `profile`, `provider`, `source`, `transform`, `typed`, `validate`) | inside root |
+| `internal/*` (`coalesce`, `diffreport`, `fcerr`, `fctypes`, `manager`, `obs`, `options`, `pipeline`, `provenance`, `registry`, `secret`, `state`, `tenant`, `testutil`, `typeinfo`, `watcher`) | inside root |
+| `integrations/bus`, `integrations/openfeature`, `integrations/render` | inside root |
 | `integrations/log/{phuslu,zerolog}`     | ✅ (each) |
-| `integrations/openfeature`              | ✅ |
 | `providers/{vault,consul,http}`         | inside root (build-tag gated) |
-| `providers/{nats,redisstream}`          | ✅ (each) |
+| `providers/{nats,redisstream}`          | inside root (caller injects transport clients) |
 | `observability/otel`                    | ✅ |
 | `observability/metrics/prometheus`      | ✅ |
 | `cue` (unified: cue/cuelang + cue/policy) | ✅ |
 | `policy/opa`                            | ✅ |
 | `validate/playground`                   | ✅ |
-| `cmd/{fastconfd,fastconfctl,fastconfgen}` | ✅ (each) |
+| `cmd/{fastconfd,fastconfctl,fastconfgen}` | inside root |
 
 The root closure stays minimal: `yaml.v3 + json-patch + fsnotify`.
-Heavy deps (OPA/CUE/OTel/Prometheus/Vault/Consul SDKs) all live in
+Heavy deps (OPA/CUE/OTel/Prometheus/AWS SDK/logger adapters) live in
 sub-modules so the root `go get` does not pull them.
 
 ## 8. Performance contract

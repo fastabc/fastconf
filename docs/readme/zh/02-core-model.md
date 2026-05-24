@@ -66,11 +66,12 @@ pkg/                 ← 公开可复用实现原语（可被外部 Provider / C
   validate/          Validator + ValidatorReport
 
 contracts/           ← 稳定接口：Provider / Codec / Source / Event / Snapshot / Priority
-providers/           ← 内置 Provider（vault / consul / http；nats / redisstream 独立 sub-module）
-integrations/        ← bus / render / log / openfeature 适配
+providers/           ← 内置 Provider（vault / consul / http / nats / redisstream；s3 独立 sub-module）
+integrations/        ← bus / render / openfeature；log adapters / pflag 独立 sub-module
 observability/       ← metrics/prometheus、otel（各自独立 sub-module）
-policy/              ← Policy 接口；cue、opa 后端为独立 sub-module
-validate/            ← cue/cuelang、playground 校验后端（独立 sub-module）
+policy/              ← Policy 接口；OPA 后端为独立 sub-module
+cue/                 ← CUE 校验与策略后端（独立 sub-module）
+validate/            ← playground 校验后端（独立 sub-module）
 cmd/                 ← fastconfd（主模块）、fastconfctl、fastconfgen
 ```
 
@@ -346,4 +347,3 @@ fastconf.New[Cfg](ctx,
 | `WithReloadReason(s)` | 覆盖默认 `"manual"` 原因，便于审计 |
 
 ---
-

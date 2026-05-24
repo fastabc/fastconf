@@ -161,7 +161,7 @@ cfg, _ := fastconf.New[AppConfig](ctx,
 
 ## 常见问题
 
-- **为什么不直接把适配放进根模块？** 因为这样会让所有 fastconf 用户（即使不用 zerolog/phuslu）的 `go.sum` 都被污染。Sub-module 独立 `go.mod` 是 FastConf 的一贯隔离原则，与 `observability/otel`、`policy/cue` 同构。
+- **为什么不直接把适配放进根模块？** 因为这样会让所有 fastconf 用户（即使不用 zerolog/phuslu）的 `go.sum` 都被污染。Sub-module 独立 `go.mod` 是 FastConf 的一贯隔离原则，与 `observability/otel`、`cue`、`policy/opa` 同构。
 - **能不能同时用两套？** 可以，但通常没有必要。`slog` 接口允许你随时切换 handler；也可以用 `slog.NewLogger(io.MultiWriter(...))` 做多写。
 - **Group 为什么用 dotted key 而不是嵌套 JSON 对象？** zerolog/phuslu 都没有原生 group 概念；扁平 + 前缀是最低成本、最不损失语义的映射；如果你需要嵌套，自定义 `slog.Handler` 写 `RawJSON` 即可。
 

@@ -12,6 +12,7 @@ front of you, then follow the related recipes when the deployment gets deeper.
 | [env-replacer](env-replacer.md) | Env key conventions, `At()` namespacing, coercion |
 | [labels](labels.md) | Metadata labels, dotted config labels, routing DSL labels |
 | [migration v0.18](migration-v0.18.md) | Move application code onto the v0.18 layout |
+| [migration v0.19](migration-v0.19.md) | Update `Subscribe` callbacks for diff-aware defaults |
 
 ## Operations — observe, inspect, and run safely
 
