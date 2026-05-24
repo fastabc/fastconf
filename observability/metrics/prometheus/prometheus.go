@@ -4,7 +4,7 @@
 // fastconf package never pull in github.com/prometheus/client_golang
 // transitively. Import the subpackage explicitly to opt in:
 //
-//	import promfc "github.com/fastabc/fastconf/metrics/prometheus"
+//	import promfc "github.com/fastabc/fastconf/observability/metrics/prometheus"
 //	sink := promfc.New(prometheus.DefaultRegisterer)
 //	mgr, _ := fastconf.New[Config](ctx, fastconf.WithMetrics(sink))
 //

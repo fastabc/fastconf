@@ -14,6 +14,7 @@ import (
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
 	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/contracts/providertest"
 	s3events "github.com/fastabc/fastconf/providers/s3/s3events"
 )
 
@@ -147,6 +148,17 @@ func TestProvider_LoadIsEmpty(t *testing.T) {
 	if len(m) != 0 {
 		t.Errorf("expected empty map, got %v", m)
 	}
+}
+
+func TestProvider_Conformance(t *testing.T) {
+	c := newFakeSQS()
+	p, _ := s3events.NewWithClient(s3events.Config{
+		QueueURL:        "q",
+		Bucket:          "b",
+		WaitTimeSeconds: 1,
+	}, c)
+	providertest.AssertProviderBasics(t, p)
+	providertest.AssertWatchClosesOnCancel(t, p, time.Second)
 }
 
 const eventBridgeObjectCreated = `{

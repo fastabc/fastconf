@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/contracts/providertest"
 	rsprov "github.com/fastabc/fastconf/providers/redisstream"
 )
 
@@ -181,6 +182,19 @@ func TestProvider_WatchFromResumes(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("no resumed event")
 	}
+}
+
+func TestProvider_WatchFromEmptyColdStarts(t *testing.T) {
+	c := newFakeClient()
+	p, _ := rsprov.New("n", "s", kvCodec{}, c, rsprov.WithBlock(50*time.Millisecond))
+	providertest.AssertResumableColdStarts(t, p, time.Second)
+}
+
+func TestProvider_Conformance(t *testing.T) {
+	c := newFakeClient()
+	p, _ := rsprov.New("n", "s", kvCodec{}, c, rsprov.WithBlock(50*time.Millisecond))
+	providertest.AssertProviderBasics(t, p)
+	providertest.AssertWatchClosesOnCancel(t, p, time.Second)
 }
 
 func TestProvider_ImplementsContracts(t *testing.T) {

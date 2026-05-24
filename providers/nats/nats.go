@@ -157,6 +157,9 @@ func (p *Provider) Watch(ctx context.Context) (<-chan contracts.Event, error) {
 
 // WatchFrom implements contracts.Resumable.
 func (p *Provider) WatchFrom(ctx context.Context, lastRev string) (<-chan contracts.Event, error) {
+	if lastRev == "" {
+		return p.Watch(ctx)
+	}
 	return p.subscribe(ctx, lastRev, true)
 }
 

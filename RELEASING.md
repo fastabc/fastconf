@@ -49,7 +49,8 @@ therefore released by `providers/s3/vX.Y.Z`.
 
 1. All work lands on `main` via reviewed PRs (CODEOWNERS auto-assigns).
 2. CI must be green: `go test -race ./...` for the root module **and**
-   each independent subpackage module, plus `golangci-lint run`.
+   each independent subpackage module, plus `golangci-lint run`,
+   `tools/check-module-matrix.sh`, and `tools/check-api-snapshot.sh`.
 3. Documentation changes that ship with code go in the same PR.
 4. Release PRs only update `CHANGELOG.md` (move `[Unreleased]` to a dated
    version) and bump example go.mod requires when needed.
@@ -128,8 +129,17 @@ make dist EXTRA_TARGETS="freebsd/amd64 linux/386"
 
 ## Public-API compatibility check
 
-Until `v1.0.0` we do not run `golang.org/x/exp/cmd/apidiff` automatically.
-Reviewers MUST eyeball every change to:
+CI snapshots the root package's exported surface in `tools/api/fastconf.txt`.
+Any top-level public API change makes `tools/check-api-snapshot.sh` fail.
+If the change is intentional:
+
+```bash
+UPDATE_API_SNAPSHOT=1 bash tools/check-api-snapshot.sh
+```
+
+Then include the matching `CHANGELOG.md` entry and migration note. Until
+`v1.0.0` we still do not run `golang.org/x/exp/cmd/apidiff` automatically, so
+reviewers MUST also eyeball every change to:
 
 - `contracts/*.go`
 - exported identifiers in top-level `*.go` (the main `package fastconf`)

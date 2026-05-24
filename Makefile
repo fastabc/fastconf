@@ -1,4 +1,4 @@
-.PHONY: all build test test-all race lint tidy bench cover example graph versions \
+.PHONY: all build test test-all race lint tidy bench cover example graph versions module-matrix api-check \
         dist dist-clean dist-verify dist-fastconfd dist-fastconfctl dist-fastconfgen
 
 # ---------------------------------------------------------------------------
@@ -80,6 +80,12 @@ example:
 
 graph:
 	bash tools/code-review-graph.sh
+
+module-matrix:
+	bash tools/check-module-matrix.sh
+
+api-check:
+	bash tools/check-api-snapshot.sh
 
 # List released root-module versions (filters out sub-module path-prefixed tags
 # like cue/v0.18.0; those are required by Go's module system but add

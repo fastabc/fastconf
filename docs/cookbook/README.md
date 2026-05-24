@@ -18,6 +18,7 @@ front of you, then follow the related recipes when the deployment gets deeper.
 
 | Recipe | Use it for |
 |---|---|
+| [observability](observability.md) | Prometheus rules, OTel correlation, and reload triage |
 | [otel](otel.md) | Wire OpenTelemetry tracing for reload spans |
 | [log](log.md) | JSON / zerolog / phuslu/log adapter wiring |
 | [diff-reporter](diff-reporter.md) | Push reload diffs to Slack / PagerDuty / GitHub |

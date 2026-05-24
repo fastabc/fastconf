@@ -1,0 +1,40 @@
+# FastConf Prometheus alert rules.
+# Pair with recording_rules.yaml so the ratio / p99 expressions stay readable.
+groups:
+  - name: fastconf.alerts
+    rules:
+      - alert: FastConfReloadFailures
+        expr: fastconf:reload_success_ratio_5m < 0.99
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: FastConf reload success ratio is below 99%
+          description: Reload failures mean new configuration is not being accepted. Check validator, policy, provider, and decode errors.
+
+      - alert: FastConfReloadLatencyHigh
+        expr: fastconf:reload_p99_5m > 0.5
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: FastConf reload p99 latency is above 500ms
+          description: Slow reloads delay watch-driven changes. Inspect fastconf_stage_duration_seconds by stage.
+
+      - alert: FastConfProviderWatchErrors
+        expr: fastconf:provider_error_rate_5m > 0
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: FastConf provider watch errors are occurring
+          description: A provider watch loop is failing or losing resume continuity. Check provider credentials, network, and revision retention.
+
+      - alert: FastConfProviderEventsDropped
+        expr: fastconf:event_dropped_rate_5m > 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: FastConf provider events are being dropped
+          description: The reload queue is saturated. Reduce event rate, coalesce upstream, or investigate slow reload stages.

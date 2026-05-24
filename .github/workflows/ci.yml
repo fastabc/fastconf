@@ -104,6 +104,12 @@ jobs:
       - name: Layout guard
         run: bash tools/check-layout.sh
 
+      - name: Module matrix guard
+        run: bash tools/check-module-matrix.sh
+
+      - name: API snapshot guard
+        run: bash tools/check-api-snapshot.sh
+
       - name: Documentation symbol guard
         run: bash tools/check-doc-symbols.sh
 

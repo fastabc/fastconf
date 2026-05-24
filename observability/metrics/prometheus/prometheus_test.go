@@ -1,6 +1,8 @@
 package prometheus
 
 import (
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -51,29 +53,51 @@ func TestNew_NilRegistererUsesDefault(t *testing.T) {
 }
 
 func TestSink_StageDuration_Phase28(t *testing.T) {
-reg := prometheus.NewRegistry()
-s := New(reg)
+	reg := prometheus.NewRegistry()
+	s := New(reg)
 
-s.StageDuration("merge", 250*time.Microsecond, true)
-s.StageDuration("merge", 1*time.Millisecond, true)
-s.StageDuration("validate", 5*time.Millisecond, false)
+	s.StageDuration("merge", 250*time.Microsecond, true)
+	s.StageDuration("merge", 1*time.Millisecond, true)
+	s.StageDuration("validate", 5*time.Millisecond, false)
 
-mfs, err := reg.Gather()
-if err != nil {
-t.Fatalf("gather: %v", err)
+	mfs, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("gather: %v", err)
+	}
+	var found bool
+	for _, mf := range mfs {
+		if mf.GetName() != "fastconf_stage_duration_seconds" {
+			continue
+		}
+		found = true
+		// Expect 2 series (merge ok, validate error).
+		if len(mf.GetMetric()) != 2 {
+			t.Fatalf("want 2 stage series, got %d", len(mf.GetMetric()))
+		}
+	}
+	if !found {
+		t.Fatal("fastconf_stage_duration_seconds not registered")
+	}
 }
-var found bool
-for _, mf := range mfs {
-if mf.GetName() != "fastconf_stage_duration_seconds" {
-continue
-}
-found = true
-// Expect 2 series (merge ok, validate error).
-if len(mf.GetMetric()) != 2 {
-t.Fatalf("want 2 stage series, got %d", len(mf.GetMetric()))
-}
-}
-if !found {
-t.Fatal("fastconf_stage_duration_seconds not registered")
-}
+
+func TestAlertRulesDocumentCriticalSignals(t *testing.T) {
+	b, err := os.ReadFile("alert_rules.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(b)
+	for _, want := range []string{
+		"FastConfReloadFailures",
+		"FastConfReloadLatencyHigh",
+		"FastConfProviderWatchErrors",
+		"FastConfProviderEventsDropped",
+		"fastconf:reload_success_ratio_5m",
+		"fastconf:reload_p99_5m",
+		"fastconf:provider_error_rate_5m",
+		"fastconf:event_dropped_rate_5m",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("alert_rules.yaml missing %q", want)
+		}
+	}
 }

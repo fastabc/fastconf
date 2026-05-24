@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/contracts/providertest"
 	natsprov "github.com/fastabc/fastconf/providers/nats"
 )
 
@@ -185,6 +186,19 @@ func TestProvider_WatchFromUnsupportedFallback(t *testing.T) {
 	if !errors.Is(err, contracts.ErrResumeUnsupported) {
 		t.Errorf("expected ErrResumeUnsupported, got %v", err)
 	}
+}
+
+func TestProvider_WatchFromEmptyColdStarts(t *testing.T) {
+	c := newFakeConn(false)
+	p, _ := natsprov.New("n", "s", kvCodec{}, c)
+	providertest.AssertResumableColdStarts(t, p, time.Second)
+}
+
+func TestProvider_Conformance(t *testing.T) {
+	c := newFakeConn(false)
+	p, _ := natsprov.New("n", "s", kvCodec{}, c)
+	providertest.AssertProviderBasics(t, p)
+	providertest.AssertWatchClosesOnCancel(t, p, time.Second)
 }
 
 func TestProvider_ImplementsContracts(t *testing.T) {

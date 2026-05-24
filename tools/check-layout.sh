@@ -65,6 +65,8 @@ done
 [ -f "$ROOT/tools/total-loc-budget.sh" ]   || error "tools/total-loc-budget.sh"
 [ -f "$ROOT/tools/bench-guard.sh" ]        || error "tools/bench-guard.sh"
 [ -f "$ROOT/tools/code-review-graph.sh" ]  || error "tools/code-review-graph.sh"
+[ -f "$ROOT/tools/check-api-snapshot.sh" ] || error "tools/check-api-snapshot.sh"
+[ -f "$ROOT/tools/check-module-matrix.sh" ] || error "tools/check-module-matrix.sh"
 
 # cmd/
 [ -d "$ROOT/cmd/fastconfd" ]  || error "cmd/fastconfd"
