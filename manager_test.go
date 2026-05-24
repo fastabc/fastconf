@@ -63,11 +63,11 @@ func TestNew_BaseOnly(t *testing.T) {
 		t.Errorf("features = %v", got.Features)
 	}
 	snap := mgr.Snapshot()
-	if snap.Generation != 1 {
-		t.Errorf("gen = %d", snap.Generation)
+	if snap.Generation() != 1 {
+		t.Errorf("gen = %d", snap.Generation())
 	}
-	if len(snap.Sources) != 2 {
-		t.Errorf("sources = %d", len(snap.Sources))
+	if len(snap.Sources()) != 2 {
+		t.Errorf("sources = %d", len(snap.Sources()))
 	}
 }
 

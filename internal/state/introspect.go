@@ -45,7 +45,7 @@ func Materialise[T any](value *T) *Keys {
 
 // LazyMaterialise reads holder; computes via Materialise on first access.
 // Concurrent first-access racers may all compute independently; the
-// last writer wins via CompareAndSwap — output is deterministic so no
+// first writer wins via CompareAndSwap — output is deterministic so no
 // caller sees a stale view.
 func LazyMaterialise[T any](holder *KeysHolder, value *T) *Keys {
 	if k := holder.Load(); k != nil {

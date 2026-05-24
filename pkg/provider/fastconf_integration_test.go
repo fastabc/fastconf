@@ -122,11 +122,11 @@ func TestProvider_SnapshotRevisionPropagates(t *testing.T) {
 	}
 	defer mgr.Close()
 	st := mgr.Snapshot()
-	if got := st.Value.Database.DSN; got != "postgres://x" {
+	if got := st.Value().Database.DSN; got != "postgres://x" {
 		t.Fatalf("provider snapshot did not win merge, got %q", got)
 	}
 	var found bool
-	for _, src := range st.Sources {
+	for _, src := range st.Sources() {
 		if src.Path == "provider://snap-vault" {
 			found = true
 			if src.Revision != "rev-7" {
@@ -156,7 +156,7 @@ func TestProvider_LegacyAdapterEmptyRevision(t *testing.T) {
 	}
 	defer mgr.Close()
 	st := mgr.Snapshot()
-	for _, src := range st.Sources {
+	for _, src := range st.Sources() {
 		if src.Path == "provider://legacy" && src.Revision != "" {
 			t.Fatalf("legacy provider should yield empty Revision, got %q", src.Revision)
 		}
@@ -183,7 +183,7 @@ func TestProvider_StaleSnapshotLogsWarning(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	defer mgr.Close()
-	for _, src := range mgr.Snapshot().Sources {
+	for _, src := range mgr.Snapshot().Sources() {
 		if src.Path == "provider://stale-prov" && !src.Stale {
 			t.Fatalf("Stale flag did not propagate")
 		}
@@ -360,7 +360,7 @@ func TestWithProviderOrdered_PreservesResumable(t *testing.T) {
 	defer mgr.Close()
 	// The wrapped provider must still satisfy contracts.Resumable so
 	// provider_watch.go's type assertion stays intact.
-	sources := mgr.Snapshot().Sources
+	sources := mgr.Snapshot().Sources()
 	var found bool
 	for _, src := range sources {
 		if src.Path == "rp" || src.Kind == fastconf.LayerProvider {

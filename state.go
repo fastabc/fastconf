@@ -49,6 +49,42 @@ func Extract[T any, M any](s *State[T], extract func(*T) *M) *M {
 	return istate.Extract(unwrapState(s), extract)
 }
 
+// Value returns the decoded configuration value. Treat the returned pointer
+// as read-only; mutation is undefined behavior.
+func (s *State[T]) Value() *T {
+	return unwrapState(s).Value()
+}
+
+// Hash returns the deterministic SHA-256 fingerprint of the merged
+// configuration tree.
+func (s *State[T]) Hash() [32]byte {
+	return unwrapState(s).Hash()
+}
+
+// LoadedAt returns the Unix nanosecond timestamp at which the snapshot
+// was committed.
+func (s *State[T]) LoadedAt() int64 {
+	return unwrapState(s).LoadedAt()
+}
+
+// Sources returns the ordered list of source layers that were merged
+// into this snapshot.
+func (s *State[T]) Sources() []SourceRef {
+	return unwrapState(s).Sources()
+}
+
+// Generation returns a monotonically increasing counter incremented on
+// every successful reload.
+func (s *State[T]) Generation() uint64 {
+	return unwrapState(s).Generation()
+}
+
+// Cause returns the reload trigger metadata recorded when this snapshot
+// was committed.
+func (s *State[T]) Cause() ReloadCause {
+	return unwrapState(s).Cause()
+}
+
 func (s *State[T]) Introspect() *Introspection {
 	return unwrapState(s).Introspect()
 }
@@ -69,6 +105,9 @@ func (s *State[T]) Explain(path string) []provenance.Origin {
 	return unwrapState(s).Explain(path)
 }
 
+// Lookup returns the provenance chain for path. It is identical to [Explain].
+//
+// Deprecated: use [Explain] instead. Lookup will be removed in a future version.
 func (s *State[T]) Lookup(path string) []provenance.Origin {
 	return unwrapState(s).Lookup(path)
 }
@@ -109,6 +148,7 @@ const (
 	LayerProvider  = istate.LayerProvider
 	LayerSecret    = istate.LayerSecret
 	LayerGenerator = istate.LayerGenerator
+	LayerOverride  = istate.LayerOverride
 )
 
 type (
@@ -173,14 +213,17 @@ func WithDiffReporterQueueCap(n int) Option {
 //
 // The returned label has one of these shapes:
 //
-//	"file:base"            base file layer        (1000–1999)
-//	"file:overlay:<prof>"  single/multi-axis      (2000–3999)
-//	"generator:<name>"     generator              (7000 + RawLayer.Priority; default 7070)
-//	"provider:<name>"      provider               (8000 + Provider.Priority())
+//	"override"             one-shot in-process override  (9000+)
+//	"provider:<name>"      provider                      (8000–8999)
+//	"generator:<name>"     generator                     (7000–7999)
+//	"file:overlay:<prof>"  single/multi-axis overlay     (2000–6999)
+//	"file:base"            base file layer               (1000–1999)
 //	"unknown:<n>"          any value not in a known band
 func SourcePriorityBand(s SourceRef) string {
 	p := s.Priority
 	switch {
+	case p >= contracts.BandOverride:
+		return "override"
 	case p >= contracts.BandProvider:
 		return "provider:" + trimProviderPrefix(s.Path)
 	case p >= contracts.BandGenerator:

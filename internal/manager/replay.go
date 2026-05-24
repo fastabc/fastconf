@@ -35,10 +35,10 @@ func (r *Replay[T]) Rollback(target *istate.State[T]) error {
 		return fmt.Errorf("%w: nil target", ErrUnknownGeneration)
 	}
 	m.historyMu.Lock()
-	found := m.history.Find(func(s *istate.State[T]) bool { return s.Generation == target.Generation })
+	found := m.history.Find(func(s *istate.State[T]) bool { return s.Generation() == target.Generation() })
 	m.historyMu.Unlock()
 	if found != target {
-		return fmt.Errorf("%w: generation %d not in history", ErrUnknownGeneration, target.Generation)
+		return fmt.Errorf("%w: generation %d not in history", ErrUnknownGeneration, target.Generation())
 	}
 
 	req := reloadRequest{
@@ -66,7 +66,7 @@ func (m *M[T]) applyRollback(target *istate.State[T]) error {
 	m.state.Store(target)
 	for {
 		cur := m.gen.Load()
-		next := target.Generation + 1
+		next := target.Generation() + 1
 		if cur >= next {
 			break
 		}
@@ -76,8 +76,8 @@ func (m *M[T]) applyRollback(target *istate.State[T]) error {
 	}
 	if prev != nil {
 		m.opts.Log.Info().
-			Uint64("from", prev.Generation).
-			Uint64("to", target.Generation).
+			Uint64("from", prev.Generation()).
+			Uint64("to", target.Generation()).
 			Msg("fastconf rollback")
 	}
 	m.fireWatches(prev, target)

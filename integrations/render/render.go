@@ -140,7 +140,7 @@ func Wire[T any](
 		apply(neu, false)
 	})
 	if snap := mgr.Snapshot(); snap != nil {
-		apply(snap.Value, true)
+		apply(snap.Value(), true)
 	}
 	return cancel, nil
 }

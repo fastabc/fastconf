@@ -63,7 +63,7 @@ database:
 		t.Fatalf("initial dsn: %q", mgr.Get().Database.DSN)
 	}
 
-	gen1 := mgr.Snapshot().Generation
+	gen1 := mgr.Snapshot().Generation()
 
 	writeFile(t, filepath.Join(conf, "base", "20-database.yaml"), `
 database:
@@ -72,7 +72,7 @@ database:
 `)
 
 	waitFor(t, func() bool { return mgr.Get().Database.DSN == "postgres://v2-hot" }, "hot reload")
-	if mgr.Snapshot().Generation == gen1 {
+	if mgr.Snapshot().Generation() == gen1 {
 		t.Errorf("generation did not advance")
 	}
 }
@@ -97,12 +97,12 @@ database:
 		t.Fatal(err)
 	}
 	defer mgr.Close()
-	gen1 := mgr.Snapshot().Generation
+	gen1 := mgr.Snapshot().Generation()
 
 	writeFile(t, filepath.Join(conf, "base", "20-database.yaml"), "::: invalid yaml: [")
 	time.Sleep(300 * time.Millisecond)
 
-	if mgr.Snapshot().Generation != gen1 {
+	if mgr.Snapshot().Generation() != gen1 {
 		t.Errorf("generation must not advance on failed reload")
 	}
 	if mgr.Get().Database.DSN != "ok" {
@@ -224,7 +224,7 @@ func TestWatcher_HotReloadOnOverlayProfileChange(t *testing.T) {
 	if mgr.Get().Database.DSN != "postgres://prod-v1" {
 		t.Fatalf("initial dsn: %q", mgr.Get().Database.DSN)
 	}
-	gen1 := mgr.Snapshot().Generation
+	gen1 := mgr.Snapshot().Generation()
 
 	// Modify the profile-specific overlay file.
 	writeFile(t, filepath.Join(conf, "overlays", "production", "10-prod.yaml"),
@@ -232,7 +232,7 @@ func TestWatcher_HotReloadOnOverlayProfileChange(t *testing.T) {
 
 	waitFor(t, func() bool { return mgr.Get().Database.DSN == "postgres://prod-v2" },
 		"hot reload on profile overlay change")
-	if mgr.Snapshot().Generation == gen1 {
+	if mgr.Snapshot().Generation() == gen1 {
 		t.Errorf("generation did not advance after profile overlay change")
 	}
 }
@@ -267,7 +267,7 @@ func TestWatcher_HotReloadOnHierarchicalAxisChange(t *testing.T) {
 	if mgr.Get().Database.DSN != "postgres://eu-v1" {
 		t.Fatalf("initial dsn: %q", mgr.Get().Database.DSN)
 	}
-	gen1 := mgr.Snapshot().Generation
+	gen1 := mgr.Snapshot().Generation()
 
 	// Modify the axis-specific overlay file.
 	writeFile(t, filepath.Join(conf, "regions", "eu", "10-region.yaml"),
@@ -275,7 +275,7 @@ func TestWatcher_HotReloadOnHierarchicalAxisChange(t *testing.T) {
 
 	waitFor(t, func() bool { return mgr.Get().Database.DSN == "postgres://eu-v2" },
 		"hot reload on hierarchical axis overlay change")
-	if mgr.Snapshot().Generation == gen1 {
+	if mgr.Snapshot().Generation() == gen1 {
 		t.Errorf("generation did not advance after axis overlay change")
 	}
 }
@@ -323,7 +323,7 @@ func TestWatch_DownwardAPIAtomicSwapTriggersReload(t *testing.T) {
 	if got := mgr.Get().Labels["app"]; got != "v1" {
 		t.Fatalf("initial label app = %q want v1", got)
 	}
-	gen1 := mgr.Snapshot().Generation
+	gen1 := mgr.Snapshot().Generation()
 
 	if err := os.MkdirAll(filepath.Join(podinfo, "data-v2"), 0o755); err != nil {
 		t.Fatal(err)
@@ -338,7 +338,7 @@ func TestWatch_DownwardAPIAtomicSwapTriggersReload(t *testing.T) {
 	}
 
 	waitFor(t, func() bool { return mgr.Get().Labels["app"] == "v2" }, "downward API reload after ..data swap")
-	if mgr.Snapshot().Generation == gen1 {
+	if mgr.Snapshot().Generation() == gen1 {
 		t.Errorf("generation did not advance after downward API swap")
 	}
 }

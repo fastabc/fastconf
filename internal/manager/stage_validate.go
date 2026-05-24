@@ -21,7 +21,7 @@ func runValidate[T any](_ context.Context, m *M[T], pc *pipelineCtx[T]) error {
 	}
 	for _, v := range m.opts.Validators {
 		if err := v.Fn(pc.target); err != nil {
-			return fmt.Errorf("%w: %v", fcerr.ErrValidator, err)
+			return fmt.Errorf("%w: %w", fcerr.ErrValidator, err)
 		}
 	}
 	return nil

@@ -186,6 +186,9 @@ const (
 	BandExtraOverlay  = 3000
 	BandGenerator     = 7000
 	BandProvider      = 8000
+	// BandOverride is the priority band for one-shot in-process overrides
+	// (WithSourceOverride). Values in this band win over all provider layers.
+	BandOverride = 9000
 )
 
 // Attr is a (key, value) pair used by tracer attribute fan-out. See

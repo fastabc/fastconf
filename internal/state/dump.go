@@ -33,6 +33,7 @@ func (f DumpFormat) String() string {
 	case DumpTOML:
 		return "toml"
 	default:
+		// Defensive fallback for unknown DumpFormat values not in the iota.
 		return fmt.Sprintf("dumpformat(%d)", uint8(f))
 	}
 }
@@ -56,6 +57,9 @@ func Dump[T any](s *State[T], format DumpFormat, redactor secret.Redactor) ([]by
 	case DumpYAML:
 		return yaml.Marshal(orderedYAMLNode(tree))
 	default:
+		// Unknown DumpFormat values are not covered by the iota enum;
+		// this branch is defensive and should never be reached in
+		// well-formed callers.
 		return nil, fmt.Errorf("fastconf: unknown DumpFormat %s", format)
 	}
 }

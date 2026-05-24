@@ -7,6 +7,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	istate "github.com/fastabc/fastconf/internal/state"
 	"github.com/fastabc/fastconf/pkg/source"
 )
 
@@ -82,7 +83,7 @@ func TestHistory_RingAndRollback(t *testing.T) {
 	}
 
 	// Rollback to a fake snapshot with a generation that doesn't exist.
-	fake := &State[phase7Cfg]{Generation: 999}
+	fake := wrapState(istate.NewSnapshot[phase7Cfg](nil, [32]byte{}, 0, nil, 999, nil, istate.ReloadCause{}, nil, nil))
 	if err := mgr.Replay().Rollback(fake); !errors.Is(err, ErrUnknownGeneration) {
 		t.Fatalf("rollback unknown gen err=%v", err)
 	}
@@ -102,7 +103,7 @@ func TestHistory_Disabled(t *testing.T) {
 	if hist := mgr.Replay().List(); hist != nil {
 		t.Fatalf("Replay().List() = %v; want nil when history disabled", hist)
 	}
-	fake := &State[phase7Cfg]{Generation: 1}
+	fake := wrapState(istate.NewSnapshot[phase7Cfg](nil, [32]byte{}, 0, nil, 1, nil, istate.ReloadCause{}, nil, nil))
 	if err := mgr.Replay().Rollback(fake); !errors.Is(err, ErrHistoryDisabled) {
 		t.Fatalf("Rollback() err=%v want ErrHistoryDisabled", err)
 	}

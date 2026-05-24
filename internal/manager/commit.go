@@ -59,7 +59,7 @@ func (m *M[T]) commitWithKey(ctx context.Context, staged []stagedLayer, appendSl
 	}
 
 	prev := m.state.Load()
-	if prev != nil && prev.Hash == hash {
+	if prev != nil && prev.Hash() == hash {
 		m.opts.Log.Debug().Str("reason", reason).Msg("fastconf reload skipped: identical hash")
 		return nil
 	}

@@ -208,7 +208,7 @@ func New[T any](ctx context.Context, opts ...iopts.Option) (*M[T], error) {
 // read-only.
 func (m *M[T]) Get() *T {
 	if s := m.state.Load(); s != nil {
-		return s.Value
+		return s.Value()
 	}
 	return nil
 }

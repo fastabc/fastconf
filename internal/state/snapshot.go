@@ -13,17 +13,71 @@ import (
 
 // State is an immutable snapshot of the configuration at a point in time.
 type State[T any] struct {
-	Value      *T
-	Hash       [32]byte
-	LoadedAt   int64
-	Sources    []SourceRef
-	Generation uint64
-	Cause      ReloadCause
+	value      *T
+	hash       [32]byte
+	loadedAt   int64
+	sources    []SourceRef
+	generation uint64
+	cause      ReloadCause
 
 	origins  *provenance.Index
 	features map[string]feature.Rule
 	redactor secret.Redactor
 	keys     KeysHolder
+}
+
+// Value returns the decoded configuration value. Treat the returned
+// pointer as read-only; mutation is undefined behavior.
+func (s *State[T]) Value() *T {
+	if s == nil {
+		return nil
+	}
+	return s.value
+}
+
+// Hash returns the deterministic SHA-256 fingerprint of the merged
+// configuration tree. Identical hashes guarantee byte-identical configs.
+func (s *State[T]) Hash() [32]byte {
+	if s == nil {
+		return [32]byte{}
+	}
+	return s.hash
+}
+
+// LoadedAt returns the Unix nanosecond timestamp at which the snapshot
+// was committed.
+func (s *State[T]) LoadedAt() int64 {
+	if s == nil {
+		return 0
+	}
+	return s.loadedAt
+}
+
+// Sources returns the ordered list of source layers that were merged
+// into this snapshot.
+func (s *State[T]) Sources() []SourceRef {
+	if s == nil {
+		return nil
+	}
+	return s.sources
+}
+
+// Generation returns a monotonically increasing counter incremented on
+// every successful reload.
+func (s *State[T]) Generation() uint64 {
+	if s == nil {
+		return 0
+	}
+	return s.generation
+}
+
+// Cause returns the reload trigger metadata recorded when this snapshot
+// was committed.
+func (s *State[T]) Cause() ReloadCause {
+	if s == nil {
+		return ReloadCause{}
+	}
+	return s.cause
 }
 
 // NewSnapshot stamps the internal-only fields that callers can observe only
@@ -40,13 +94,13 @@ func NewSnapshot[T any](
 	redactor secret.Redactor,
 ) *State[T] {
 	return &State[T]{
-		Value:      value,
-		Hash:       hash,
-		LoadedAt:   loadedAt,
-		Sources:    sources,
-		Generation: generation,
+		value:      value,
+		hash:       hash,
+		loadedAt:   loadedAt,
+		sources:    sources,
+		generation: generation,
 		origins:    origins,
-		Cause:      cause,
+		cause:      cause,
 		features:   features,
 		redactor:   redactor,
 	}
@@ -56,17 +110,17 @@ func (s *State[T]) Introspect() *Introspection {
 	if s == nil {
 		return nil
 	}
-	return NewIntrospection(LazyMaterialise(&s.keys, s.Value))
+	return NewIntrospection(LazyMaterialise(&s.keys, s.value))
 }
 
-// Extract returns the sub-tree of s.Value selected by the user-supplied
-// extractor. It is nil-safe: when s, s.Value, or extract is nil the
+// Extract returns the sub-tree of s.value selected by the user-supplied
+// extractor. It is nil-safe: when s, s.value, or extract is nil the
 // extractor is not invoked and Extract returns nil.
 func Extract[T any, M any](s *State[T], extract func(*T) *M) *M {
-	if s == nil || s.Value == nil || extract == nil {
+	if s == nil || s.value == nil || extract == nil {
 		return nil
 	}
-	return extract(s.Value)
+	return extract(s.value)
 }
 
 func (s *State[T]) Redacted() map[string]any {
@@ -101,6 +155,9 @@ func (s *State[T]) Explain(path string) []provenance.Origin {
 	return s.origins.Explain(path)
 }
 
+// Lookup returns the provenance chain for path. It is identical to [Explain].
+//
+// Deprecated: use [Explain] instead. Lookup will be removed in a future version.
 func (s *State[T]) Lookup(path string) []provenance.Origin {
 	if s == nil {
 		return nil
@@ -148,14 +205,14 @@ func (s *State[T]) Redact(redactor secret.Redactor) map[string]any {
 // guarantees the three out-paths see the same key ordering and
 // redaction policy.
 func (s *State[T]) tree(redactor secret.Redactor) map[string]any {
-	if s == nil || s.Value == nil {
+	if s == nil || s.value == nil {
 		return nil
 	}
-	raw := ValueMap(s.Value)
+	raw := ValueMap(s.value)
 	if redactor == nil {
 		return raw
 	}
-	paths := secret.Paths(reflect.TypeOf(*s.Value))
+	paths := secret.Paths(reflect.TypeOf(*s.value))
 	return secret.Apply(raw, paths, redactor)
 }
 

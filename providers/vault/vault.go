@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"io"
 	nethttp "net/http"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -172,17 +173,15 @@ func (p *Provider) Watch(ctx context.Context) (<-chan contracts.Event, error) {
 	return out, nil
 }
 
-// keepaliveLoop holds the Watch channel open for interval=0 + auth
-// deployments. The only effective lifetime contract is that out is
-// closed exactly once after ctx is cancelled; the renewer goroutine
-// stops itself separately.
+// keepaliveLoop holds the Watch channel reference alive for interval=0
+// + auth deployments. The channel is intentionally NOT closed on exit:
+// the renewer goroutine may still write to it, and closing here would
+// race with that send. The framework's consumeProviderEvents drains the
+// channel under its own ctx select, so the abandoned-channel pattern is
+// safe — the receive side unblocks via ctx.Done() rather than via a
+// close signal.
 func (p *Provider) keepaliveLoop(ctx context.Context, out chan<- contracts.Event) {
 	<-ctx.Done()
-	// out is an event channel; we cannot close a send-only chan that
-	// some other goroutine might still write to. The renewer goroutine
-	// must observe ctx.Done() and stop sending before its enclosing
-	// function returns; here we simply yield so the caller's select on
-	// the receive end unblocks via the ctx path.
 	_ = out
 }
 
@@ -205,14 +204,20 @@ func (p *Provider) watchLoop(ctx context.Context, out chan<- contracts.Event) {
 		if v == old {
 			continue
 		}
-		p.mu.Lock()
-		p.version = v
-		p.mu.Unlock()
+		// Only commit the new version when the event is actually
+		// delivered. A dropped event without a version rollback would
+		// permanently mask the update: the next tick would see v==old
+		// and skip re-emit until the remote bumped the version again.
 		select {
 		case <-ctx.Done():
 			return
 		case out <- contracts.Event{Source: p.name, Reason: "vault-version", At: time.Now()}:
+			p.mu.Lock()
+			p.version = v
+			p.mu.Unlock()
 		default:
+			// Consumer back-pressure: leave p.version alone so the
+			// next tick retries the send.
 		}
 	}
 }
@@ -229,13 +234,22 @@ type kvData struct {
 	} `json:"data"`
 }
 
+// loadToken returns the current Vault token under p.mu so concurrent
+// renews in renewLoop / ensureToken cannot race the HTTP request path.
+// Go strings are two words; an unprotected read can tear during rotation.
+func (p *Provider) loadToken() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.token
+}
+
 func (p *Provider) readData(ctx context.Context) (map[string]any, int, error) {
 	url := fmt.Sprintf("%s/v1/%s/data/%s", p.addr, p.mount, p.path)
 	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, url, nil)
 	if err != nil {
 		return nil, 0, err
 	}
-	req.Header.Set("X-Vault-Token", p.token)
+	req.Header.Set("X-Vault-Token", p.loadToken())
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, 0, err
@@ -264,7 +278,7 @@ func (p *Provider) readMetadataVersion(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("X-Vault-Token", p.token)
+	req.Header.Set("X-Vault-Token", p.loadToken())
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return 0, err
@@ -283,7 +297,9 @@ func (p *Provider) readMetadataVersion(ctx context.Context) (int, error) {
 // expand reconstructs nested maps from flat keys split on separator.
 // "database.dsn" → {database: {dsn: …}}; collisions are resolved by
 // preferring the deeper write (Vault keys are unique, so this only
-// matters when an operator stores both "a" and "a.b").
+// matters when an operator stores both "a" and "a.b"). Keys are
+// processed in ascending segment-count order so deeper paths always
+// win regardless of map-iteration order.
 func (p *Provider) expand(in map[string]any) map[string]any {
 	if p.separator == "" || len(in) == 0 {
 		out := make(map[string]any, len(in))
@@ -292,8 +308,24 @@ func (p *Provider) expand(in map[string]any) map[string]any {
 		}
 		return out
 	}
+	// Collect and sort keys by segment count (ascending) so that
+	// shallow writes happen first and deeper writes reliably overwrite
+	// them, producing deterministic output across reloads.
+	keys := make([]string, 0, len(in))
+	for k := range in {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		ci := strings.Count(keys[i], p.separator)
+		cj := strings.Count(keys[j], p.separator)
+		if ci != cj {
+			return ci < cj
+		}
+		return keys[i] < keys[j]
+	})
 	out := map[string]any{}
-	for k, v := range in {
+	for _, k := range keys {
+		v := in[k]
 		parts := strings.Split(k, p.separator)
 		cur := out
 		for i, seg := range parts {

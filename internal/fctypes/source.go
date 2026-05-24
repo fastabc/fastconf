@@ -22,6 +22,10 @@ const (
 	LayerProvider
 	LayerSecret
 	LayerGenerator
+	// LayerOverride is used for one-shot in-process overrides passed via
+	// WithSourceOverride. It sits above all provider layers so override
+	// values always win at merge time.
+	LayerOverride
 )
 
 func (k LayerKind) String() string {
@@ -36,6 +40,8 @@ func (k LayerKind) String() string {
 		return "secret"
 	case LayerGenerator:
 		return "generator"
+	case LayerOverride:
+		return "override"
 	default:
 		return "unknown"
 	}

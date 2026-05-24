@@ -249,7 +249,10 @@ func runExplain(args []string) error {
 	defer mgr.Close()
 
 	snap := mgr.Snapshot()
-	v, ok := mappath.GetDotted(*snap.Value, path)
+	if snap.Value() == nil {
+		return fmt.Errorf("snapshot value is nil")
+	}
+	v, ok := mappath.GetDotted(*snap.Value(), path)
 	if !ok {
 		return fmt.Errorf("path %q not found", path)
 	}

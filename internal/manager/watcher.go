@@ -92,6 +92,9 @@ func collectWatchPaths(o iopts.Options) []string {
 	// Watch the configured root and the conventional base/overlay subtrees so
 	// that K8s ConfigMap parent-dir swaps reach us regardless of whether the
 	// user mounted the bundle at `conf.d` or at one level deeper.
+	// NOTE: base and overlays are added unconditionally. Deployments that use
+	// a flat conf.d layout (no subdirectories) will see ENOENT here, which the
+	// underlying fsnotify implementation silently swallows — no action needed.
 	add(o.Dir)
 	add(filepath.Join(o.Dir, "base"))
 	add(filepath.Join(o.Dir, "overlays"))
@@ -120,7 +123,7 @@ func collectWatchPathsFromState[T any](s *istate.State[T]) []string {
 	}
 	seen := map[string]struct{}{}
 	var out []string
-	for _, src := range s.Sources {
+	for _, src := range s.Sources() {
 		// Skip virtual sources (bytes://, provider://, ...).
 		if src.Path == "" || strings.Contains(src.Path, "://") {
 			continue

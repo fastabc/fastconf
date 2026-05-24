@@ -16,7 +16,7 @@ func runTypedHooks[T any](_ context.Context, m *M[T], pc *pipelineCtx[T]) error 
 		return nil
 	}
 	if err := m.typedHookPlan.Apply(pc.merged); err != nil {
-		return fmt.Errorf("%w: typed-hook: %v", fcerr.ErrTransform, err)
+		return fmt.Errorf("%w: typed-hook: %w", fcerr.ErrTransform, err)
 	}
 	return nil
 }

@@ -15,12 +15,12 @@ func runDecode[T any](_ context.Context, m *M[T], pc *pipelineCtx[T]) error {
 	pc.target = new(T)
 	b, err := decodeInto(pc.merged, pc.target, m.opts.CodecBridge)
 	if err != nil {
-		return fmt.Errorf("%w: %v", fcerr.ErrDecode, err)
+		return fmt.Errorf("%w: %w", fcerr.ErrDecode, err)
 	}
 	pc.mergedJSON = b
 	if m.opts.StructDefaults != nil {
 		if err := m.opts.StructDefaults(pc.target); err != nil {
-			return fmt.Errorf("%w: %v", fcerr.ErrDecode, err)
+			return fmt.Errorf("%w: %w", fcerr.ErrDecode, err)
 		}
 	}
 	// iopts.Defaulter interface: auto-call Defaults() if *T implements it.

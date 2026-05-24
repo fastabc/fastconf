@@ -102,7 +102,7 @@ func TestGenerator_RawLayerPriority(t *testing.T) {
 		t.Fatalf("expected high-priority generator layer to win, got %v", got)
 	}
 	var lowSeen, highSeen bool
-	for _, s := range mgr.Snapshot().Sources {
+	for _, s := range mgr.Snapshot().Sources() {
 		if s.Kind != LayerGenerator {
 			continue
 		}

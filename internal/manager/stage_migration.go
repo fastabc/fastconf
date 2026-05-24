@@ -12,7 +12,7 @@ func runMigration[T any](_ context.Context, m *M[T], pc *pipelineCtx[T]) error {
 		return nil
 	}
 	if err := m.opts.MigrationRun.Migrate(pc.merged); err != nil {
-		return fmt.Errorf("%w: migration: %v", fcerr.ErrTransform, err)
+		return fmt.Errorf("%w: migration: %w", fcerr.ErrTransform, err)
 	}
 	return nil
 }

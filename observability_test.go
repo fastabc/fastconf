@@ -69,8 +69,8 @@ func TestAuditSink_EmitsReloadCause(t *testing.T) {
 	if first.Reason != "initial" || first.At == 0 {
 		t.Fatalf("bad cause %+v", first)
 	}
-	if got := mgr.Snapshot().Cause; got.Reason != "initial" {
-		t.Fatalf("State.Cause not surfaced: %+v", got)
+	if got := mgr.Snapshot().Cause(); got.Reason != "initial" {
+		t.Fatalf("State.Cause() not surfaced: %+v", got)
 	}
 }
 

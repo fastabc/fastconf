@@ -137,6 +137,9 @@ func strategicMergeList(path string, a, b []any, key string, opt Options) ([]any
 		if i, present := idx[k]; present {
 			existing, ok := a[i].(map[string]any)
 			if !ok {
+				if opt.Strict {
+					return nil, fmt.Errorf("merger: type mismatch at %q[%s]: have %T, got map", path, k, a[i])
+				}
 				a[i] = m
 				continue
 			}

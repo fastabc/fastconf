@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fastabc/fastconf/contracts"
+	istate "github.com/fastabc/fastconf/internal/state"
 	"github.com/fastabc/fastconf/internal/obs"
 )
 
@@ -222,7 +223,7 @@ func BenchmarkIntrospectCold(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		state := &State[benchCfg]{Value: &cfg}
+		state := wrapState(istate.NewSnapshot(&cfg, [32]byte{}, 0, nil, 0, nil, istate.ReloadCause{}, nil, nil))
 		benchSettingsSink = state.Introspect().Settings()
 	}
 }
@@ -231,7 +232,7 @@ func BenchmarkIntrospectWarmKeys(b *testing.B) {
 	cfg := benchCfg{A: 1, B: "hello"}
 	cfg.C.D = true
 	cfg.C.E = "world"
-	state := &State[benchCfg]{Value: &cfg}
+	state := wrapState(istate.NewSnapshot(&cfg, [32]byte{}, 0, nil, 0, nil, istate.ReloadCause{}, nil, nil))
 	intro := state.Introspect()
 	b.ReportAllocs()
 	b.ResetTimer()

@@ -55,7 +55,7 @@ func TestPatchLayer_FailureKeepsOldState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer mgr.Close()
-	gen1 := mgr.Snapshot().Generation
+	gen1 := mgr.Snapshot().Generation()
 
 	mfs["conf.d/overlays/prod/99-bad.patch.yaml"] = &fstest.MapFile{Data: []byte(`
 - op: remove
@@ -73,7 +73,7 @@ func TestPatchLayer_FailureKeepsOldState(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected patch failure")
 	}
-	if mgr.Snapshot().Generation != gen1 {
+	if mgr.Snapshot().Generation() != gen1 {
 		t.Errorf("unrelated manager mutated")
 	}
 }
@@ -169,7 +169,7 @@ func TestReloadWithSource_Atomic(t *testing.T) {
 	if mgr.Get().Port != 1 {
 		t.Fatalf("initial port = %d", mgr.Get().Port)
 	}
-	gen0 := mgr.Snapshot().Generation
+	gen0 := mgr.Snapshot().Generation()
 
 	if err := mgr.Reload(context.Background(), fastconf.WithSourceOverride(map[string]any{
 		"port": 9999,
@@ -182,7 +182,7 @@ func TestReloadWithSource_Atomic(t *testing.T) {
 	if mgr.Get().Name != "base" {
 		t.Errorf("name should be retained: %q", mgr.Get().Name)
 	}
-	if g := mgr.Snapshot().Generation; g != gen0+1 {
+	if g := mgr.Snapshot().Generation(); g != gen0+1 {
 		t.Errorf("generation should have incremented; got %d (was %d)", g, gen0)
 	}
 
@@ -313,7 +313,7 @@ func TestReload_PostConstructionCtxCancellation(t *testing.T) {
 	}
 	defer mgr.Close()
 
-	startGen := mgr.Snapshot().Generation
+	startGen := mgr.Snapshot().Generation()
 	startVal := (*mgr.Get())["name"]
 
 	// Drain any pre-existing error events so we can wait for the new one.
@@ -340,7 +340,7 @@ func TestReload_PostConstructionCtxCancellation(t *testing.T) {
 	if elapsed > 500*time.Millisecond {
 		t.Fatalf("Reload did not honour ctx promptly: %s", elapsed)
 	}
-	if got := mgr.Snapshot().Generation; got != startGen {
+	if got := mgr.Snapshot().Generation(); got != startGen {
 		t.Errorf("Generation must not advance on failed reload; was %d, now %d", startGen, got)
 	}
 	if got := (*mgr.Get())["name"]; got != startVal {
@@ -365,7 +365,7 @@ func TestReload_PostConstructionCtxCancellation(t *testing.T) {
 	if err := mgr.Reload(context.Background()); err != nil {
 		t.Fatalf("recovery reload failed: %v", err)
 	}
-	if got := mgr.Snapshot().Generation; got <= startGen {
+	if got := mgr.Snapshot().Generation(); got <= startGen {
 		t.Errorf("Generation should advance after successful recovery reload; was %d, now %d", startGen, got)
 	}
 	if got := (*mgr.Get())["name"]; got != "recovered" {

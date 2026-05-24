@@ -11,6 +11,14 @@ import (
 	"github.com/fastabc/fastconf/policy"
 )
 
+// closedErrCh is returned by Errors() when the manager is nil/uninitialized,
+// avoiding a per-call allocation.
+var closedErrCh = func() chan ReloadError {
+	ch := make(chan ReloadError)
+	close(ch)
+	return ch
+}()
+
 // Manager is the strongly-typed, lock-free configuration manager.
 type Manager[T any] struct {
 	inner *imanager.M[T]
@@ -60,58 +68,56 @@ func MustNew[T any](ctx context.Context, opts ...Option) *Manager[T] {
 }
 
 func (m *Manager[T]) Get() *T {
-	if m == nil || m.inner == nil {
+	if m == nil {
 		return nil
 	}
 	return m.inner.Get()
 }
 
 func (m *Manager[T]) Snapshot() *State[T] {
-	if m == nil || m.inner == nil {
+	if m == nil {
 		return nil
 	}
 	return wrapState(m.inner.Snapshot())
 }
 
 func (m *Manager[T]) Close() error {
-	if m == nil || m.inner == nil {
+	if m == nil {
 		return nil
 	}
 	return m.inner.Close()
 }
 
 func (m *Manager[T]) Errors() <-chan ReloadError {
-	if m == nil || m.inner == nil {
-		ch := make(chan ReloadError)
-		close(ch)
-		return ch
+	if m == nil {
+		return closedErrCh
 	}
 	return m.inner.Errors()
 }
 
 func (m *Manager[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
-	if m == nil || m.inner == nil {
+	if m == nil {
 		return fcerr.ErrClosed
 	}
 	return m.inner.Reload(ctx, opts...)
 }
 
 func (m *Manager[T]) Plan() *PlanBuilder[T] {
-	if m == nil || m.inner == nil {
+	if m == nil {
 		return &PlanBuilder[T]{}
 	}
 	return &PlanBuilder[T]{inner: m.inner.Plan()}
 }
 
 func (m *Manager[T]) Replay() *Replay[T] {
-	if m == nil || m.inner == nil {
+	if m == nil {
 		return &Replay[T]{}
 	}
 	return &Replay[T]{inner: m.inner.Replay()}
 }
 
 func (m *Manager[T]) Watcher() *Watcher[T] {
-	if m == nil || m.inner == nil {
+	if m == nil {
 		return &Watcher[T]{}
 	}
 	return &Watcher[T]{inner: m.inner.Watcher()}
@@ -168,14 +174,14 @@ type Replay[T any] struct {
 }
 
 func (r *Replay[T]) List() []*State[T] {
-	if r == nil || r.inner == nil {
+	if r == nil {
 		return nil
 	}
 	return wrapStates(r.inner.List())
 }
 
 func (r *Replay[T]) Rollback(target *State[T]) error {
-	if r == nil || r.inner == nil {
+	if r == nil {
 		return imanager.ErrHistoryDisabled
 	}
 	return r.inner.Rollback(unwrapState(target))
@@ -270,7 +276,7 @@ func Subscribe[T any, M any](
 	fn func(old, new *M),
 	opts ...SubscribeOption[M],
 ) (cancel func()) {
-	if m == nil || m.inner == nil {
+	if m == nil {
 		return func() {}
 	}
 	cfg := subscribeOpts[M]{}
@@ -291,7 +297,7 @@ func NewTenantManager[T any]() *TenantManager[T] {
 }
 
 func (tm *TenantManager[T]) Add(ctx context.Context, id string, opts ...Option) (*Manager[T], error) {
-	if tm == nil || tm.inner == nil {
+	if tm == nil {
 		return nil, fmt.Errorf("fastconf: nil TenantManager")
 	}
 	m, err := tm.inner.Add(ctx, id, opts...)
@@ -302,7 +308,7 @@ func (tm *TenantManager[T]) Add(ctx context.Context, id string, opts ...Option) 
 }
 
 func (tm *TenantManager[T]) Get(id string) (*Manager[T], error) {
-	if tm == nil || tm.inner == nil {
+	if tm == nil {
 		return nil, fmt.Errorf("%w: %q", itenant.ErrUnknownTenant, id)
 	}
 	m, err := tm.inner.Get(id)
@@ -313,25 +319,25 @@ func (tm *TenantManager[T]) Get(id string) (*Manager[T], error) {
 }
 
 func (tm *TenantManager[T]) Has(id string) bool {
-	return tm != nil && tm.inner != nil && tm.inner.Has(id)
+	return tm != nil && tm.inner.Has(id)
 }
 
 func (tm *TenantManager[T]) Remove(id string) error {
-	if tm == nil || tm.inner == nil {
+	if tm == nil {
 		return fmt.Errorf("%w: %q", itenant.ErrUnknownTenant, id)
 	}
 	return tm.inner.Remove(id)
 }
 
 func (tm *TenantManager[T]) Tenants() []string {
-	if tm == nil || tm.inner == nil {
+	if tm == nil {
 		return nil
 	}
 	return tm.inner.Tenants()
 }
 
 func (tm *TenantManager[T]) Close() error {
-	if tm == nil || tm.inner == nil {
+	if tm == nil {
 		return nil
 	}
 	return tm.inner.Close()

@@ -120,12 +120,12 @@ func (m *M[T]) assemble(ctx context.Context, hostnameOverride string) ([]stagedL
 		if layer.Kind == discovery.KindPatch {
 			raw, derr := decoder.DecodeAny(layer.Codec, layer.Bytes)
 			if derr != nil {
-				scanErr = fmt.Errorf("%w: %s: %v", fcerr.ErrDecode, layer.Path, derr)
+				scanErr = fmt.Errorf("%w: %s: %w", fcerr.ErrDecode, layer.Path, derr)
 				return false
 			}
 			patchBytes, perr := merger.PatchBytesFromAny(raw)
 			if perr != nil {
-				scanErr = fmt.Errorf("%w: %s: %v", fcerr.ErrPatch, layer.Path, perr)
+				scanErr = fmt.Errorf("%w: %s: %w", fcerr.ErrPatch, layer.Path, perr)
 				return false
 			}
 			staged = append(staged, stagedLayer{src: src, patch: patchBytes})
@@ -133,12 +133,12 @@ func (m *M[T]) assemble(ctx context.Context, hostnameOverride string) ([]stagedL
 		}
 		dec, derr := decoder.For(layer.Codec)
 		if derr != nil {
-			scanErr = fmt.Errorf("%w: %v", fcerr.ErrDecode, derr)
+			scanErr = fmt.Errorf("%w: %w", fcerr.ErrDecode, derr)
 			return false
 		}
 		raw, derr := dec.Decode(layer.Bytes)
 		if derr != nil {
-			scanErr = fmt.Errorf("%w: %s: %v", fcerr.ErrDecode, layer.Path, derr)
+			scanErr = fmt.Errorf("%w: %s: %w", fcerr.ErrDecode, layer.Path, derr)
 			return false
 		}
 		staged = append(staged, stagedLayer{src: src, data: raw})
@@ -158,16 +158,16 @@ func (m *M[T]) assemble(ctx context.Context, hostnameOverride string) ([]stagedL
 	for _, g := range m.opts.Generators {
 		srcs, err := g.Generate(ctx)
 		if err != nil {
-			return nil, false, fmt.Errorf("%w: generator %q: %v", fcerr.ErrDecode, g.Name(), err)
+			return nil, false, fmt.Errorf("%w: generator %q: %w", fcerr.ErrDecode, g.Name(), err)
 		}
 		for _, gs := range srcs {
 			dec, derr := decoder.For(gs.Codec)
 			if derr != nil {
-				return nil, false, fmt.Errorf("%w: generator %q codec %q: %v", fcerr.ErrDecode, g.Name(), gs.Codec, derr)
+				return nil, false, fmt.Errorf("%w: generator %q codec %q: %w", fcerr.ErrDecode, g.Name(), gs.Codec, derr)
 			}
 			raw, derr := dec.Decode(gs.Data)
 			if derr != nil {
-				return nil, false, fmt.Errorf("%w: generator %q: %v", fcerr.ErrDecode, g.Name(), derr)
+				return nil, false, fmt.Errorf("%w: generator %q: %w", fcerr.ErrDecode, g.Name(), derr)
 			}
 			prio := gs.Priority
 			if prio == 0 {
@@ -199,7 +199,7 @@ func (m *M[T]) assemble(ctx context.Context, hostnameOverride string) ([]stagedL
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return nil, false, err
 				}
-				return nil, false, fmt.Errorf("%w: provider %q: %v", fcerr.ErrDecode, p.Name(), err)
+				return nil, false, fmt.Errorf("%w: provider %q: %w", fcerr.ErrDecode, p.Name(), err)
 			}
 			if snap.Map == nil {
 				continue

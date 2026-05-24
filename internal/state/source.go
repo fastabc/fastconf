@@ -14,4 +14,5 @@ const (
 	LayerProvider  = fctypes.LayerProvider
 	LayerSecret    = fctypes.LayerSecret
 	LayerGenerator = fctypes.LayerGenerator
+	LayerOverride  = fctypes.LayerOverride
 )

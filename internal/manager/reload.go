@@ -39,8 +39,8 @@ func (m *M[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 	extra := stagedLayer{
 		src: istate.SourceRef{
 			Path:     "override://once",
-			Kind:     istate.LayerProvider,
-			Priority: contracts.BandFileBase + contracts.PriorityCLI,
+			Kind:     istate.LayerOverride,
+			Priority: contracts.BandOverride,
 		},
 		data: cfg.override,
 	}

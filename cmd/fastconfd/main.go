@@ -20,6 +20,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -174,10 +175,10 @@ func (s *server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":    version,
-		"generation": st.Generation,
-		"hash":       st.Hash,
-		"loaded_at":  st.LoadedAt,
-		"reason":     st.Cause.Reason,
+		"generation": st.Generation(),
+		"hash":       st.Hash(),
+		"loaded_at":  st.LoadedAt(),
+		"reason":     st.Cause().Reason,
 	})
 }
 
@@ -242,9 +243,16 @@ func (s *server) handleReload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.token != "" && r.Header.Get("X-Reload-Token") != s.token {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
+	if s.token != "" {
+		got := r.Header.Get("X-Reload-Token")
+		// Constant-time compare to avoid a byte-by-byte timing oracle on
+		// the reload secret. ConstantTimeCompare returns 0 on length
+		// mismatch without examining bytes, which is acceptable for a
+		// fixed-length token.
+		if subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 	}
 	if err := s.mgr.Reload(r.Context()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

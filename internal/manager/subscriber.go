@@ -40,11 +40,11 @@ func Subscribe[T any, S any](
 	}
 	wrapper := func(prev, next *istate.State[T]) {
 		var oldV, newV *S
-		if prev != nil && prev.Value != nil {
-			oldV = extract(prev.Value)
+		if prev != nil && prev.Value() != nil {
+			oldV = extract(prev.Value())
 		}
-		if next != nil && next.Value != nil {
-			newV = extract(next.Value)
+		if next != nil && next.Value() != nil {
+			newV = extract(next.Value())
 		}
 		// Both nil — nothing to compare, nothing changed.
 		if oldV == nil && newV == nil {

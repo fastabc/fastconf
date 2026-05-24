@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/fastabc/fastconf/internal/fcerr"
@@ -25,5 +26,10 @@ func runFieldMetaCheck[T any](_ context.Context, _ *M[T], pc *pipelineCtx[T]) er
 		}
 		return nil
 	}
-	return fmt.Errorf("%w: %s", fcerr.ErrValidator, violations[0].Msg)
+	// Collect all violations and join them so callers can inspect each one.
+	errs := make([]error, len(violations))
+	for i, v := range violations {
+		errs[i] = fmt.Errorf("%w: %s", fcerr.ErrValidator, v.Msg)
+	}
+	return errors.Join(errs...)
 }

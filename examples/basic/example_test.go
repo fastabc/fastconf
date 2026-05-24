@@ -47,7 +47,7 @@ func Example_basic() {
 	defer mgr.Close()
 
 	app := mgr.Get()
-	fmt.Printf("%s %d %d\n", app.Server.Addr, app.Database.Pool, len(mgr.Snapshot().Sources))
+	fmt.Printf("%s %d %d\n", app.Server.Addr, app.Database.Pool, len(mgr.Snapshot().Sources()))
 	// Output:
 	// :8443 32 2
 }

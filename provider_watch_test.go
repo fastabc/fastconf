@@ -157,7 +157,7 @@ func TestProviderWatch_TriggersReload(t *testing.T) {
 	defer cfg.Close()
 
 	// After initial load (loadCnt == 1) the port should be 8001.
-	gen0 := cfg.Snapshot().Generation
+	gen0 := cfg.Snapshot().Generation()
 	if got := cfg.Get().Server.Port; got != 8001 {
 		t.Fatalf("initial port: got %d want 8001", got)
 	}
@@ -167,12 +167,12 @@ func TestProviderWatch_TriggersReload(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if cfg.Snapshot().Generation > gen0 {
+		if cfg.Snapshot().Generation() > gen0 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if cfg.Snapshot().Generation == gen0 {
+	if cfg.Snapshot().Generation() == gen0 {
 		t.Fatalf("provider event did not trigger reload (loadCnt=%d)", p.loadCnt.Load())
 	}
 	if got := cfg.Get().Server.Port; got != 8002 {
@@ -196,7 +196,7 @@ func TestProviderWatch_PauseSkipsProviderReload(t *testing.T) {
 	}
 	defer cfg.Close()
 
-	gen0 := cfg.Snapshot().Generation
+	gen0 := cfg.Snapshot().Generation()
 	load0 := p.loadCnt.Load()
 	cfg.Watcher().Pause()
 	if !cfg.Watcher().Paused() {
@@ -208,14 +208,14 @@ func TestProviderWatch_PauseSkipsProviderReload(t *testing.T) {
 	if got := p.loadCnt.Load(); got != load0 {
 		t.Fatalf("paused provider event triggered Load: got %d want %d", got, load0)
 	}
-	if got := cfg.Snapshot().Generation; got != gen0 {
+	if got := cfg.Snapshot().Generation(); got != gen0 {
 		t.Fatalf("paused provider event advanced generation: got %d want %d", got, gen0)
 	}
 
 	cfg.Watcher().Resume()
 	sendProviderEvent(t, p.ch, contracts.Event{Source: "paused", Reason: "resumed"})
 	waitForProviderWatch(t, 2*time.Second, "provider reload after resume", func() bool {
-		return cfg.Snapshot().Generation > gen0
+		return cfg.Snapshot().Generation() > gen0
 	})
 }
 
@@ -237,7 +237,7 @@ func TestProviderWatch_BurstDoesNotBlock(t *testing.T) {
 	// Send 100 events in rapid succession; we don't care how many reloads
 	// fire — only that the test completes (no deadlock) and at least one
 	// reload above gen0 happens.
-	gen0 := cfg.Snapshot().Generation
+	gen0 := cfg.Snapshot().Generation()
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < 100; i++ {
@@ -256,7 +256,7 @@ func TestProviderWatch_BurstDoesNotBlock(t *testing.T) {
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if cfg.Snapshot().Generation > gen0 {
+		if cfg.Snapshot().Generation() > gen0 {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

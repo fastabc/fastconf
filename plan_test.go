@@ -36,7 +36,7 @@ func TestPlan_ProducesDiff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan: %v", err)
 	}
-	if plan.Proposed == nil || plan.Proposed.Value.Port != 9090 {
+	if plan.Proposed == nil || plan.Proposed.Value().Port != 9090 {
 		t.Fatalf("expected proposed port 9090, got %+v", plan.Proposed)
 	}
 	// PlanResult.Diff is structured ([]DiffEntry), so consumers do not
@@ -45,12 +45,12 @@ func TestPlan_ProducesDiff(t *testing.T) {
 	// state is empty; assert the slice is the new type without
 	// asserting non-emptiness.
 	var _ []DiffEntry = plan.Diff
-	gen := mgr.Snapshot().Generation
+	gen := mgr.Snapshot().Generation()
 	if _, err := mgr.Plan().Run(context.Background()); err != nil {
 		t.Fatalf("plan idempotent: %v", err)
 	}
-	if mgr.Snapshot().Generation != gen {
-		t.Fatalf("Plan must not bump generation: %d vs %d", mgr.Snapshot().Generation, gen)
+	if mgr.Snapshot().Generation() != gen {
+		t.Fatalf("Plan must not bump generation: %d vs %d", mgr.Snapshot().Generation(), gen)
 	}
 }
 
@@ -130,8 +130,8 @@ func TestPlan_HostnameOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan2.Proposed.Value.Region != "prod" {
-		t.Errorf("expected region=prod with hostname override, got %q", plan2.Proposed.Value.Region)
+	if plan2.Proposed.Value().Region != "prod" {
+		t.Errorf("expected region=prod with hostname override, got %q", plan2.Proposed.Value().Region)
 	}
 
 	// And empty-string override: should be treated as no override.
@@ -141,7 +141,7 @@ func TestPlan_HostnameOverride(t *testing.T) {
 	}
 	// We don't know the runner's actual hostname; just ensure it didn't
 	// happen to be the literal "prod" (extremely unlikely).
-	if strings.Contains(plan3.Proposed.Value.Region, "prod-pod-3") {
-		t.Errorf("empty override should NOT pin to prod-pod-3: got %q", plan3.Proposed.Value.Region)
+	if strings.Contains(plan3.Proposed.Value().Region, "prod-pod-3") {
+		t.Errorf("empty override should NOT pin to prod-pod-3: got %q", plan3.Proposed.Value().Region)
 	}
 }

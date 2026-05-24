@@ -54,11 +54,11 @@ func TestReload_IdenticalHashNoSwap(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer mgr.Close()
-	gen1 := mgr.Snapshot().Generation
+	gen1 := mgr.Snapshot().Generation()
 	if err := mgr.Reload(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	gen2 := mgr.Snapshot().Generation
+	gen2 := mgr.Snapshot().Generation()
 	if gen1 != gen2 {
 		t.Errorf("generation should not change on identical reload: %d → %d", gen1, gen2)
 	}
@@ -71,12 +71,12 @@ func TestReload_DifferentHashSwaps(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer mgr.Close()
-	gen1 := mgr.Snapshot().Generation
+	gen1 := mgr.Snapshot().Generation()
 	mfs["conf.d/base/20-database.yaml"] = &fstest.MapFile{Data: []byte("database:\n  dsn: changed\n  pool: 99\n")}
 	if err := mgr.Reload(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if mgr.Snapshot().Generation == gen1 {
+	if mgr.Snapshot().Generation() == gen1 {
 		t.Errorf("generation should advance after content change")
 	}
 	if mgr.Get().Database.DSN != "changed" {

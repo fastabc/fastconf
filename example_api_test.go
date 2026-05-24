@@ -131,7 +131,7 @@ func ExampleManager_Plan() {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(len(plan.Diff), plan.Proposed.Value.Server.Addr, mgr.Get().Server.Addr)
+	fmt.Println(len(plan.Diff), plan.Proposed.Value().Server.Addr, mgr.Get().Server.Addr)
 	// Output:
 	// 1 :9090 :8080
 }

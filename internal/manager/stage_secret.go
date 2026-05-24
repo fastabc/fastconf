@@ -25,7 +25,7 @@ func runSecretResolve[T any](ctx context.Context, m *M[T], pc *pipelineCtx[T]) e
 		}
 		plain, err := r.Resolve(ctx, ref)
 		if err != nil {
-			firstErr = fmt.Errorf("%w: secret %s@%s: %v", fcerr.ErrTransform, ref.Scheme, path, err)
+			firstErr = fmt.Errorf("%w: secret %s@%s: %w", fcerr.ErrTransform, ref.Scheme, path, err)
 			return v, false
 		}
 		if pc.origins != nil {

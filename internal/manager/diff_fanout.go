@@ -35,11 +35,11 @@ func (m *M[T]) fireDiffReporters(prev, ns *istate.State[T]) {
 		return
 	}
 	m.diffReportPool.Enqueue(istate.DiffEvent{
-		Reason:         ns.Cause.Reason,
-		PrevGeneration: prev.Generation,
-		NewGeneration:  ns.Generation,
-		At:             time.Unix(0, ns.LoadedAt),
+		Reason:         ns.Cause().Reason,
+		PrevGeneration: prev.Generation(),
+		NewGeneration:  ns.Generation(),
+		At:             time.Unix(0, ns.LoadedAt()),
 		Diff:           diff,
-		Cause:          ns.Cause,
+		Cause:          ns.Cause(),
 	})
 }

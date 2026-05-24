@@ -156,11 +156,11 @@ port = 8080
 
 	// Source provenance must carry the toml codec name.
 	snap := mgr.Snapshot()
-	if len(snap.Sources) == 0 {
+	if len(snap.Sources()) == 0 {
 		t.Fatal("snapshot has no Sources")
 	}
-	if snap.Sources[0].Codec != "toml" {
-		t.Errorf("Source[0].Codec = %q, want toml", snap.Sources[0].Codec)
+	if snap.Sources()[0].Codec != "toml" {
+		t.Errorf("Source[0].Codec = %q, want toml", snap.Sources()[0].Codec)
 	}
 }
 

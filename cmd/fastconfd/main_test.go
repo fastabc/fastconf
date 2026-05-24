@@ -89,6 +89,41 @@ func TestServer_ReloadAuth(t *testing.T) {
 	}
 }
 
+// TestServer_ReloadAuth_ConstantTimeCompare guards against a regression
+// to byte-by-byte string comparison on the reload token. The test
+// verifies the wrong-token paths still return 401; the timing-attack
+// resistance itself is covered by the use of subtle.ConstantTimeCompare.
+func TestServer_ReloadAuth_ConstantTimeCompare(t *testing.T) {
+	s, done := newTestServer(t)
+	defer done()
+	s.token = "the-correct-secret"
+	mux := s.routes()
+	cases := []string{
+		"",                          // empty header
+		"x",                         // length mismatch (shorter)
+		"the-correct-secret-extra",  // length mismatch (longer)
+		"the-correct-secrey",        // same length, last byte wrong
+		"a-completely-wrong-secret", // same length, every byte wrong
+	}
+	for _, tok := range cases {
+		req := httptest.NewRequest(http.MethodPost, "/reload", nil)
+		req.Header.Set("X-Reload-Token", tok)
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, req)
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("token=%q: expected 401, got %d", tok, rr.Code)
+		}
+	}
+	// Verify it does not contain literal byte-by-byte comparison.
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	if strings.Contains(string(src), "X-Reload-Token\") != s.token") {
+		t.Fatal("reload-token compare uses raw != ; must use subtle.ConstantTimeCompare")
+	}
+}
+
 func TestServer_EventsSSE(t *testing.T) {
 	s, done := newTestServer(t)
 	defer done()

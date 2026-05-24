@@ -285,7 +285,7 @@ database:
 	if err != nil {
 		t.Fatalf("Dump(JSON): %v", err)
 	}
-	direct, err := json.Marshal(snap.Value)
+	direct, err := json.Marshal(snap.Value())
 	if err != nil {
 		t.Fatalf("json.Marshal(Value): %v", err)
 	}

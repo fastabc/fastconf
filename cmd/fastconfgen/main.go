@@ -109,7 +109,10 @@ func (e *emitter) emitStruct(w *strings.Builder, name string, m map[string]any) 
 		v := m[k]
 		fname := uniqueExportName(k, usedFields)
 		ftype := e.fieldType(name+fname, v, &nests)
-		fields = append(fields, field{fname, ftype, fmt.Sprintf("`yaml:%q json:%q`", k, k)})
+		// Escape any backticks in the key to avoid breaking the raw-string
+		// literal that wraps the generated struct tag.
+		safeK := strings.ReplaceAll(k, "`", "`+\"`\"+`")
+		fields = append(fields, field{fname, ftype, fmt.Sprintf("`yaml:%q json:%q`", safeK, safeK)})
 	}
 	fmt.Fprintf(w, "type %s struct {\n", name)
 	for _, f := range fields {

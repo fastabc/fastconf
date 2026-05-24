@@ -30,13 +30,13 @@ func runMerge[T any](_ context.Context, m *M[T], pc *pipelineCtx[T]) error {
 		if l.patch != nil {
 			next, err := merger.ApplyPatch(pc.merged, l.patch)
 			if err != nil {
-				return fmt.Errorf("%w: %s: %v", fcerr.ErrPatch, l.src.Path, err)
+				return fmt.Errorf("%w: %s: %w", fcerr.ErrPatch, l.src.Path, err)
 			}
 			pc.merged = next
 			pc.origins.RecordTree("", pc.merged, l.src)
 		} else {
 			if err := merger.Deep(pc.merged, l.data, mergeOpt); err != nil {
-				return fmt.Errorf("%w: %s: %v", fcerr.ErrMerge, l.src.Path, err)
+				return fmt.Errorf("%w: %s: %w", fcerr.ErrMerge, l.src.Path, err)
 			}
 			pc.origins.RecordTree("", l.data, l.src)
 		}

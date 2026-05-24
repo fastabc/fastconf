@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
@@ -169,7 +170,12 @@ func (m *M[T]) consumeProviderEvents(ctx context.Context, p contracts.Provider, 
 			}
 			reason := "provider:" + p.Name()
 			if ev.Reason != "" {
-				reason = reason + ":" + ev.Reason
+				var sb strings.Builder
+				sb.WriteString("provider:")
+				sb.WriteString(p.Name())
+				sb.WriteByte(':')
+				sb.WriteString(ev.Reason)
+				reason = sb.String()
 			}
 			req := reloadRequest{reason: reason}
 			select {
