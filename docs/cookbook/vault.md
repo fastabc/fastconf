@@ -19,7 +19,7 @@ p, err := vault.New(
 mgr, err := fastconf.New[MyApp](ctx,
     fastconf.WithDir("conf.d"),
     fastconf.WithProvider(p),
-    fastconf.WithWatch(true),
+    fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
     fastconf.WithSecretRedactor(fastconf.DefaultSecretRedactor),
 )
 ```

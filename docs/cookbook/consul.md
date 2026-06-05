@@ -17,7 +17,7 @@ p, err := consul.New(
 )
 mgr, err := fastconf.New[MyApp](ctx,
     fastconf.WithProvider(p),
-    fastconf.WithWatch(true),
+    fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
 )
 ```
 

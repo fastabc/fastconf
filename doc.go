@@ -68,7 +68,7 @@
 //	aliases.go   — codec, secret, field-meta, and replay public facades
 //	errors.go    — public sentinel errors and ReloadError stream
 //	obs.go       — metrics, tracer, audit-sink facades
-//	defaults.go  — WithStructDefaults + DefaulterFunc
+//	defaults.go  — WithStructDefaults + Defaulter + WithDefaults
 //	feature.go   — FeatureRule extraction + Eval[T,V]
 //	presets.go   — PresetK8s, PresetSidecar, PresetTesting
 //	registry.go  — RegisterProviderFactory + WithProviderByName

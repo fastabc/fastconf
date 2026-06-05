@@ -129,7 +129,7 @@ Quick translation table for the most common idioms.
 | **knadh/koanf** | `koanf.WithMergeFunc(...)` | `pkg/merger` strategy + `policy/*` sub-modules | Strategy-driven merge (RFC 6902, mergeKeys, etc.), configured via options. |
 | **kelseyhightower/envconfig** | `envconfig.Process("APP", &cfg)` | `provider.NewEnv("APP_")` | Prefix-based provider, not struct-tag scanner. CamelCase auto-split (`split_words`) is **not** supported — write the dotted key. |
 | **kelseyhightower/envconfig** | `default:"foo"` tag | `merger.Defaults` layer (or struct zero value) | Defaults live in a dedicated layer, not in tags. |
-| **kelseyhightower/envconfig** | `required:"true"` tag | `pkg/validate.Required(...)` | Validation is its own pipeline stage; runs after merge. |
+| **kelseyhightower/envconfig** | `required:"true"` tag | `WithValidator(func(*T) error)` | Validation is its own pipeline stage; runs after merge. |
 | **caarlos0/env** | `envExpand` (`${VAR}` interpolation) | `transform.EnvSubst()` (process env) or `transform.EnvSubstWith(lookup func(string) string)` (custom) | Explicit transformer; supply a lookup closure to consult dotenv before `os.Getenv`. |
 | **joho/godotenv** | `godotenv.Load(".env")` | `provider.NewDotEnv("APP_", ".env")` at `PriorityDotEnv=5` | **No `os.Setenv` mutation** — `.env` is a layer, not a side effect. Process env still overrides (presence-based, so `APP_PORT=""` also suppresses). |
 | **joho/godotenv** | `godotenv.Overload(".env")` (force override) | `provider.NewDotEnv(...).WithPriority(contracts.PriorityCLI)` | Priority knob replaces the dual API. |
@@ -176,9 +176,18 @@ type Cfg struct {
 }
 
 mgr, _ := fastconf.New[Cfg](ctx,
-    fastconf.WithDefaults(Cfg{ /* zero-value or filled defaults */ }),
+    fastconf.WithDefaults(func(c *Cfg) {
+        if c.Server.Port == 0 {
+            c.Server.Port = 8080
+        }
+    }),
     fastconf.WithProvider(provider.NewEnv("APP_")),    // _ → . relaxed binding
-    fastconf.WithValidate(validate.Required("Database.DSN")),
+    fastconf.WithValidator(func(c *Cfg) error {
+        if c.Database.DSN == "" {
+            return errors.New("Database.DSN is required")
+        }
+        return nil
+    }),
 )
 ```
 
@@ -211,4 +220,3 @@ Each GitHub Release also ships prebuilt binaries for
 `SHA256SUMS`.
 
 ---
-

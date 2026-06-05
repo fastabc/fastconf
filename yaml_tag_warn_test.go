@@ -12,7 +12,7 @@ import (
 )
 
 // TestNew_WarnsOnYAMLOnlyTags pins SPEC-A5: when *T has yaml struct
-// tags but no json/fc tags, New emits a warn-level log so the
+// tags but no json tags, New emits a warn-level log so the
 // operator notices the default BridgeJSON ignoring those tags. Skipping
 // the warning when BridgeYAML is selected is exercised in the second
 // subtest.
@@ -85,6 +85,26 @@ func TestNew_WarnsOnYAMLOnlyTags(t *testing.T) {
 		defer mgr.Close()
 		if strings.Contains(buf.String(), "yaml tags") {
 			t.Errorf("json-tagged struct should not warn, got:\n%s", buf.String())
+		}
+	})
+
+	t.Run("fc metadata does not suppress warning", func(t *testing.T) {
+		type yamlWithFC struct {
+			DBPool int `yaml:"db_pool" fc:"default=1"`
+		}
+		var buf bytes.Buffer
+		logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+		mgr, err := fastconf.New[yamlWithFC](context.Background(),
+			fastconf.WithFS(mfs),
+			fastconf.WithDir("conf.d"),
+			fastconf.WithLogger(logger),
+		)
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		defer mgr.Close()
+		if !strings.Contains(buf.String(), "yaml tags") {
+			t.Errorf("fc metadata should not suppress yaml-only warning, got:\n%s", buf.String())
 		}
 	})
 }

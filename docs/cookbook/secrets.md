@@ -52,4 +52,4 @@ database:
 
 ## Provenance and dry-run
 
-`SecretResolver` is invoked by `Manager.Plan()` too — your PR-bot can fail the build if a key is missing in CI before the change reaches production. Resolved leaves are recorded with `LayerKind = LayerSecret`, so `State.Lookup(path)` reports the secret scheme rather than the original layer.
+`SecretResolver` is invoked by `Manager.Plan()` too — your PR-bot can fail the build if a key is missing in CI before the change reaches production. Resolved leaves are recorded with `LayerKind = LayerSecret`, so `State.Explain(path)` reports the secret scheme rather than the original layer.

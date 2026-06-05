@@ -13,7 +13,7 @@ import (
 	"github.com/fastabc/fastconf/internal/watcher"
 )
 
-// startWatcher arms the fsnotify-backed watcher when WithWatch(true) is set.
+// startWatcher arms the fsnotify-backed watcher when WithWatch(WatchOptions{Enabled: true}) is set.
 //
 // fsnotify operates on real filesystems only — when the manager runs on an
 // in-memory fs.FS (testing/fstest), startWatcher silently no-ops because

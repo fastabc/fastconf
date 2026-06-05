@@ -120,7 +120,7 @@ zone / host 多轴叠加再看 `PresetHierarchical` 与 `WithMultiAxisOverlays`�
 | **knadh/koanf** | `koanf.WithMergeFunc(...)` | `pkg/merger` strategy + `policy/*` sub-module | strategy-driven merge（RFC 6902、mergeKeys 等），通过 option 配置。 |
 | **kelseyhightower/envconfig** | `envconfig.Process("APP", &cfg)` | `provider.NewEnv("APP_")` | prefix-based provider，不是 struct tag 扫描。CamelCase 自动拆分（`split_words`）**不支持** — 直接写 dotted key。 |
 | **kelseyhightower/envconfig** | `default:"foo"` tag | `merger.Defaults` 层（或 struct 零值） | 默认值在专门的 layer 里，不在 tag。 |
-| **kelseyhightower/envconfig** | `required:"true"` tag | `pkg/validate.Required(...)` | validate 是独立 pipeline stage，merge 之后跑。 |
+| **kelseyhightower/envconfig** | `required:"true"` tag | `WithValidator(func(*T) error)` | validate 是独立 pipeline stage，merge 之后跑。 |
 | **caarlos0/env** | `envExpand`（`${VAR}` 插值） | `transform.EnvSubst()`（默认走 `os.Getenv`）或 `transform.EnvSubstWith(lookup func(string) string)`（自定义） | 显式 transformer；想先查 dotenv 再回退 `os.Getenv`，自己写一个 `lookup` 闭包传入。 |
 | **joho/godotenv** | `godotenv.Load(".env")` | `provider.NewDotEnv("APP_", ".env")` at `PriorityDotEnv=5` | **不调用 `os.Setenv`** — `.env` 作为 layer 注入，不是副作用。进程 env 仍然覆盖（presence 判定，所以 `APP_PORT=""` 也会 suppress）。 |
 | **joho/godotenv** | `godotenv.Overload(".env")`（强制覆盖） | `provider.NewDotEnv(...).WithPriority(contracts.PriorityCLI)` | 用 priority 旋钮替代双 API。 |
@@ -166,9 +166,18 @@ type Cfg struct {
 }
 
 mgr, _ := fastconf.New[Cfg](ctx,
-    fastconf.WithDefaults(Cfg{ /* 零值或填好的默认值 */ }),
+    fastconf.WithDefaults(func(c *Cfg) {
+        if c.Server.Port == 0 {
+            c.Server.Port = 8080
+        }
+    }),
     fastconf.WithProvider(provider.NewEnv("APP_")),    // _ → . relaxed binding
-    fastconf.WithValidate(validate.Required("Database.DSN")),
+    fastconf.WithValidator(func(c *Cfg) error {
+        if c.Database.DSN == "" {
+            return errors.New("Database.DSN is required")
+        }
+        return nil
+    }),
 )
 ```
 
@@ -202,4 +211,3 @@ go install github.com/fastabc/fastconf/cmd/fastconfgen@latest
 `darwin/{amd64,arm64}`、`windows/amd64`) × 3 个 binary，外加 `SHA256SUMS`。
 
 ---
-

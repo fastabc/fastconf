@@ -99,7 +99,7 @@ Any stage failure preserves the previous `*State[T]` and publishes one
 
 | Facet              | Surface |
 |--------------------|---------|
-| Provenance         | `State.Origins / Explain / Lookup`, `WithProvenance(level)` |
+| Provenance         | `State.Origins / Explain`, `WithProvenance(level)` |
 | History + replay   | `Manager.Replay().List / Rollback(*State[T])`, `WithHistory(n)` |
 | Watch control      | `Manager.Watcher().Pause / Resume / Paused` |
 | Subscriptions      | `fastconf.Subscribe[T,M](m, extract, fn)` |

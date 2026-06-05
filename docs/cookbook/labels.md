@@ -46,7 +46,7 @@ FastConf 按来源语义区分 label。先按这条决策树挑入口，然后�
 | 明确把 label 当配置 DSL | `provider.NewDottedLabels(...)` / `provider.NewDottedLabelMap(...)` | 显式表达"这些 key 就是 dotted config" |
 | 路由 DSL labels | `provider.NewRoutingLabels(...)` / `provider.NewRoutingLabelMap(...)` | typed scalar + list + `[N]` index；可选整组 enable gate |
 | 配置文件里的 dotted label 字段 | `transform.ExpandLabels(at, to, opts)` | 把已有 list / map 原地展开成配置子树 |
-| K8s Downward API metadata | `k8s.NewDefault()` | 默认 raw + namespaced；`WithWatch(true)` 时跟随 projected-volume refresh |
+| K8s Downward API metadata | `k8s.NewDefault()` | 默认 raw + namespaced；`WithWatch(WatchOptions{Enabled: true})` 时跟随 projected-volume refresh |
 
 底层都复用 `pkg/mappath.ExpandLabels`；区别不在 merge 引擎，而在**调用方表达的意图**。
 
@@ -204,7 +204,7 @@ import k8s "github.com/fastabc/fastconf/providers/k8s"
 
 mgr, _ := fastconf.New[Cfg](ctx,
     fastconf.WithProvider(k8s.NewDefault()),
-    fastconf.WithWatch(true),
+    fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
 )
 ```
 

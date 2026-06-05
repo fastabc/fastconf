@@ -130,7 +130,7 @@ type State[T any] struct {
 }
 
 func (s *State[T]) Explain(path string) []Origin             // oldest → newest override chain
-func (s *State[T]) Lookup(path string) []Origin              // alias of Explain
+func (s *State[T]) Lookup(path string) []Origin              // deprecated alias of Explain
 func (s *State[T]) LookupStrict(path string) ([]Origin, error)
 func (s *State[T]) Origins() *OriginIndex
 func (s *State[T]) Introspect() *Introspection               // Keys / Settings / At
@@ -288,4 +288,3 @@ fastconf.New[Cfg](ctx,
 | `WithReloadReason(s)` | Override the default `"manual"` reason for audit |
 
 ---
-

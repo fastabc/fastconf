@@ -12,7 +12,7 @@ for _, t := range listTenants(ctx) {
     _, err := tm.Add(ctx, t.ID,
         fastconf.WithDir("/etc/myapp/tenants/"+t.ID),
         fastconf.WithProvider(vaultProvider(t)),
-        fastconf.WithWatch(true),
+        fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
     )
     if err != nil { log.Fatal(err) }
 }

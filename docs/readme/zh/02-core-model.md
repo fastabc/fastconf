@@ -154,7 +154,7 @@ type State[T any] struct {
 }
 
 func (s *State[T]) Explain(path string) []Origin             // oldest → newest 覆盖链
-func (s *State[T]) Lookup(path string) []Origin              // 同 Explain
+func (s *State[T]) Lookup(path string) []Origin              // deprecated；请用 Explain
 func (s *State[T]) LookupStrict(path string) ([]Origin, error)
 func (s *State[T]) Origins() *OriginIndex
 func (s *State[T]) Introspect() *Introspection               // Keys / Settings / At

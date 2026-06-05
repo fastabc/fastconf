@@ -8,6 +8,16 @@ for the step-by-step migration guide.
 
 ### Breaking changes (API)
 
+- **FastConf struct metadata now uses `fc:"..."`.** The previous
+  project-name tag key is removed with no compatibility fallback. Update
+  field defaults, field metadata, and secret redaction markers:
+
+  ```go
+  Addr string `json:"addr" fc:"default=:8080"`
+  DSN  string `json:"dsn"  fc:"secret"`
+  Port int    `json:"port" fc:"required,min=1,max=65535"`
+  ```
+
 - **`Subscribe` is now diff-aware by default.** The callback fires only
   when the value extracted by `extract` actually changes between two
   consecutive reloads. Equality is determined by `reflect.DeepEqual` on
@@ -148,7 +158,7 @@ for a 9+/10 publish-readiness score.
 
 ### State / API hygiene
 
-- `State.MarshalYAML(redactor)` honours the redactor — `fc:"secret"`
+- `State.MarshalYAML(redactor)` honours the redactor — secret-marked
   fields are properly masked in the YAML output when a non-nil
   redactor is supplied. (Previously the parameter was reserved /
   ignored.)

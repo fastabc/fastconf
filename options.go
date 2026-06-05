@@ -83,8 +83,9 @@ func (fn MigrationFunc) Migrate(root map[string]any) error { return fn(root) }
 // # Troubleshooting
 //
 // The default [BridgeJSON] round-trips through encoding/json so the
-// canonical-hash cache can reuse the marshalled bytes. It honours
-// `json:` and `fc:` struct tags only. Symptoms that indicate
+// canonical-hash cache can reuse the marshalled bytes. It honours `json:`
+// struct tags for field names; FastConf reads `fc:` metadata separately
+// for defaults, field-meta, and secret redaction. Symptoms that indicate
 // the default is mis-matched to your struct:
 //
 //   - snake_case keys in your YAML are silently dropped — the field is
@@ -201,6 +202,7 @@ func WithCoalesce(c CoalesceOptions) Option {
 		}
 	}
 }
+
 // WithMultiAxisOverlays adds multi-axis overlay layers (region, tier,
 // hostname, ...). Each [OverlayAxis] resolves at assemble time to a
 // concrete extra overlay directory via its EnvVar /
@@ -335,11 +337,11 @@ func WithValidator[T any](v func(*T) error) Option {
 // overlay's `_meta.yaml.match` predicate. EnvVar / Default control the
 // fallback chain when neither Single nor Multi is set:
 //
-//	1. ProfileOptions.Single (when non-empty)
-//	2. ProfileOptions.Multi  (when non-empty; turns on expression matching)
-//	3. $EnvVar / $DefaultProfileEnv
-//	4. ProfileOptions.Default
-//	5. _meta.yaml's spec.defaultProfile
+//  1. ProfileOptions.Single (when non-empty)
+//  2. ProfileOptions.Multi  (when non-empty; turns on expression matching)
+//  3. $EnvVar / $DefaultProfileEnv
+//  4. ProfileOptions.Default
+//  5. _meta.yaml's spec.defaultProfile
 type ProfileOptions struct {
 	// Single is the active profile name for the legacy single-profile
 	// path. Set this when you want one overlay subdirectory selected

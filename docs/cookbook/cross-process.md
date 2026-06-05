@@ -39,7 +39,7 @@ p, _ := natsprov.New("nats", "fastconf.app", yamlCodec{}, natsAdapter{nc})
 mgr, _ := fastconf.New[AppConfig](ctx,
     fastconf.WithDir("conf.d"),
     fastconf.WithProvider(p),
-    fastconf.WithWatch(true),
+    fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
 )
 ```
 

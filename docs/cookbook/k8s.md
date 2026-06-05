@@ -55,14 +55,14 @@ import k8s "github.com/fastabc/fastconf/providers/k8s"
 mgr, err := fastconf.New[MyApp](ctx,
     fastconf.WithDir("/etc/myapp/conf.d"),
     fastconf.WithProvider(k8s.NewDefault()),
-    fastconf.WithWatch(true),
+    fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
 )
 ```
 
 Downward API volume refreshes use the same projected-volume `..data`
 atomic-swap pattern as ConfigMaps. FastConf automatically adds the provider's
 mounted files to the shared watcher, so metadata changes can enter the normal
-reload loop when `WithWatch(true)` is enabled. Mount the volume normally;
+reload loop when `WithWatch(WatchOptions{Enabled: true})` is enabled. Mount the volume normally;
 do **not** use `subPath`, which bypasses projected-volume refreshes.
 
 `k8s.NewDefault()` preserves raw metadata keys under `k8s.metadata.*` by
