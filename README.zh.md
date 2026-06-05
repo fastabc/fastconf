@@ -283,7 +283,7 @@ func Eval[T, V any](m *Manager[T], key string, ctx feature.EvalContext, def V) V
 | `WithAuditSink(sink)` | 每次成功 reload 审计回调 | — |
 | `WithTracer(tracer)` | OTel 兼容 tracer | — |
 | `WithLogger(*slog.Logger)` | 注入 logger | `io.Discard` |
-| `WithStructDefaults[T]()` | 通过 `fastconf:"default=…"` tag 填充零值 | — |
+| `WithStructDefaults[T]()` | 通过 `fc:"default=…"` tag 填充零值 | — |
 
 ---
 
@@ -423,11 +423,11 @@ fastconf.WithTransformers(
 ```go
 type AppConfig struct {
     Server struct {
-        Addr    string        `json:"addr"    fastconf:"default=:8080"`
-        Timeout time.Duration `json:"timeout" fastconf:"default=30s"`
+        Addr    string        `json:"addr"    fc:"default=:8080"`
+        Timeout time.Duration `json:"timeout" fc:"default=30s"`
     } `json:"server"`
     Database struct {
-        DSN string `json:"dsn" fastconf:"secret"` // 在日志/快照中脱敏
+        DSN string `json:"dsn" fc:"secret"` // 在日志/快照中脱敏
     } `json:"database"`
 }
 ```

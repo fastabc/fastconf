@@ -51,11 +51,11 @@ func TestDefaultsAreStable(t *testing.T) {
 // ── Folded from defaults_internal_test.go ──
 
 type defaultsCfg struct {
-	Host    string `json:"host" fastconf:"default=localhost"`
-	Port    int    `json:"port" fastconf:"default=8080"`
-	Enabled bool   `json:"enabled" fastconf:"default=true"`
+	Host    string `json:"host" fc:"default=localhost"`
+	Port    int    `json:"port" fc:"default=8080"`
+	Enabled bool   `json:"enabled" fc:"default=true"`
 	Nested  struct {
-		Quota int `json:"quota" fastconf:"default=42"`
+		Quota int `json:"quota" fc:"default=42"`
 	} `json:"nested"`
 	NoDefault string `json:"no_default"`
 }
@@ -90,7 +90,7 @@ func TestStructDefaults_FillsZeroFields(t *testing.T) {
 
 type defaultsSliceCfg struct {
 	Items []struct {
-		Port int `json:"port" fastconf:"default=8080"`
+		Port int `json:"port" fc:"default=8080"`
 	} `json:"items"`
 }
 
@@ -110,7 +110,7 @@ func TestStructDefaults_DoesNotPlanSliceElementDefaults(t *testing.T) {
 }
 
 type defaulterFuncCfg struct {
-	Seed    string `json:"seed" fastconf:"default=seed"`
+	Seed    string `json:"seed" fc:"default=seed"`
 	Derived string `json:"derived"`
 }
 

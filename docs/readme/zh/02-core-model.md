@@ -159,7 +159,7 @@ func (s *State[T]) LookupStrict(path string) ([]Origin, error)
 func (s *State[T]) Origins() *OriginIndex
 func (s *State[T]) Introspect() *Introspection               // Keys / Settings / At
 func (s *State[T]) Redacted() map[string]any                 // 用构造时的 SecretRedactor
-func (s *State[T]) Dump(format DumpFormat, redactor SecretRedactor) ([]byte, error) // DumpYAML/DumpJSON/DumpTOML；redactor 非 nil 时按 fastconf:"secret" 路径脱敏
+func (s *State[T]) Dump(format DumpFormat, redactor SecretRedactor) ([]byte, error) // DumpYAML/DumpJSON/DumpTOML；redactor 非 nil 时按 fc:"secret" 路径脱敏
 func (s *State[T]) Diff(other *State[T]) []DiffEntry         // 结构化每条路径 diff；行式输出用 FormatDiff
 func (s *State[T]) FeatureRules() map[string]feature.Rule
 ```
@@ -319,7 +319,7 @@ fastconf.New[Cfg](ctx,
 | `WithSecretResolver(r)` | transform 之后、decode 之前解密 leaf 密文 |
 | `WithTypedHook(h)` | decode 前重写 leaf（默认含 `time.Duration`） |
 | `WithoutDefaultTypedHooks()` | 关闭内置 typed hook 集 |
-| `WithStructDefaults[T]()` | 用 struct tag (`fastconf:"default=..."`) 填零值 |
+| `WithStructDefaults[T]()` | 用 struct tag (`fc:"default=..."`) 填零值 |
 | `WithDefaults[T](fn)` | 自定义 `*T` 默认值填充函数（`Defaulter` 接口的 fn 版） |
 | `WithMergeKeys(map)` | Kustomize 风格策略合并（list-of-object） |
 | `WithValidator[T](fn)` | decode 后的强类型校验；失败保留旧状态 |

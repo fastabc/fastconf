@@ -84,7 +84,7 @@ func (fn MigrationFunc) Migrate(root map[string]any) error { return fn(root) }
 //
 // The default [BridgeJSON] round-trips through encoding/json so the
 // canonical-hash cache can reuse the marshalled bytes. It honours
-// `json:` and `fastconf:` struct tags only. Symptoms that indicate
+// `json:` and `fc:` struct tags only. Symptoms that indicate
 // the default is mis-matched to your struct:
 //
 //   - snake_case keys in your YAML are silently dropped — the field is

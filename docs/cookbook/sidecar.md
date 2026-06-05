@@ -22,7 +22,7 @@ wire from a Kubernetes Secret.
 | GET    | `/version`                    | `{generation, hash, loaded_at, reason}` |
 | GET    | `/config`                     | Full snapshot (JSON)               |
 | GET    | `/config?path=db.host`        | Dotted-path lookup                 |
-| GET    | `/config?redact=true`         | Snapshot with `fastconf:"secret"` fields masked |
+| GET    | `/config?redact=true`         | Snapshot with `fc:"secret"` fields masked |
 | GET    | `/config?path=…&redact=true`  | Redacted dotted-path lookup |
 | GET    | `/dump`                       | Deterministic YAML rendering of merged state |
 | GET    | `/dump?format=json`           | Same content as JSON |

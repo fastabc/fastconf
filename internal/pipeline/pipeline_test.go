@@ -8,11 +8,11 @@ import (
 )
 
 type withDefaults struct {
-	Host  string `fastconf:"default=localhost"`
-	Port  int    `fastconf:"default=8080"`
-	Debug bool   `fastconf:"default=true"`
-	Ratio float64 `fastconf:"default=0.5"`
-	Set   string // no default
+	Host  string  `fc:"default=localhost"`
+	Port  int     `fc:"default=8080"`
+	Debug bool    `fc:"default=true"`
+	Ratio float64 `fc:"default=0.5"`
+	Set   string  // no default
 }
 
 func TestApplyStructDefaults_FillsZero(t *testing.T) {
@@ -43,7 +43,7 @@ func TestApplyStructDefaults_PreservesUserValues(t *testing.T) {
 
 func TestApplyStructDefaults_InvalidValue(t *testing.T) {
 	type bad struct {
-		P int `fastconf:"default=notanumber"`
+		P int `fc:"default=notanumber"`
 	}
 	v := &bad{}
 	if err := pipeline.ApplyStructDefaults(v); err == nil {
@@ -52,9 +52,9 @@ func TestApplyStructDefaults_InvalidValue(t *testing.T) {
 }
 
 type withMeta struct {
-	Mode string  `fastconf:"required,oneof=on|off"`
-	Pct  float64 `fastconf:"min=0,max=100"`
-	Lvl  int     `fastconf:"oneof=1|2|3"`
+	Mode string  `fc:"required,oneof=on|off"`
+	Pct  float64 `fc:"min=0,max=100"`
+	Lvl  int     `fc:"oneof=1|2|3"`
 }
 
 func TestFieldMetaFor_Caches(t *testing.T) {

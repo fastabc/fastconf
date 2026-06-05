@@ -12,7 +12,7 @@ import (
 )
 
 // TestNew_WarnsOnYAMLOnlyTags pins SPEC-A5: when *T has yaml struct
-// tags but no json/fastconf tags, New emits a warn-level log so the
+// tags but no json/fc tags, New emits a warn-level log so the
 // operator notices the default BridgeJSON ignoring those tags. Skipping
 // the warning when BridgeYAML is selected is exercised in the second
 // subtest.

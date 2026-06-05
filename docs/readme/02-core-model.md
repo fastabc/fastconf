@@ -260,7 +260,7 @@ fastconf.New[Cfg](ctx,
 | `WithSecretResolver(r)` | Decrypt leaf secrets after transform, before decode |
 | `WithTypedHook(h)` | Rewrite leaves before decode (built-in: `time.Duration`) |
 | `WithoutDefaultTypedHooks()` | Disable built-in typed hooks |
-| `WithStructDefaults[T]()` | Populate zero values via `fastconf:"default=..."` |
+| `WithStructDefaults[T]()` | Populate zero values via `fc:"default=..."` |
 | `WithDefaults[T](fn)` | Custom defaulter for `*T` (function form of `Defaulter` interface) |
 | `WithMergeKeys(map)` | Strategic merge for lists of objects |
 | `WithValidator[T](fn)` | Typed validation after decode; failure preserves old state |

@@ -11,10 +11,10 @@ import (
 
 type cfg123 struct {
 	Server struct {
-		Addr string `json:"addr" fastconf:"required"`
-		Port int    `json:"port" fastconf:"min=1,max=65535"`
+		Addr string `json:"addr" fc:"required"`
+		Port int    `json:"port" fc:"min=1,max=65535"`
 	} `json:"server"`
-	LogLevel string `json:"log_level" fastconf:"oneof=info|warn|error,desc=日志级别"`
+	LogLevel string `json:"log_level" fc:"oneof=info|warn|error,desc=日志级别"`
 }
 
 func TestFieldMeta_RequiredMissing(t *testing.T) {

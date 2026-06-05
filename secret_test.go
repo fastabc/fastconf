@@ -20,9 +20,9 @@ type phase8Cfg struct {
 	Name string `json:"name" yaml:"name"`
 	DB   struct {
 		DSN      string `json:"dsn" yaml:"dsn"`
-		Password string `json:"password" yaml:"password" fastconf:"secret"`
+		Password string `json:"password" yaml:"password" fc:"secret"`
 	} `json:"db" yaml:"db"`
-	Token string `json:"token" yaml:"token" fastconf:"secret"`
+	Token string `json:"token" yaml:"token" fc:"secret"`
 }
 
 func TestSecret_PathScan(t *testing.T) {
@@ -81,10 +81,10 @@ func TestRedactor_CustomFn(t *testing.T) {
 type credCfg struct {
 	Creds []struct {
 		User     string `json:"user"`
-		Password string `json:"password" fastconf:"secret"`
+		Password string `json:"password" fc:"secret"`
 	} `json:"creds"`
 	Tokens map[string]struct {
-		Value string `json:"value" fastconf:"secret"`
+		Value string `json:"value" fc:"secret"`
 	} `json:"tokens"`
 }
 
@@ -103,7 +103,7 @@ func TestSecret_SliceAndMapElements(t *testing.T) {
 }
 
 type TaggedSecretEmbed struct {
-	Token string `json:"token" yaml:"token" fastconf:"secret"`
+	Token string `json:"token" yaml:"token" fc:"secret"`
 }
 
 type taggedSecretCfg struct {

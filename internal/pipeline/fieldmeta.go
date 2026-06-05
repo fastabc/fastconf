@@ -7,11 +7,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/fastabc/fastconf/internal/tagkey"
 	"github.com/fastabc/fastconf/internal/typeinfo"
 )
 
 // FieldSpec captures the structured metadata parsed from a single
-// `fastconf` tag (independent of the legacy `default=` and `secret`
+// `fc` tag (independent of the `default=` and `secret`
 // flags which keep their own walkers).
 type FieldSpec struct {
 	Path     string
@@ -74,7 +75,7 @@ func FieldMetaFor(t reflect.Type) []FieldSpec {
 	return fieldMetaCache.GetOrCompute(t, func() []FieldSpec {
 		var entries []FieldSpec
 		typeinfo.Walk(t, typeinfo.WalkFunc(func(path string, idx []int, f reflect.StructField, _ *reflect.Type) bool {
-			tag := f.Tag.Get("fastconf")
+			tag := f.Tag.Get(tagkey.Field)
 			if tag != "" {
 				spec := ParseFieldTag(tag)
 				if spec.Required || spec.Min != nil || spec.Max != nil || len(spec.OneOf) > 0 || spec.Default != "" || spec.Desc != "" {

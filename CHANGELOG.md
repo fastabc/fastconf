@@ -148,7 +148,7 @@ for a 9+/10 publish-readiness score.
 
 ### State / API hygiene
 
-- `State.MarshalYAML(redactor)` honours the redactor — `fastconf:"secret"`
+- `State.MarshalYAML(redactor)` honours the redactor — `fc:"secret"`
   fields are properly masked in the YAML output when a non-nil
   redactor is supplied. (Previously the parameter was reserved /
   ignored.)

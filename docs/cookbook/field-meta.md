@@ -1,13 +1,13 @@
 # Struct field metadata tag
 
-`fastconf:"…"` carries declarative annotations alongside `json` / `yaml` tags. A single line can express several constraints:
+`fc:"…"` carries declarative annotations alongside `json` / `yaml` tags. A single line can express several constraints:
 
 ```go
 type Config struct {
-    Level   string `json:"level"   fastconf:"oneof=info|warn|error,default=info,desc=日志级别"`
-    Port    int    `json:"port"    fastconf:"required,min=1,max=65535"`
-    Secret  string `json:"secret"  fastconf:"secret"`
-    Timeout time.Duration `json:"timeout" fastconf:"default=30s"`
+    Level   string `json:"level"   fc:"oneof=info|warn|error,default=info,desc=日志级别"`
+    Port    int    `json:"port"    fc:"required,min=1,max=65535"`
+    Secret  string `json:"secret"  fc:"secret"`
+    Timeout time.Duration `json:"timeout" fc:"default=30s"`
 }
 ```
 
@@ -30,4 +30,4 @@ Tag-based checks are best for static constraints (non-empty / range / enum). Use
 
 ## Why not `validate:"…"`?
 
-We deliberately do not run `go-playground/validator` from the core; that lives in the optional `validate/playground` sub-module. The built-in `fastconf:"…"` tag covers the 80% case without pulling a heavy dependency into the root go.mod.
+We deliberately do not run `go-playground/validator` from the core; that lives in the optional `validate/playground` sub-module. The built-in `fc:"…"` tag covers the 80% case without pulling a heavy dependency into the root go.mod.

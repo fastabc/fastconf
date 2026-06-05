@@ -295,7 +295,7 @@ The full reference is in [docs/readme/02-core-model.md](docs/readme/02-core-mode
 | `WithAuditSink(sink)` | Audit on each successful reload | — |
 | `WithTracer(tracer)` | OTel-compatible tracer | — |
 | `WithLogger(*slog.Logger)` | Inject a logger | `io.Discard` |
-| `WithStructDefaults[T]()` | Populate zero values via `fastconf:"default=…"` tags | — |
+| `WithStructDefaults[T]()` | Populate zero values via `fc:"default=…"` tags | — |
 
 ---
 
@@ -435,11 +435,11 @@ fastconf.WithTransformers(
 ```go
 type AppConfig struct {
     Server struct {
-        Addr    string        `json:"addr"    fastconf:"default=:8080"`
-        Timeout time.Duration `json:"timeout" fastconf:"default=30s"`
+        Addr    string        `json:"addr"    fc:"default=:8080"`
+        Timeout time.Duration `json:"timeout" fc:"default=30s"`
     } `json:"server"`
     Database struct {
-        DSN string `json:"dsn" fastconf:"secret"` // redacted in logs/snapshots
+        DSN string `json:"dsn" fc:"secret"` // redacted in logs/snapshots
     } `json:"database"`
 }
 ```

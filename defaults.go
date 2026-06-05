@@ -45,7 +45,7 @@ const (
 const DefaultSidecarHistoryCap = iopts.DefaultSidecarHistoryCap
 
 // WithStructDefaults installs a transformer that populates zero-valued
-// fields of *T from `fastconf:"default=..."` struct tags. It runs once
+// fields of *T from `fc:"default=..."` struct tags. It runs once
 // per reload, immediately before validation, so user-supplied YAML /
 // patch / provider values always win over the tag default.
 func WithStructDefaults[T any]() Option {
@@ -88,7 +88,7 @@ type Defaulter interface {
 // Defaults precedence (each step only fills zero / unset fields left by
 // the previous step):
 //
-//  1. [WithStructDefaults] — `fastconf:"default=..."` struct tags
+//  1. [WithStructDefaults] — `fc:"default=..."` struct tags
 //  2. [Defaulter] interface — *T.Defaults() if implemented
 //  3. WithDefaults — explicit fn, last to run
 //

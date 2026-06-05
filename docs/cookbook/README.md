@@ -40,7 +40,7 @@ front of you, then follow the related recipes when the deployment gets deeper.
 | [generators](generators.md) | Kustomize-style ConfigMap/Secret generators |
 | [strategic-merge](strategic-merge.md) | `mergeKeys` list-of-object merge |
 | [typed-hooks](typed-hooks.md) | Plug `time.Duration` / custom scalar pre-decode hooks |
-| [field-meta](field-meta.md) | `fastconf:"required,min=,max=,oneof=,desc="` metadata |
+| [field-meta](field-meta.md) | `fc:"required,min=,max=,oneof=,desc="` metadata |
 | [secrets](secrets.md) | SOPS / age / KMS / Vault transit decryption hooks |
 | [features](features.md) | Feature flags, targeting, percentage rollouts |
 | [openfeature](openfeature.md) | Adapt FastConf as an OpenFeature provider |

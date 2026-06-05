@@ -65,11 +65,11 @@ fastconf.WithTransformers(
 ```go
 type AppConfig struct {
     Server struct {
-        Addr    string        `json:"addr"    fastconf:"default=:8080"`
-        Timeout time.Duration `json:"timeout" fastconf:"default=30s"`
+        Addr    string        `json:"addr"    fc:"default=:8080"`
+        Timeout time.Duration `json:"timeout" fc:"default=30s"`
     } `json:"server"`
     Database struct {
-        DSN string `json:"dsn" fastconf:"secret"` // redacted in logs/snapshots
+        DSN string `json:"dsn" fc:"secret"` // redacted in logs/snapshots
     } `json:"database"`
 }
 
@@ -79,7 +79,7 @@ mgr, _ := fastconf.New[AppConfig](ctx,
 )
 ```
 
-`fastconf:"default=…"` runs after decode and before validate, only
+`fc:"default=…"` runs after decode and before validate, only
 populating zero values. Field-meta tags (`range=`, `enum=`, `required`)
 are checked in the same stage.
 

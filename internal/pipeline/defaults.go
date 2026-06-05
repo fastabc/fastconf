@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/fastabc/fastconf/internal/tagkey"
 	"github.com/fastabc/fastconf/internal/typeinfo"
 )
 
@@ -22,7 +23,7 @@ type defaultEntry struct {
 	tagVal string
 }
 
-// ApplyStructDefaults populates zero-valued fields of *t whose `fastconf`
+// ApplyStructDefaults populates zero-valued fields of *t whose `fc`
 // tag declares a "default=..." token. Returns an error if a tag value
 // cannot be parsed for the declared kind.
 func ApplyStructDefaults[T any](t *T) error {
@@ -59,7 +60,7 @@ func planForType(t reflect.Type) []defaultEntry {
 	return defaultsCache.GetOrCompute(t, func() []defaultEntry {
 		var entries []defaultEntry
 		typeinfo.Walk(t, typeinfo.WalkFunc(func(_ string, idx []int, f reflect.StructField, _ *reflect.Type) bool {
-			if val, ok := defaultTagValue(f.Tag.Get("fastconf")); ok {
+			if val, ok := defaultTagValue(f.Tag.Get(tagkey.Field)); ok {
 				entries = append(entries, defaultEntry{
 					index:  append([]int(nil), idx...),
 					tagVal: val,

@@ -26,7 +26,7 @@ reloadCh.recv(req)
   ├─ stageMigrate:    opts.migrationRun(merged)       [optional]
   ├─ stageTransform:  for each transformer: t.Transform(merged)
   ├─ stageDecode:     json.Marshal(merged) → json.Unmarshal(→ *T)
-  │                   apply fastconf:"default=…" struct tags
+  │                   apply fc:"default=…" struct tags
   ├─ stageFieldMeta:  range / enum / required checks
   ├─ stageValidate:   for each validator: v(*T)
   ├─ stagePolicy:     for each policy:    p.Evaluate(ctx, *T, reason, tenant)

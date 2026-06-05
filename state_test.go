@@ -172,14 +172,14 @@ func TestState_Dump_NilState(t *testing.T) {
 	}
 }
 
-// secretYAMLCfg has a fastconf:"secret" field so we can prove the
+// secretYAMLCfg has a fc:"secret" field so we can prove the
 // redactor parameter is honoured (P2.3).
 type secretYAMLCfg struct {
 	Server struct {
 		Addr string `json:"addr"`
 	} `json:"server"`
 	Database struct {
-		DSN string `json:"dsn" fastconf:"secret"`
+		DSN string `json:"dsn" fc:"secret"`
 	} `json:"database"`
 }
 

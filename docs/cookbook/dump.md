@@ -43,7 +43,7 @@ Pass a redactor to mask secret-tagged paths in place:
 b, _ := state.Dump(fastconf.DumpYAML, fastconf.DefaultSecretRedactor)
 ```
 
-The redactor walks fields tagged `fastconf:"secret"` (or registered via `WithSecretRedactor`) and replaces them with `***REDACTED***` (default) or a custom marker. `/config?redact=true` on the sidecar already uses this path — see the [sidecar recipe](sidecar.md).
+The redactor walks fields tagged `fc:"secret"` (or registered via `WithSecretRedactor`) and replaces them with `***REDACTED***` (default) or a custom marker. `/config?redact=true` on the sidecar already uses this path — see the [sidecar recipe](sidecar.md).
 
 ## Migration from v0.17
 

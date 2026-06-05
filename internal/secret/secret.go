@@ -1,5 +1,5 @@
 // Package secret implements the redaction and resolver primitives that
-// back fastconf's `fastconf:"secret"` tag and WithSecretResolver hook.
+// back fastconf's `fc:"secret"` tag and WithSecretResolver hook.
 // The root fastconf package keeps thin facades; the actual reflection
 // walk, path expansion, and resolver tree walk live here so the root
 // can stay public-API-only.
@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/fastabc/fastconf/internal/tagkey"
 	"github.com/fastabc/fastconf/internal/typeinfo"
 )
 
@@ -27,7 +28,7 @@ func DefaultRedactor(_ string, _ any) any { return "***REDACTED***" }
 var pathsCache = typeinfo.NewCache[[]string]()
 
 // Paths returns the cached, sorted list of dotted paths whose fields
-// carry the `fastconf:"secret"` marker. The walk understands json/yaml
+// carry the `fc:"secret"` marker. The walk understands json/yaml
 // tags for naming and recurses into anonymous embeds, named struct
 // fields and pointer-to-struct.
 func Paths(t reflect.Type) []string {
@@ -40,7 +41,7 @@ func Paths(t reflect.Type) []string {
 	return pathsCache.GetOrCompute(t, func() []string {
 		seen := map[string]struct{}{}
 		typeinfo.Walk(t, typeinfo.WalkFunc(func(path string, _ []int, f reflect.StructField, _ *reflect.Type) bool {
-			if HasTag(f.Tag.Get("fastconf")) {
+			if HasTag(f.Tag.Get(tagkey.Field)) {
 				seen[path] = struct{}{}
 			}
 			return true
@@ -55,7 +56,7 @@ func Paths(t reflect.Type) []string {
 }
 
 // HasTag reports whether tag contains the bare "secret" token in a
-// comma-separated `fastconf` struct tag.
+// comma-separated `fc` struct tag.
 func HasTag(tag string) bool {
 	if tag == "" {
 		return false

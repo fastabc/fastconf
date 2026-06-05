@@ -77,7 +77,7 @@ typed-hooks  →  decode  →  field-meta  →  validate  →  policy  →  comm
 | `secret`      | Walk leaves and call `SecretResolver.Resolve` on every recognised ciphertext. |
 | `typed-hooks` | Convert `time.Duration` etc. into JSON-friendly wire form. |
 | `decode`      | `json.Marshal(merged) → json.Unmarshal(*T)`; YAML bridge optional. |
-| `field-meta`  | Enforce `fastconf:"required,min,max,oneof,desc"` tags. |
+| `field-meta`  | Enforce `fc:"required,min,max,oneof,desc"` tags. |
 | `validate`    | User `Validator[T]`s (struct-level cross-field checks). |
 | `policy`      | OPA / CUE / Go policies; severity-error aborts. |
 | `commit`      | Hash dedupe (cache), atomic swap, audit fan-out, subscriber fan-out, diff reporters. |

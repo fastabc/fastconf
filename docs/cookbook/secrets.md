@@ -1,6 +1,6 @@
 # Encrypted secrets (SOPS / age / KMS / Vault transit)
 
-`fastconf:"secret"` only masks values on display. To **decrypt** values stored as ciphertext in a YAML file (SOPS / age / AWS KMS / Vault transit / sealed-secrets), install a `SecretResolver`. It runs as a fixed reload pipeline stage between `transform` and `decode`, so plaintext is available to the decoder but never visible to transformers or audit sinks.
+`fc:"secret"` only masks values on display. To **decrypt** values stored as ciphertext in a YAML file (SOPS / age / AWS KMS / Vault transit / sealed-secrets), install a `SecretResolver`. It runs as a fixed reload pipeline stage between `transform` and `decode`, so plaintext is available to the decoder but never visible to transformers or audit sinks.
 
 ## Decryption is failure-safe
 

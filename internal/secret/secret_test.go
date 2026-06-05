@@ -14,9 +14,9 @@ type embeddedCfg struct {
 	Name string `json:"name"`
 	DB   struct {
 		DSN      string `json:"dsn"`
-		Password string `json:"password" fastconf:"secret"`
+		Password string `json:"password" fc:"secret"`
 	} `json:"db"`
-	Token string `json:"token" fastconf:"secret"`
+	Token string `json:"token" fc:"secret"`
 }
 
 func TestPaths_FindsSecretFields(t *testing.T) {
@@ -36,10 +36,10 @@ func TestPaths_FindsSecretFields(t *testing.T) {
 type sliceCfg struct {
 	Creds []struct {
 		User     string `json:"user"`
-		Password string `json:"password" fastconf:"secret"`
+		Password string `json:"password" fc:"secret"`
 	} `json:"creds"`
 	Tokens map[string]struct {
-		Value string `json:"value" fastconf:"secret"`
+		Value string `json:"value" fc:"secret"`
 	} `json:"tokens"`
 }
 
