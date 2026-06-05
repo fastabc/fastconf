@@ -128,3 +128,17 @@ func TestStringPrimitiveHook_NonStringPassthrough(t *testing.T) {
 		t.Errorf("n = %v (%T), want float64(42) passthrough", got, got)
 	}
 }
+
+func TestTypedHookPlan_ExactFieldNameCandidate(t *testing.T) {
+	type exactCfg struct {
+		Timeout time.Duration `json:"timeout"`
+	}
+	plan := decoder.BuildTypedHookPlan(reflect.TypeOf(exactCfg{}), decoder.DefaultTypedHooks())
+	merged := map[string]any{"Timeout": "2s"}
+	if err := plan.Apply(merged); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if got := merged["Timeout"]; got != int64(2*time.Second) {
+		t.Fatalf("Timeout = %v (%T), want duration nanos", got, got)
+	}
+}

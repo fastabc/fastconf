@@ -62,14 +62,15 @@ func (b *PlanBuilder[T]) Run(ctx context.Context) (*PlanResult[T], error) {
 		return nil, fmt.Errorf("fastconf: nil manager")
 	}
 	m := b.m
-	staged, appendSlices, err := m.assemble(ctx, b.hostnameOverride)
+	asm, err := m.assemble(ctx, b.hostnameOverride)
 	if err != nil {
 		return nil, err
 	}
 	pc := &pipelineCtx[T]{
 		reason:       "plan",
-		staged:       staged,
-		appendSlices: appendSlices,
+		staged:       asm.staged,
+		appendSlices: asm.appendSlices,
+		mergeKeys:    asm.mergeKeys,
 		dryRun:       true,
 	}
 	if err := m.runStages(ctx, pc); err != nil {

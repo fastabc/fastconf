@@ -71,7 +71,8 @@ type M[T any] struct {
 	watchSeq atomic.Uint64
 
 	// Background goroutines spawned by startWatcher / startProviderWatchers.
-	bgWG sync.WaitGroup
+	bgWG       sync.WaitGroup
+	watchCoord *watchCoordinator
 
 	// Serialized external reload trigger; watcher → reloadCh → reload goroutine.
 	reloadCh chan reloadRequest
@@ -97,11 +98,6 @@ type M[T any] struct {
 	// disabled both defaults and extras.
 	typedHookPlan *decoder.TypedHookPlan
 
-	// lastMergeKeys is the strategic-merge keys table observed in the
-	// most recent _meta.yaml load. atomic.Pointer to a map[string]string
-	// so runMerge can read without locking.
-	lastMergeKeys atomic.Pointer[map[string]string]
-
 	// hashCache is the most recent (mergedJSON-sha → state-hash) pair.
 	// Populated in commit() after a successful swap; consulted there
 	// before re-marshalling *T to skip duplicate work on idempotent reloads.
@@ -121,6 +117,29 @@ type M[T any] struct {
 // Errors, preview future changes with Plan, and recover retained snapshots
 // through Replay when WithHistory was configured.
 func New[T any](ctx context.Context, opts ...iopts.Option) (*M[T], error) {
+	o, err := finalizeOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateStartupOptions(o); err != nil {
+		return nil, err
+	}
+	if o.CodecBridge == iopts.BridgeJSON {
+		warnIfYAMLOnlyTags[T](o.Log)
+	}
+	m := newManagerFromOptions[T](o)
+	m.typedHookPlan = buildTypedHookPlanFor[T](o)
+	if err := m.reload(ctx, "initial"); err != nil {
+		return nil, err
+	}
+	if err := m.startBackground(ctx); err != nil {
+		_ = m.Close()
+		return nil, err
+	}
+	return m, nil
+}
+
+func finalizeOptions(opts []iopts.Option) (iopts.Options, error) {
 	o := iopts.Default()
 	for _, fn := range opts {
 		fn(&o)
@@ -145,9 +164,13 @@ func New[T any](ctx context.Context, opts ...iopts.Option) (*M[T], error) {
 		for _, e := range o.DeferredErrs {
 			o.Log.Error().Err(e).Msg("fastconf: deferred option error")
 		}
-		return nil, errors.Join(o.DeferredErrs...)
+		return o, errors.Join(o.DeferredErrs...)
 	}
-	m := &M[T]{
+	return o, nil
+}
+
+func newManagerFromOptions[T any](o iopts.Options) *M[T] {
+	return &M[T]{
 		opts:     o,
 		closed:   make(chan struct{}),
 		watches:  map[uint64]*subscriber[T]{},
@@ -155,52 +178,50 @@ func New[T any](ctx context.Context, opts ...iopts.Option) (*M[T], error) {
 		errsCh:   make(chan fcerr.ReloadError, fcerr.ErrorChanCap),
 		history:  istate.NewRing[istate.State[T]](o.HistoryCap),
 		resume:   newResumeState(),
+		tenant:   o.Tenant,
 	}
-	m.tenant = o.Tenant
-	{
-		// Build the typed hook plan once. Defaults are included unless
-		// WithoutDefaultTypedHooks was set.
-		hooks := []decoder.TypedHook{}
-		if !o.TypedHooksOff {
-			hooks = append(hooks, decoder.DefaultTypedHooks()...)
-		}
-		hooks = append(hooks, o.TypedHooks...)
-		if len(hooks) > 0 {
-			var zero T
-			m.typedHookPlan = decoder.BuildTypedHookPlan(reflect.TypeOf(zero), hooks)
-		}
+}
+
+func buildTypedHookPlanFor[T any](o iopts.Options) *decoder.TypedHookPlan {
+	// Build the typed hook plan once. Defaults are included unless
+	// WithoutDefaultTypedHooks was set.
+	hooks := []decoder.TypedHook{}
+	if !o.TypedHooksOff {
+		hooks = append(hooks, decoder.DefaultTypedHooks()...)
 	}
+	hooks = append(hooks, o.TypedHooks...)
+	if len(hooks) == 0 {
+		return nil
+	}
+	var zero T
+	return decoder.BuildTypedHookPlan(reflect.TypeOf(zero), hooks)
+}
+
+func validateStartupOptions(o iopts.Options) error {
 	// Validate user-supplied profile expression at startup so syntax
 	// errors fail loudly instead of silently matching nothing per overlay.
 	if o.ProfileExpr != "" {
 		if _, err := profile.Compile(o.ProfileExpr); err != nil {
-			return nil, fmt.Errorf("%w: WithProfile.Expr: %v", fcerr.ErrDecode, err)
+			return fmt.Errorf("%w: WithProfile.Expr: %v", fcerr.ErrDecode, err)
 		}
 	}
-	// The default BridgeJSON silently ignores yaml struct tags, so a
-	// struct that only carries `yaml:` tags decodes every field to its
-	// zero value. Surface that asymmetry once at New() unless the
-	// caller explicitly opted into BridgeYAML.
-	if o.CodecBridge == iopts.BridgeJSON {
-		warnIfYAMLOnlyTags[T](o.Log)
-	}
-	if err := m.reload(ctx, "initial"); err != nil {
-		return nil, err
-	}
+	return nil
+}
+
+func (m *M[T]) startBackground(ctx context.Context) error {
 	// Spawn diff-reporter workers BEFORE the reload loop so the first
 	// background-triggered commit can already enqueue. The first reload
 	// above did not have a prev state, so no diff was emitted.
 	m.startDiffReporterWorkers()
 	m.bgWG.Add(1)
 	go m.reloadLoop()
-	if o.Watch {
+	if m.opts.Watch {
 		if err := m.startWatcher(ctx); err != nil {
-			_ = m.Close()
-			return nil, err
+			return err
 		}
 		m.startProviderWatchers(ctx)
 	}
-	return m, nil
+	return nil
 }
 
 // Get returns a pointer to the current snapshot's value. Zero

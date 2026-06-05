@@ -19,9 +19,7 @@ func runMerge[T any](_ context.Context, m *M[T], pc *pipelineCtx[T]) error {
 	// Combine _meta.yaml mergeKeys + programmatic mergeKeys.
 	// Programmatic entries (WithMergeKeys) win on conflict.
 	keys := map[string]string{}
-	if mk := m.lastMergeKeys.Load(); mk != nil {
-		maps.Copy(keys, *mk)
-	}
+	maps.Copy(keys, pc.mergeKeys)
 	maps.Copy(keys, m.opts.MergeKeys)
 	if len(keys) > 0 {
 		mergeOpt.MergeKeys = keys

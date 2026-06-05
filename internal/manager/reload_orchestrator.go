@@ -27,7 +27,7 @@ func (m *M[T]) reloadWithKey(ctx context.Context, reason, key string) error {
 	defer root.End()
 
 	asmCtx, asmSp := m.startSpan(ctx, "fastconf.assemble")
-	staged, appendSlices, err := m.assemble(asmCtx, "")
+	asm, err := m.assemble(asmCtx, "")
 	if err != nil {
 		asmSp.RecordError(err)
 		asmSp.End()
@@ -37,13 +37,13 @@ func (m *M[T]) reloadWithKey(ctx context.Context, reason, key string) error {
 		m.opts.Log.Warn().Str("reason", reason).Err(err).Msg("fastconf reload shadow_failed")
 		return err
 	}
-	asmSp.SetAttribute("layers", int64(len(staged)))
+	asmSp.SetAttribute("layers", int64(len(asm.staged)))
 	asmSp.End()
 	m.opts.Metrics.StageDuration("assemble", time.Since(start), true)
 
 	cmtCtx, cmtSp := m.startSpan(ctx, "fastconf.commit")
 	commitStart := time.Now()
-	if err := m.commitWithKey(cmtCtx, staged, appendSlices, reason, key); err != nil {
+	if err := m.commitWithKey(cmtCtx, asm, reason, key); err != nil {
 		cmtSp.RecordError(err)
 		cmtSp.End()
 		root.RecordError(err)

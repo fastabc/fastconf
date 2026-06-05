@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"sort"
 
@@ -35,42 +36,79 @@ type providerEntry struct {
 	stale    bool
 }
 
+type assemblyResult struct {
+	staged       []stagedLayer
+	appendSlices bool
+	mergeKeys    map[string]string
+}
+
+type assemblyMeta struct {
+	profileEnv   string
+	defaultProf  string
+	appendSlices bool
+	mergeKeys    map[string]string
+}
+
 // assemble runs Discover + Provider Load and returns ordered layers
 // WITHOUT publishing any state. It is pure: callable in shadow mode
-// for preflight. The bool return value is the meta-driven appendSlices
-// flag, threaded through pipelineCtx by the caller.
+// for preflight. The assemblyResult carries meta-driven knobs through
+// pipelineCtx so Plan and Reload never share transient Manager fields.
 //
 // hostnameOverride pins the hostname used to resolve multi-axis overlay
 // axes that rely on DefaultFromHostname. Empty string means use the OS
 // hostname. Plan() sets this from PlanBuilder.WithHostname; commit()
 // passes "" so live reloads always see the real hostname.
-func (m *M[T]) assemble(ctx context.Context, hostnameOverride string) ([]stagedLayer, bool, error) {
+func (m *M[T]) assemble(ctx context.Context, hostnameOverride string) (assemblyResult, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, false, err
+		return assemblyResult{}, err
 	}
 
+	scanOpt, meta, err := m.buildScanOptions(hostnameOverride)
+	if err != nil {
+		return assemblyResult{}, err
+	}
+	staged := make([]stagedLayer, 0, 8)
+	fileLayers, err := m.assembleFileLayers(scanOpt)
+	if err != nil {
+		return assemblyResult{}, err
+	}
+	staged = append(staged, fileLayers...)
+	generatorLayers, err := m.assembleGeneratorLayers(ctx)
+	if err != nil {
+		return assemblyResult{}, err
+	}
+	staged = append(staged, generatorLayers...)
+	providerLayers, err := m.assembleProviderLayers(ctx)
+	if err != nil {
+		return assemblyResult{}, err
+	}
+	staged = append(staged, providerLayers...)
+	if len(staged) == 0 {
+		return assemblyResult{}, fcerr.ErrNoSources
+	}
+	return assemblyResult{
+		staged:       staged,
+		appendSlices: meta.appendSlices,
+		mergeKeys:    meta.mergeKeys,
+	}, nil
+}
+
+func (m *M[T]) buildScanOptions(hostnameOverride string) (discovery.ScanOptions, assemblyMeta, error) {
 	scanOpt := discovery.ScanOptions{
 		Strict: m.opts.Strict,
 		FS:     m.opts.FS,
 	}
-	var (
-		metaProfileEnv string
-		metaDefault    string
-		appendSlices   bool
-	)
+	var metaOut assemblyMeta
 	if metaBytes, _ := discovery.LoadMeta(m.opts.FS, m.opts.Dir); len(metaBytes) > 0 {
 		var meta discovery.MetaFile
 		if err := yaml.Unmarshal(metaBytes, &meta); err != nil {
-			return nil, false, fmt.Errorf("%w: _meta.yaml: %v", fcerr.ErrDecode, err)
+			return scanOpt, metaOut, fmt.Errorf("%w: _meta.yaml: %v", fcerr.ErrDecode, err)
 		}
 		meta.Apply(&scanOpt)
-		metaProfileEnv = meta.Spec.ProfileEnv
-		metaDefault = meta.Spec.DefaultProfile
-		appendSlices = meta.Spec.AppendSlices
-		// Capture meta-driven strategic merge keys for the next
-		// runMerge invocation. We cache on the Manager so the merge stage
-		// can read them without rethreading the assemble signature.
-		m.lastMergeKeys.Store(&meta.Spec.MergeKeys)
+		metaOut.profileEnv = meta.Spec.ProfileEnv
+		metaOut.defaultProf = meta.Spec.DefaultProfile
+		metaOut.appendSlices = meta.Spec.AppendSlices
+		metaOut.mergeKeys = maps.Clone(meta.Spec.MergeKeys)
 	}
 	// Compose the active profile set. Multi-profile callers (Profiles
 	// non-empty) take precedence; otherwise a non-empty single-profile
@@ -79,7 +117,7 @@ func (m *M[T]) assemble(ctx context.Context, hostnameOverride string) ([]stagedL
 	if len(m.opts.Profiles) > 0 {
 		scanOpt.Profiles = append([]string{}, m.opts.Profiles...)
 		scanOpt.MatchAnd = m.opts.ProfileExpr
-	} else if eff := m.opts.EffectiveProfile(metaProfileEnv, metaDefault); eff != "" {
+	} else if eff := m.opts.EffectiveProfile(metaOut.profileEnv, metaOut.defaultProf); eff != "" {
 		scanOpt.Profiles = []string{eff}
 	}
 
@@ -100,10 +138,11 @@ func (m *M[T]) assemble(ctx context.Context, hostnameOverride string) ([]stagedL
 			Msg("fastconf: hostname resolution failed; axis skipped")
 	}
 	scanOpt.ExtraOverlays = append(scanOpt.ExtraOverlays, extras...)
+	return scanOpt, metaOut, nil
+}
 
+func (m *M[T]) assembleFileLayers(scanOpt discovery.ScanOptions) ([]stagedLayer, error) {
 	staged := make([]stagedLayer, 0, 8)
-
-	// 1) File layers (base + overlay) in discovery order.
 	var scanErr error
 	discovery.Scan(m.opts.Dir, scanOpt)(func(layer discovery.Layer, err error) bool {
 		if err != nil {
@@ -145,29 +184,26 @@ func (m *M[T]) assemble(ctx context.Context, hostnameOverride string) ([]stagedL
 		return true
 	})
 	if scanErr != nil {
-		return nil, false, scanErr
+		return nil, scanErr
 	}
+	return staged, nil
+}
 
-	// 2a) Dynamic generators. Run after file discovery so generated layers
-	// see file-layer context (e.g. via env), but before providers so
-	// providers can override generator output. Generators may emit
-	// multiple Sources at distinct priorities: each RawLayer.Priority is
-	// offset into the BandGenerator (7000) range; zero defaults to
-	// contracts.PriorityGenerator so single-layer emissions need no
-	// declaration.
+func (m *M[T]) assembleGeneratorLayers(ctx context.Context) ([]stagedLayer, error) {
+	staged := make([]stagedLayer, 0, len(m.opts.Generators))
 	for _, g := range m.opts.Generators {
 		srcs, err := g.Generate(ctx)
 		if err != nil {
-			return nil, false, fmt.Errorf("%w: generator %q: %w", fcerr.ErrDecode, g.Name(), err)
+			return nil, fmt.Errorf("%w: generator %q: %w", fcerr.ErrDecode, g.Name(), err)
 		}
 		for _, gs := range srcs {
 			dec, derr := decoder.For(gs.Codec)
 			if derr != nil {
-				return nil, false, fmt.Errorf("%w: generator %q codec %q: %w", fcerr.ErrDecode, g.Name(), gs.Codec, derr)
+				return nil, fmt.Errorf("%w: generator %q codec %q: %w", fcerr.ErrDecode, g.Name(), gs.Codec, derr)
 			}
 			raw, derr := dec.Decode(gs.Data)
 			if derr != nil {
-				return nil, false, fmt.Errorf("%w: generator %q: %w", fcerr.ErrDecode, g.Name(), derr)
+				return nil, fmt.Errorf("%w: generator %q: %w", fcerr.ErrDecode, g.Name(), derr)
 			}
 			prio := gs.Priority
 			if prio == 0 {
@@ -184,58 +220,62 @@ func (m *M[T]) assemble(ctx context.Context, hostnameOverride string) ([]stagedL
 			})
 		}
 	}
+	return staged, nil
+}
 
-	// 2) Provider layers, sorted by their declared Priority() ascending so
-	//    higher-priority providers (CLI > Env > KV) override lower ones.
-	if len(m.opts.Providers) > 0 {
-		ps := make([]providerEntry, 0, len(m.opts.Providers))
-		for _, p := range m.opts.Providers {
-			snap, err := loadProviderSnapshot(ctx, p)
-			if err != nil {
-				// Preserve ctx cancellation as-is so callers can
-				// errors.Is(err, context.Canceled / DeadlineExceeded)
-				// after a Reload(ctx) timeout instead of wading through
-				// fcerr.ErrDecode wrapping.
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return nil, false, err
-				}
-				return nil, false, fmt.Errorf("%w: provider %q: %w", fcerr.ErrDecode, p.Name(), err)
-			}
-			if snap.Map == nil {
-				continue
-			}
-			if snap.Stale {
-				m.opts.Log.Warn().
-					Str("provider", p.Name()).
-					Str("revision", snap.Revision).
-					Msg("fastconf provider snapshot stale")
-			}
-			ps = append(ps, providerEntry{
-				name:     p.Name(),
-				priority: p.Priority(),
-				data:     snap.Map,
-				revision: snap.Revision,
-				stale:    snap.Stale,
-			})
-		}
-		sort.SliceStable(ps, func(i, j int) bool { return ps[i].priority < ps[j].priority })
-		for _, e := range ps {
-			src := istate.SourceRef{
-				Path:     "provider://" + e.name,
-				Kind:     istate.LayerProvider,
-				Priority: contracts.BandProvider + e.priority,
-				Codec:    "",
-				Revision: e.revision,
-				Stale:    e.stale,
-			}
-			staged = append(staged, stagedLayer{src: src, data: e.data})
-		}
+func (m *M[T]) assembleProviderLayers(ctx context.Context) ([]stagedLayer, error) {
+	if len(m.opts.Providers) == 0 {
+		return nil, nil
 	}
+	ps := make([]providerEntry, 0, len(m.opts.Providers))
+	for _, p := range m.opts.Providers {
+		snap, err := loadProviderSnapshot(ctx, p)
+		if err != nil {
+			// Preserve ctx cancellation as-is so callers can
+			// errors.Is(err, context.Canceled / DeadlineExceeded)
+			// after a Reload(ctx) timeout instead of wading through
+			// fcerr.ErrDecode wrapping.
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
+			return nil, fmt.Errorf("%w: provider %q: %w", fcerr.ErrDecode, p.Name(), err)
+		}
+		if snap.Map == nil {
+			continue
+		}
+		if snap.Stale {
+			m.opts.Log.Warn().
+				Str("provider", p.Name()).
+				Str("revision", snap.Revision).
+				Msg("fastconf provider snapshot stale")
+		}
+		ps = append(ps, providerEntry{
+			name:     p.Name(),
+			priority: p.Priority(),
+			data:     snap.Map,
+			revision: snap.Revision,
+			stale:    snap.Stale,
+		})
+	}
+	sortProviderEntries(ps)
 
-	if len(staged) == 0 {
-		return nil, false, fcerr.ErrNoSources
+	staged := make([]stagedLayer, 0, len(ps))
+	for _, e := range ps {
+		src := istate.SourceRef{
+			Path:     "provider://" + e.name,
+			Kind:     istate.LayerProvider,
+			Priority: contracts.BandProvider + e.priority,
+			Codec:    "",
+			Revision: e.revision,
+			Stale:    e.stale,
+		}
+		staged = append(staged, stagedLayer{src: src, data: e.data})
 	}
-	return staged, appendSlices, nil
+	return staged, nil
+}
+
+func sortProviderEntries(ps []providerEntry) {
+	sort.SliceStable(ps, func(i, j int) bool { return ps[i].priority < ps[j].priority })
 }
 
 // loadProviderSnapshot prefers SnapshotProvider.LoadSnapshot when the

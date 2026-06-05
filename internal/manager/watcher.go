@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/internal/coalesce"
@@ -52,11 +53,13 @@ func (m *M[T]) startWatcher(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	coord := newWatchCoordinator(w, paths)
+	m.watchCoord = coord
 	m.bgWG.Add(1)
 	go func() {
 		defer m.bgWG.Done()
 		defer co.Stop()
-		defer func() { _ = w.Close() }()
+		defer func() { _ = coord.Close() }()
 		runCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		go func() {
@@ -70,6 +73,69 @@ func (m *M[T]) startWatcher(ctx context.Context) error {
 	}()
 	m.opts.Log.Info().Strs("paths", paths).Msg("watch: started")
 	return nil
+}
+
+type watchCoordinator struct {
+	mu     sync.Mutex
+	fsw    *watcher.Watcher
+	seen   map[string]struct{}
+	closed bool
+}
+
+func newWatchCoordinator(fsw *watcher.Watcher, paths []string) *watchCoordinator {
+	c := &watchCoordinator{fsw: fsw, seen: map[string]struct{}{}}
+	for _, p := range paths {
+		if p = normalizeWatchPath(p); p != "" {
+			c.seen[p] = struct{}{}
+		}
+	}
+	return c
+}
+
+func (c *watchCoordinator) AddPath(path string) error {
+	path = normalizeWatchPath(path)
+	if path == "" {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil
+	}
+	if _, ok := c.seen[path]; ok {
+		return nil
+	}
+	if err := c.fsw.AddPath(path); err != nil {
+		return err
+	}
+	c.seen[path] = struct{}{}
+	return nil
+}
+
+func (c *watchCoordinator) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil
+	}
+	c.closed = true
+	return c.fsw.Close()
+}
+
+func (m *M[T]) refreshWatchPathsFromState(s *istate.State[T]) {
+	if s == nil || m.watchCoord == nil {
+		return
+	}
+	select {
+	case <-m.closed:
+		return
+	default:
+	}
+	for _, p := range collectWatchPathsFromState(s) {
+		if err := m.watchCoord.AddPath(p); err != nil {
+			m.opts.Log.Warn().Str("path", p).Err(err).Msg("watch: add source dir failed")
+		}
+	}
 }
 
 func collectWatchPaths(o iopts.Options) []string {
@@ -129,6 +195,7 @@ func collectWatchPathsFromState[T any](s *istate.State[T]) []string {
 			continue
 		}
 		dir := filepath.Dir(src.Path)
+		dir = normalizeWatchPath(dir)
 		if _, ok := seen[dir]; ok {
 			continue
 		}
@@ -144,4 +211,15 @@ func appendUnique(dst []string, p string) []string {
 		return dst
 	}
 	return append(dst, p)
+}
+
+func normalizeWatchPath(p string) string {
+	if p == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return p
+	}
+	return abs
 }

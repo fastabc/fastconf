@@ -17,7 +17,8 @@ package decoder
 
 import (
 	"reflect"
-	"strings"
+
+	"github.com/fastabc/fastconf/internal/typeinfo"
 )
 
 // TypedHook converts a raw value into the typed representation that
@@ -62,15 +63,14 @@ type TypedHookPlan struct {
 	// destination kind at Convert time.
 	hookTarget reflect.Type
 	// children, when non-empty, recurses into nested struct fields.
-	// Keyed by canonical alias (lowercase field name); each child also
-	// exposes its alias list so the walker can locate the corresponding
-	// key in the merged map.
+	// Each child exposes its alias list so the walker can locate the
+	// corresponding key in the merged map.
 	children []*planNode
 	hooks    []TypedHook
 }
 
 type planNode struct {
-	aliases []string // candidate map keys (lowercase, json tag, yaml tag)
+	aliases []string // candidate map keys (json, yaml, lowercase, exact)
 	plan    *TypedHookPlan
 }
 
@@ -97,7 +97,7 @@ func (p *TypedHookPlan) build(t reflect.Type) {
 		if !f.IsExported() {
 			continue
 		}
-		aliases := fieldAliases(f)
+		aliases := typeinfo.ResolveField(f).Candidates
 		if len(aliases) == 0 {
 			continue
 		}
@@ -180,36 +180,6 @@ func (p *TypedHookPlan) walk(node map[string]any) error {
 		}
 	}
 	return firstErr
-}
-
-// fieldAliases returns the candidate map keys for a struct field,
-// preferring json tag → yaml tag → lowercase name → field name.
-func fieldAliases(f reflect.StructField) []string {
-	out := []string{}
-	add := func(s string) {
-		s = strings.TrimSpace(s)
-		if s == "" || s == "-" {
-			return
-		}
-		for _, x := range out {
-			if x == s {
-				return
-			}
-		}
-		out = append(out, s)
-	}
-	add(stripTag(f.Tag.Get("json")))
-	add(stripTag(f.Tag.Get("yaml")))
-	add(strings.ToLower(f.Name))
-	add(f.Name)
-	return out
-}
-
-func stripTag(t string) string {
-	if i := strings.IndexByte(t, ','); i >= 0 {
-		return t[:i]
-	}
-	return t
 }
 
 // pickAlias returns the first alias that exists in node, plus whether

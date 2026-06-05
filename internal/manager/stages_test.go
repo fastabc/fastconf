@@ -207,3 +207,65 @@ containers:
 		t.Errorf("missing containers: api=%v sidecar=%v", api, sidecar)
 	}
 }
+
+func TestStage_MetaMergeKeysApplyToReloadAndPlan(t *testing.T) {
+	fs := fstest.MapFS{
+		"conf.d/_meta.yaml": &fstest.MapFile{Data: []byte(`
+spec:
+  mergeKeys:
+    containers: name
+`)},
+		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte(`
+containers:
+  - name: api
+    image: img:v1
+    port: 8080
+  - name: sidecar
+    image: side:v1
+`)},
+		"conf.d/overlays/prod/50.yaml": &fstest.MapFile{Data: []byte(`
+containers:
+  - name: api
+    image: img:v2
+`)},
+	}
+	mgr, err := New[mkCfg](context.Background(),
+		func(o *iopts.Options) {
+			o.FS = fs
+			o.Dir = "conf.d"
+			o.Profile = "prod"
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.Close()
+
+	cfg := mgr.Get()
+	if len(cfg.Containers) != 2 {
+		t.Fatalf("reload should preserve sidecar via meta mergeKeys, got %+v", cfg.Containers)
+	}
+	if cfg.Containers[0].Image != "img:v2" || cfg.Containers[0].Port != 8080 {
+		t.Fatalf("reload merged api = %+v, want image v2 with preserved port", cfg.Containers[0])
+	}
+
+	fs["conf.d/overlays/prod/50.yaml"] = &fstest.MapFile{Data: []byte(`
+containers:
+  - name: api
+    image: img:v3
+`)}
+	plan, err := mgr.Plan().Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposed := plan.Proposed.Value()
+	if len(proposed.Containers) != 2 {
+		t.Fatalf("plan should preserve sidecar via meta mergeKeys, got %+v", proposed.Containers)
+	}
+	if proposed.Containers[0].Image != "img:v3" || proposed.Containers[0].Port != 8080 {
+		t.Fatalf("plan merged api = %+v, want image v3 with preserved port", proposed.Containers[0])
+	}
+	if got := mgr.Get().Containers[0].Image; got != "img:v2" {
+		t.Fatalf("Plan mutated live state: image = %q, want img:v2", got)
+	}
+}

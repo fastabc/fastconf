@@ -21,8 +21,8 @@ in sync when moving packages.
 │            IMPLEMENTATION  (internal/* + pkg/* + contracts/*)        │
 │  internal/* : private implementation packages                         │
 │     coalesce  diffreport  fcerr   fctypes   manager  obs             │
-│     options   pipeline    provenance registry secret  state          │
-│     tenant    testutil    typeinfo  watcher                          │
+│     options   pipeline    providerutil provenance registry secret    │
+│     state     tenant      testutil typeinfo watcher                  │
 │  pkg/*      : publicly reusable primitives                            │
 │     cliadapter decoder discovery feature flog generator mappath       │
 │     merger migration parser profile provider source transform typed   │

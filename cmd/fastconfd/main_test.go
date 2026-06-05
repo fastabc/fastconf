@@ -13,8 +13,8 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/fastabc/fastconf/cmd/internal/cli"
 	"github.com/fastabc/fastconf"
+	"github.com/fastabc/fastconf/cmd/internal/cli"
 )
 
 func newTestServer(t *testing.T) (*server, func()) {
@@ -115,11 +115,7 @@ func TestServer_ReloadAuth_ConstantTimeCompare(t *testing.T) {
 		}
 	}
 	// Verify it does not contain literal byte-by-byte comparison.
-	src, err := os.ReadFile("main.go")
-	if err != nil {
-		t.Fatalf("read main.go: %v", err)
-	}
-	if strings.Contains(string(src), "X-Reload-Token\") != s.token") {
+	if packageSourceContains(t, "X-Reload-Token\") != s.token") {
 		t.Fatal("reload-token compare uses raw != ; must use subtle.ConstantTimeCompare")
 	}
 }
@@ -159,11 +155,29 @@ func TestMainFlagSetUsesFastconfDefaultDir(t *testing.T) {
 }
 
 func TestMainDoesNotDefineLocalLookupPath(t *testing.T) {
-	src, err := os.ReadFile("main.go")
+	if packageSourceContains(t, "func lookupPath(") {
+		t.Fatal("fastconfd must use pkg/mappath.GetDotted instead of a local lookupPath")
+	}
+}
+
+func packageSourceContains(t *testing.T, needle string) bool {
+	t.Helper()
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("read main.go: %v", err)
+		t.Fatalf("read package dir: %v", err)
 	}
-	if strings.Contains(string(src), "func lookupPath(") {
-		t.Fatal("main.go must use pkg/mappath.GetDotted instead of a local lookupPath")
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if strings.Contains(string(src), needle) {
+			return true
+		}
 	}
+	return false
 }

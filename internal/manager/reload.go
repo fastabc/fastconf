@@ -245,10 +245,10 @@ func (m *M[T]) reloadLoop() {
 // in-memory layer injected at the top. Failures preserve the previous
 // state, identical to the regular reload path.
 func (m *M[T]) reloadWithExtra(ctx context.Context, reason string, extra stagedLayer) error {
-	staged, appendSlices, err := m.assemble(ctx, "")
+	asm, err := m.assemble(ctx, "")
 	if err != nil {
 		return fmt.Errorf("reload-with-source assemble: %w", err)
 	}
-	staged = append(staged, extra)
-	return m.commit(ctx, staged, appendSlices, reason)
+	asm.staged = append(asm.staged, extra)
+	return m.commitWithKey(ctx, asm, reason, "")
 }

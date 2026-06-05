@@ -31,9 +31,12 @@ set -euo pipefail
 #   v0.18.0 pre-release polish absorb (internal/testutil/tracer.go
 #     consolidating duplicated recordingTracer/recordingSpan across
 #     manager + otel tests; Go 1.22 watcher backport):  ~15520.
-# Set to 16200 to allow ~680 LOC of headroom for post-release patches
+#   2026-06-05 non-public audit absorb (assemble/lifecycle/publish
+#     decomposition, watcher dynamic source dirs, typeinfo aliases,
+#     cmd split, providerutil): 16458.
+# Set to 16650 to allow ~190 LOC of headroom for maintenance patches
 # while still blocking silent growth.
-MAX_TOTAL_LOC="${MAX_TOTAL_LOC:-16200}"
+MAX_TOTAL_LOC="${MAX_TOTAL_LOC:-16650}"
 
 # Discover every nested sub-module (go.mod at depth ≥ 2) and convert
 # them into find-friendly prune predicates. Built dynamically so adding

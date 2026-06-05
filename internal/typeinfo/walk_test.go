@@ -92,6 +92,31 @@ func TestFieldName_DefaultsLower(t *testing.T) {
 	}
 }
 
+func TestResolveField_Candidates(t *testing.T) {
+	type S struct {
+		Foo string `json:"foo_json,omitempty" yaml:"foo_yaml"`
+		Bar string
+	}
+	foo, _ := reflect.TypeOf(S{}).FieldByName("Foo")
+	got := typeinfo.ResolveField(foo)
+	if got.Canonical != "foo_json" {
+		t.Fatalf("Canonical = %q, want foo_json", got.Canonical)
+	}
+	want := []string{"foo_json", "foo_yaml", "foo", "Foo"}
+	if !reflect.DeepEqual(got.Candidates, want) {
+		t.Fatalf("Candidates = %v, want %v", got.Candidates, want)
+	}
+
+	bar, _ := reflect.TypeOf(S{}).FieldByName("Bar")
+	got = typeinfo.ResolveField(bar)
+	if got.Canonical != "bar" {
+		t.Fatalf("Bar canonical = %q, want bar", got.Canonical)
+	}
+	if !reflect.DeepEqual(got.Candidates, []string{"bar", "Bar"}) {
+		t.Fatalf("Bar candidates = %v, want [bar Bar]", got.Candidates)
+	}
+}
+
 func TestWalk_AnonymousEmbedFlattensChildren(t *testing.T) {
 	var cv collectVisitor
 	typeinfo.Walk(reflect.TypeOf(UsesEmbed{}), &cv)
@@ -103,6 +128,20 @@ func TestWalk_AnonymousEmbedFlattensChildren(t *testing.T) {
 		if cv.paths[i] != want[i] {
 			t.Errorf("path[%d]=%q want %q", i, cv.paths[i], want[i])
 		}
+	}
+}
+
+type Recursive struct {
+	Name string     `json:"name"`
+	Next *Recursive `json:"next"`
+}
+
+func TestWalk_RecursiveTypeStopsAtCycle(t *testing.T) {
+	var cv collectVisitor
+	typeinfo.Walk(reflect.TypeOf(Recursive{}), &cv)
+	want := []string{"name", "next"}
+	if !reflect.DeepEqual(cv.paths, want) {
+		t.Fatalf("paths=%v want=%v", cv.paths, want)
 	}
 }
 

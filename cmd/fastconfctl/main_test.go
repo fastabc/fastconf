@@ -37,12 +37,8 @@ func TestBuildJSONChanges(t *testing.T) {
 }
 
 func TestMainDoesNotDefineLocalLookupPath(t *testing.T) {
-	src, err := os.ReadFile("main.go")
-	if err != nil {
-		t.Fatalf("read main.go: %v", err)
-	}
-	if strings.Contains(string(src), "func lookupPath(") {
-		t.Fatal("main.go must use pkg/mappath.GetDotted instead of a local lookupPath")
+	if packageSourceContains(t, "func lookupPath(") {
+		t.Fatal("fastconfctl must use pkg/mappath.GetDotted instead of a local lookupPath")
 	}
 }
 
@@ -64,4 +60,26 @@ func TestCLIFlagsParityWithInternalCLI(t *testing.T) {
 	if f.Watch {
 		t.Error("Watch default: got true, want false")
 	}
+}
+
+func packageSourceContains(t *testing.T, needle string) bool {
+	t.Helper()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read package dir: %v", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if strings.Contains(string(src), needle) {
+			return true
+		}
+	}
+	return false
 }

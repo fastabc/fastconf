@@ -32,7 +32,7 @@ func runSecretResolve[T any](ctx context.Context, m *M[T], pc *pipelineCtx[T]) e
 			pc.origins.Record(path, istate.SourceRef{
 				Kind:     istate.LayerSecret,
 				Path:     "secret://" + ref.Scheme,
-				Priority: 9500,
+				Priority: prioritySecretResolved,
 			})
 		}
 		return plain, true

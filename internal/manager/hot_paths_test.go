@@ -23,8 +23,8 @@ type countingProvider struct {
 	data  map[string]any
 }
 
-func (c *countingProvider) Name() string     { return "counting" }
-func (c *countingProvider) Priority() int    { return 0 }
+func (c *countingProvider) Name() string  { return "counting" }
+func (c *countingProvider) Priority() int { return 0 }
 func (c *countingProvider) Watch(_ context.Context) (<-chan contracts.Event, error) {
 	return nil, nil
 }
@@ -62,7 +62,7 @@ func TestAssemble_CtxCanceled_NoProviderCalled(t *testing.T) {
 	canceledCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, _, err = m.assemble(canceledCtx, "")
+	_, err = m.assemble(canceledCtx, "")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("assemble(canceledCtx) err = %v, want context.Canceled", err)
 	}
@@ -116,8 +116,8 @@ type errProvider struct {
 	err error
 }
 
-func (e *errProvider) Name() string     { return "err-provider" }
-func (e *errProvider) Priority() int    { return 0 }
+func (e *errProvider) Name() string  { return "err-provider" }
+func (e *errProvider) Priority() int { return 0 }
 func (e *errProvider) Watch(_ context.Context) (<-chan contracts.Event, error) {
 	return nil, nil
 }
@@ -127,9 +127,10 @@ func (e *errProvider) Load(_ context.Context) (map[string]any, error) {
 
 // TestReloadWithKey_AssembleFailureSkipsCommit verifies that when assemble
 // returns an error:
-//   (a) reloadWithKey propagates the error,
-//   (b) m.gen does NOT advance, and
-//   (c) m.state still points at the prior snapshot.
+//
+//	(a) reloadWithKey propagates the error,
+//	(b) m.gen does NOT advance, and
+//	(c) m.state still points at the prior snapshot.
 func TestReloadWithKey_AssembleFailureSkipsCommit(t *testing.T) {
 	mfs := fstest.MapFS{
 		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("port: 8080\n")},

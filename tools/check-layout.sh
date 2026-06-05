@@ -40,7 +40,7 @@ for d in cliadapter decoder discovery feature flog generator mappath merger migr
 done
 
 # internal/ packages
-for d in coalesce diffreport fcerr fctypes manager obs options pipeline provenance registry secret state tenant testutil typeinfo watcher; do
+for d in coalesce diffreport fcerr fctypes manager obs options pipeline providerutil provenance registry secret state tenant testutil typeinfo watcher; do
   [ -d "$ROOT/internal/$d" ] || error "internal/$d"
 done
 

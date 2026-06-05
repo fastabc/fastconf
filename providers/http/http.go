@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/internal/providerutil"
 )
 
 // Codec is the minimal byte→map decoder this provider needs. It
@@ -139,11 +140,11 @@ func (p *Provider) Load(ctx context.Context) (map[string]any, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if notModified && p.loaded {
-		return cloneMap(p.lastBody), nil
+		return providerutil.CloneMap(p.lastBody), nil
 	}
 	hash := sha256.Sum256(body)
 	if p.loaded && hash == p.bodyHash {
-		return cloneMap(p.lastBody), nil
+		return providerutil.CloneMap(p.lastBody), nil
 	}
 	out, derr := p.codec.Decode(body)
 	if derr != nil {
@@ -153,7 +154,7 @@ func (p *Provider) Load(ctx context.Context) (map[string]any, error) {
 	p.bodyHash = hash
 	p.lastBody = out
 	p.loaded = true
-	return cloneMap(out), nil
+	return providerutil.CloneMap(out), nil
 }
 
 // Watch ticks every interval (default 30s) and emits an event when the
@@ -237,15 +238,4 @@ func (p *Provider) fetch(ctx context.Context) (body []byte, etag string, notModi
 	default:
 		return nil, "", false, fmt.Errorf("fastconf/http: unexpected status %d for %s", resp.StatusCode, p.url)
 	}
-}
-
-func cloneMap(m map[string]any) map[string]any {
-	if m == nil {
-		return nil
-	}
-	out := make(map[string]any, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
-	return out
 }

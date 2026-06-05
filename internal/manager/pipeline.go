@@ -24,7 +24,7 @@ import (
 // pipelineCtx threads the in-flight reload state through the stages.
 // Fields are populated incrementally:
 //
-//	assemble  → staged, sources, appendSlices
+//	assemble  → staged, sources, appendSlices, mergeKeys
 //	merge     → merged, origins
 //	migration → mutates merged
 //	transform → mutates merged
@@ -46,6 +46,7 @@ type pipelineCtx[T any] struct {
 	origins      *provenance.Index
 	target       *T
 	appendSlices bool
+	mergeKeys    map[string]string
 
 	// dryRun = true skips the terminal swap/audit/history fan-out and
 	// instructs validate to collect every report instead of bailing on

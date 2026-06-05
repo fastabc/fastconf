@@ -44,30 +44,60 @@ func (WalkFunc) OnStructEnter(string, reflect.Type) bool { return true }
 // OnStructLeave implements Visitor.
 func (WalkFunc) OnStructLeave(string, reflect.Type) {}
 
-// FieldName returns the canonical FastConf name for a struct field:
-// json tag → yaml tag → lower(name). Anonymous fields with no tag
-// return the empty string so callers can flatten the path.
+type FieldAliases struct {
+	Canonical  string
+	Candidates []string
+	Flatten    bool
+}
+
+// ResolveField returns the canonical FastConf path segment plus every
+// map-key alias accepted by pre-decode walkers. Canonical paths use
+// json tag → yaml tag → lower(name), with anonymous untagged embeds
+// flattened. Candidates additionally include the exact Go field name
+// for compatibility with typed hook input maps.
+func ResolveField(f reflect.StructField) FieldAliases {
+	jsonName := stripTag(f.Tag.Get("json"))
+	yamlName := stripTag(f.Tag.Get("yaml"))
+	out := FieldAliases{}
+	switch {
+	case jsonName != "" && jsonName != "-":
+		out.Canonical = jsonName
+	case yamlName != "" && yamlName != "-":
+		out.Canonical = yamlName
+	case f.Anonymous:
+		out.Flatten = true
+	default:
+		out.Canonical = strings.ToLower(f.Name)
+	}
+	addCandidate := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || s == "-" {
+			return
+		}
+		for _, existing := range out.Candidates {
+			if existing == s {
+				return
+			}
+		}
+		out.Candidates = append(out.Candidates, s)
+	}
+	addCandidate(jsonName)
+	addCandidate(yamlName)
+	addCandidate(strings.ToLower(f.Name))
+	addCandidate(f.Name)
+	return out
+}
+
+// FieldName returns the canonical FastConf name for a struct field.
 func FieldName(f reflect.StructField) string {
-	if tag := f.Tag.Get("json"); tag != "" && tag != "-" {
-		if i := strings.IndexByte(tag, ','); i >= 0 {
-			tag = tag[:i]
-		}
-		if tag != "" {
-			return tag
-		}
+	return ResolveField(f).Canonical
+}
+
+func stripTag(t string) string {
+	if i := strings.IndexByte(t, ','); i >= 0 {
+		return t[:i]
 	}
-	if tag := f.Tag.Get("yaml"); tag != "" && tag != "-" {
-		if i := strings.IndexByte(tag, ','); i >= 0 {
-			tag = tag[:i]
-		}
-		if tag != "" {
-			return tag
-		}
-	}
-	if f.Anonymous {
-		return ""
-	}
-	return strings.ToLower(f.Name)
+	return t
 }
 
 const maxWalkDepth = 256
@@ -77,11 +107,11 @@ const maxWalkDepth = 256
 // slice/map element types are descended only if they (after pointer
 // elision) are structs.
 func Walk(t reflect.Type, v Visitor) {
-	walk(t, "", nil, v, 0)
+	walk(t, "", nil, v, 0, map[reflect.Type]struct{}{})
 }
 
-func walk(t reflect.Type, prefix string, idx []int, v Visitor, depth int) {
-	if depth > maxWalkDepth {
+func walk(t reflect.Type, prefix string, idx []int, v Visitor, depth int, stack map[reflect.Type]struct{}) {
+	if t == nil || depth > maxWalkDepth {
 		return
 	}
 	for t.Kind() == reflect.Pointer {
@@ -90,6 +120,11 @@ func walk(t reflect.Type, prefix string, idx []int, v Visitor, depth int) {
 	if t.Kind() != reflect.Struct {
 		return
 	}
+	if _, ok := stack[t]; ok {
+		return
+	}
+	stack[t] = struct{}{}
+	defer delete(stack, t)
 	if !v.OnStructEnter(prefix, t) {
 		return
 	}
@@ -117,14 +152,14 @@ func walk(t reflect.Type, prefix string, idx []int, v Visitor, depth int) {
 		}
 		switch ft.Kind() {
 		case reflect.Struct:
-			walk(ft, path, nextIdx, v, depth+1)
+			walk(ft, path, nextIdx, v, depth+1, stack)
 		case reflect.Slice, reflect.Array:
 			elem := ft.Elem()
 			for elem.Kind() == reflect.Pointer {
 				elem = elem.Elem()
 			}
 			if elem.Kind() == reflect.Struct {
-				walk(elem, path+".[]", nextIdx, v, depth+1)
+				walk(elem, path+".[]", nextIdx, v, depth+1, stack)
 			}
 		case reflect.Map:
 			elem := ft.Elem()
@@ -132,7 +167,7 @@ func walk(t reflect.Type, prefix string, idx []int, v Visitor, depth int) {
 				elem = elem.Elem()
 			}
 			if elem.Kind() == reflect.Struct {
-				walk(elem, path+".{}", nextIdx, v, depth+1)
+				walk(elem, path+".{}", nextIdx, v, depth+1, stack)
 			}
 		}
 	}

@@ -237,6 +237,91 @@ func TestWatcher_HotReloadOnOverlayProfileChange(t *testing.T) {
 	}
 }
 
+func TestWatcher_AddsNewOverlayDirAfterReload(t *testing.T) {
+	dir := t.TempDir()
+	conf := filepath.Join(dir, "conf.d")
+	writeFile(t, filepath.Join(conf, "base", "00-app.yaml"), "server:\n  addr: \":8080\"\n")
+	if err := os.MkdirAll(filepath.Join(conf, "overlays"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr, err := fastconf.New[appCfg](context.Background(),
+		fastconf.WithDir(conf),
+		fastconf.WithProfile(fastconf.ProfileOptions{Single: "production"}),
+		fastconf.WithWatch(fastconf.WatchOptions{
+			Enabled:  true,
+			Coalesce: fastconf.CoalesceOptions{Quiet: 20 * time.Millisecond},
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.Close()
+
+	writeFile(t, filepath.Join(conf, "overlays", "production", "10-prod.yaml"),
+		"database:\n  dsn: postgres://prod-v1\n  pool: 5\n")
+	if err := mgr.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := mgr.Get().Database.DSN; got != "postgres://prod-v1" {
+		t.Fatalf("after manual reload dsn: got %q", got)
+	}
+	gen1 := mgr.Snapshot().Generation()
+
+	writeFile(t, filepath.Join(conf, "overlays", "production", "10-prod.yaml"),
+		"database:\n  dsn: postgres://prod-v2\n  pool: 10\n")
+
+	waitFor(t, func() bool { return mgr.Get().Database.DSN == "postgres://prod-v2" },
+		"hot reload after dynamic overlay dir registration")
+	if mgr.Snapshot().Generation() == gen1 {
+		t.Errorf("generation did not advance after dynamic overlay dir change")
+	}
+}
+
+func TestWatcher_AddsNewAxisDirAfterReload(t *testing.T) {
+	dir := t.TempDir()
+	conf := filepath.Join(dir, "conf.d")
+	writeFile(t, filepath.Join(conf, "base", "00-app.yaml"), "server:\n  addr: \":8080\"\n")
+	if err := os.MkdirAll(filepath.Join(conf, "regions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FASTCONF_TEST_REGION", "eu")
+
+	mgr, err := fastconf.New[appCfg](context.Background(),
+		fastconf.WithDir(conf),
+		fastconf.WithMultiAxisOverlays(
+			fastconf.OverlayAxis{Dir: "regions", EnvVar: "FASTCONF_TEST_REGION", Priority: 3000},
+		),
+		fastconf.WithWatch(fastconf.WatchOptions{
+			Enabled:  true,
+			Coalesce: fastconf.CoalesceOptions{Quiet: 20 * time.Millisecond},
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.Close()
+
+	writeFile(t, filepath.Join(conf, "regions", "eu", "10-region.yaml"),
+		"database:\n  dsn: postgres://eu-v1\n  pool: 2\n")
+	if err := mgr.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := mgr.Get().Database.DSN; got != "postgres://eu-v1" {
+		t.Fatalf("after manual reload dsn: got %q", got)
+	}
+	gen1 := mgr.Snapshot().Generation()
+
+	writeFile(t, filepath.Join(conf, "regions", "eu", "10-region.yaml"),
+		"database:\n  dsn: postgres://eu-v2\n  pool: 20\n")
+
+	waitFor(t, func() bool { return mgr.Get().Database.DSN == "postgres://eu-v2" },
+		"hot reload after dynamic axis dir registration")
+	if mgr.Snapshot().Generation() == gen1 {
+		t.Errorf("generation did not advance after dynamic axis dir change")
+	}
+}
+
 // TestWatcher_HotReloadOnHierarchicalAxisChange verifies hot-reload fires when
 // a multi-axis overlay file changes — axis dirs must be watched too.
 func TestWatcher_HotReloadOnHierarchicalAxisChange(t *testing.T) {

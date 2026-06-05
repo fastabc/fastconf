@@ -46,6 +46,7 @@ import (
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 
 	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/internal/providerutil"
 	"github.com/fastabc/fastconf/pkg/decoder"
 )
 
@@ -216,7 +217,7 @@ func (p *Provider) Load(ctx context.Context) (map[string]any, error) {
 		if isNotModified(err) {
 			p.mu.Lock()
 			defer p.mu.Unlock()
-			return cloneMap(p.lastBody), nil
+			return providerutil.CloneMap(p.lastBody), nil
 		}
 		return nil, fmt.Errorf("fastconf/s3: get %s: %w", p.name, err)
 	}
@@ -237,7 +238,7 @@ func (p *Provider) Load(ctx context.Context) (map[string]any, error) {
 	p.lastBody = m
 	p.loaded = true
 	p.mu.Unlock()
-	return cloneMap(m), nil
+	return providerutil.CloneMap(m), nil
 }
 
 // Watch implements contracts.Provider. The S3 provider is load-only;
@@ -262,19 +263,6 @@ func isNotModified(err error) bool {
 		return re.HTTPStatusCode() == http.StatusNotModified
 	}
 	return false
-}
-
-// cloneMap returns a shallow copy of m so callers can mutate the
-// result without invalidating the cached body.
-func cloneMap(m map[string]any) map[string]any {
-	if m == nil {
-		return nil
-	}
-	out := make(map[string]any, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
-	return out
 }
 
 // FromURL parses an s3:// (or s3+http(s) for non-AWS endpoints) URL
