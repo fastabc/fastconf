@@ -65,9 +65,7 @@ func TestDeep_StrictTypeMismatch(t *testing.T) {
 }
 
 // TestDeep_StrictRejectsStringerVsInt locks in that a fmt.Stringer such as
-// time.Time is NOT silently treated as a number under strict merge. The
-// pre-SPEC-E3 isNumber fallback returned true for any Stringer, which let
-// time/file types pass the numeric mismatch guard.
+// time.Time is NOT silently treated as a number under strict merge.
 func TestDeep_StrictRejectsStringerVsInt(t *testing.T) {
 	dst := map[string]any{"at": time.Unix(0, 0)}
 	src := map[string]any{"at": 42}

@@ -112,7 +112,7 @@ match: "prod | staging"       # 布尔 profile 表达式（&, |, !, () 均支持
 [
   { "op": "replace", "path": "/server/addr",     "value": ":8443" },
   { "op": "add",     "path": "/feature/darkMode","value": true },
-  { "op": "remove",  "path": "/legacy/key" }
+  { "op": "remove",  "path": "/obsolete/key" }
 ]
 ```
 

@@ -1,10 +1,9 @@
 package manager_test
 
-// Tests sunk from root manager_test.go per SPEC-G1: they exercise
-// internal/manager hash, swap, strict-merge, and bytes-source behavior.
-// They live here so future white-box tests can share fixtures, while
-// the root manager_test.go keeps only the facade-compatibility cases
-// (TestNew_BaseOnly, TestNew_OverlayOverrides, TestNoSources, examples).
+// These tests exercise internal/manager hash, swap, strict-merge, and
+// bytes-source behavior. They live here so future white-box tests can share
+// fixtures, while the root manager_test.go keeps only facade-compatibility
+// cases.
 
 import (
 	"context"

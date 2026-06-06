@@ -45,15 +45,14 @@ b, _ := state.Dump(fastconf.DumpYAML, fastconf.DefaultSecretRedactor)
 
 The redactor walks fields tagged `fc:"secret"` (or registered via `WithSecretRedactor`) and replaces them with `***REDACTED***` (default) or a custom marker. `/config?redact=true` on the sidecar already uses this path — see the [sidecar recipe](sidecar.md).
 
-## Migration from v0.17
+## Prefer Dump Over Custom Encoding
 
-`State[T].MarshalYAML(redactor)` has been removed in v0.18. Replace each call site:
+Use `State[T].Dump(format, redactor)` for every operator-facing export path:
 
 ```go
-// before
-b, err := state.MarshalYAML(redactor)
-// after
 b, err := state.Dump(fastconf.DumpYAML, redactor)
 ```
 
-JSON and TOML callers no longer need to reach into `state.Value` and pick their own encoder.
+JSON and TOML callers do not need to reach into `state.Value` and pick their
+own encoder; `Dump` preserves FastConf's redaction and deterministic tree
+shape.

@@ -1,4 +1,4 @@
-// Package render plugs FastConf into the long tail of legacy daemons that
+// Package render plugs FastConf into the long tail of existing daemons that
 // only consume on-disk configuration files (nginx.conf, envoy.yaml,
 // postgresql.conf, ...). It mirrors the Consul-Template / Spring Cloud
 // Config "render to disk + signal" workflow but stays inside the calling

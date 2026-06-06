@@ -48,8 +48,6 @@ func TestDefaultsAreStable(t *testing.T) {
 	}
 }
 
-// ── Folded from defaults_internal_test.go ──
-
 type defaultsCfg struct {
 	Host    string `json:"host" fc:"default=localhost"`
 	Port    int    `json:"port" fc:"default=8080"`

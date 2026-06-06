@@ -117,7 +117,7 @@ after the layer's files merge:
 [
   { "op": "replace", "path": "/server/addr",      "value": ":8443" },
   { "op": "add",     "path": "/feature/darkMode", "value": true },
-  { "op": "remove",  "path": "/legacy/key" }
+  { "op": "remove",  "path": "/obsolete/key" }
 ]
 ```
 

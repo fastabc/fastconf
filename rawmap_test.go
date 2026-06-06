@@ -141,10 +141,9 @@ func TestWithRawMapAccess_NilNoop(t *testing.T) {
 	}
 }
 
-// TestMapAnyTarget_Get demonstrates SPEC-126's "fallback for the
-// no-struct user": when T is map[string]any, FastConf still works as
-// a config loader, but loses the field-level compile-time check and
-// zero-alloc snapshot. Documented as the escape hatch in README §1.1.
+// TestMapAnyTarget_Get demonstrates the no-struct escape hatch: when T is
+// map[string]any, FastConf still works as a config loader, but loses the
+// field-level compile-time check and zero-alloc snapshot.
 func TestMapAnyTarget_Get(t *testing.T) {
 	mfs := fstest.MapFS{
 		"conf.d/base/00.yaml": &fstest.MapFile{

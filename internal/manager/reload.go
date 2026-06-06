@@ -6,7 +6,9 @@ package manager
 // here so pipelines never interleave.
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/fastabc/fastconf/contracts"
@@ -19,14 +21,28 @@ import (
 //
 // Options:
 //   - WithSourceOverride(map) injects a one-shot in-memory layer at the
-//     top of the priority stack for this reload only. The map is consumed;
-//     do not mutate it after the call.
+//     top of the priority stack for this reload only. The map is copied
+//     while Reload applies options; do not mutate it concurrently with
+//     the Reload call.
 //   - WithReloadReason(s) overrides the default "manual" reason tag used
 //     for audit / metrics / logging.
 func (m *M[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 	cfg := reloadConfig{reason: "manual"}
 	for _, opt := range opts {
 		opt(&cfg)
+	}
+	if cfg.err != nil {
+		select {
+		case <-m.closed:
+			return fcerr.ErrClosed
+		default:
+		}
+		reason := cfg.reason
+		if reason == "manual" {
+			reason = "override"
+		}
+		m.publishReloadError(reason, cfg.err)
+		return cfg.err
 	}
 	if cfg.override == nil {
 		return m.requestReload(ctx, cfg.reason)
@@ -79,49 +95,51 @@ type ReloadOption func(*reloadConfig)
 type reloadConfig struct {
 	reason   string
 	override map[string]any
+	err      error
 }
 
 // WithSourceOverride attaches a one-shot in-memory layer to this reload,
-// merged above CLI flags. The override map is deep-copied at the call
-// site; callers may freely mutate or reuse the original after Reload
-// returns. The layer is not remembered: a subsequent Reload reverts to
-// the natural state.
+// merged above CLI flags. Override values must be JSON-serializable.
+// Reload deep-copies the override when it applies this option, producing
+// an independent JSON-shaped map before the reload request enters the
+// pipeline. Callers may freely mutate or reuse the original after Reload
+// returns. The layer is not remembered: a subsequent Reload reverts to the
+// natural state.
 //
 // Use cases: targeted integration tests, ad-hoc operator overrides in
 // fastconfctl, "rehearse a change without writing a file". Never use
 // this from production hot paths.
 func WithSourceOverride(override map[string]any) ReloadOption {
-	return func(c *reloadConfig) { c.override = deepCopyMap(override) }
-}
-
-// deepCopyMap returns a fully-independent copy of m. Nested
-// map[string]any and []any values are recursively cloned; all other
-// values (strings, numbers, structs) are copied by value, which is
-// safe for the in-memory configuration shapes that reach this path.
-func deepCopyMap(m map[string]any) map[string]any {
-	if m == nil {
-		return nil
-	}
-	out := make(map[string]any, len(m))
-	for k, v := range m {
-		out[k] = deepCopyValue(v)
-	}
-	return out
-}
-
-func deepCopyValue(v any) any {
-	switch t := v.(type) {
-	case map[string]any:
-		return deepCopyMap(t)
-	case []any:
-		out := make([]any, len(t))
-		for i, e := range t {
-			out[i] = deepCopyValue(e)
+	return func(c *reloadConfig) {
+		copied, err := deepCopyMap(override)
+		if err != nil {
+			c.err = fmt.Errorf("%w: WithSourceOverride: %v", fcerr.ErrDecode, err)
+			return
 		}
-		return out
-	default:
-		return v
+		c.override = copied
 	}
+}
+
+// deepCopyMap returns a fully-independent JSON-shaped copy of m.
+// JSON round-tripping deliberately defines the accepted override shape:
+// map/object, slice/array, string, bool, number and nil values. Pointer
+// and struct values that json.Marshal accepts are materialised into that
+// tree, so later caller-side mutations cannot alias the reload pipeline.
+func deepCopyMap(m map[string]any) (map[string]any, error) {
+	if m == nil {
+		return nil, nil
+	}
+	buf, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(buf))
+	dec.UseNumber()
+	out := map[string]any{}
+	if err := dec.Decode(&out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // WithReloadReason overrides the default "manual" reason tag stamped on

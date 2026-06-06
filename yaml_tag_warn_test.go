@@ -11,11 +11,10 @@ import (
 	"github.com/fastabc/fastconf"
 )
 
-// TestNew_WarnsOnYAMLOnlyTags pins SPEC-A5: when *T has yaml struct
-// tags but no json tags, New emits a warn-level log so the
-// operator notices the default BridgeJSON ignoring those tags. Skipping
-// the warning when BridgeYAML is selected is exercised in the second
-// subtest.
+// TestNew_WarnsOnYAMLOnlyTags verifies that when *T has yaml struct tags but
+// no json tags, New emits a warn-level log so the operator notices the default
+// BridgeJSON ignoring those tags. Skipping the warning when BridgeYAML is
+// selected is exercised in the second subtest.
 func TestNew_WarnsOnYAMLOnlyTags(t *testing.T) {
 	type yamlOnly struct {
 		DBPool int    `yaml:"db_pool"`

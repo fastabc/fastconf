@@ -190,9 +190,9 @@ func TestSubscribe_WithEqual_CustomComparator(t *testing.T) {
 	}
 }
 
-// TestSubscribe_WithEqual_FireAlwaysIdiom — the documented escape hatch
-// for the v0.18 "fire on every reload" semantics: WithEqual returning
-// false unconditionally.
+// TestSubscribe_WithEqual_FireAlwaysIdiom covers the documented escape
+// hatch for fire-on-every-reload side effects: WithEqual returning false
+// unconditionally.
 func TestSubscribe_WithEqual_FireAlwaysIdiom(t *testing.T) {
 	base := "db:\n  dsn: postgres://same\n  pool: 5\nserver:\n  addr: :8080\n"
 	mgr := newSubMgr(t, base)

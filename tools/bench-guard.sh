@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 36 (v0.5 SPEC-36) — bench regression guard.
+# Benchmark regression guard for the lock-free read path.
 #
 # Runs BenchmarkGet from package fastconf and asserts:
 #   * ns/op  <= MAX_NS_PER_OP   (default 5)

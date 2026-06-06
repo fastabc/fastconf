@@ -1,10 +1,9 @@
 package fastconf_test
 
-// Per H6.3 of docs/plans/v0.18.0-prerelease-audit.md: doc.go is the
-// godoc landing page and must list the canonical "where do I start"
-// surface so newcomers do not have to scan the entire alphabetised
-// symbol index. This test fails if any of those symbols disappear from
-// the package-level comment block.
+// doc.go is the godoc landing page and must list the canonical "where do I
+// start" surface so newcomers do not have to scan the entire alphabetised
+// symbol index. This test fails if any of those symbols disappear from the
+// package-level comment block.
 
 import (
 	"go/parser"

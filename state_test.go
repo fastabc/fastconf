@@ -258,8 +258,8 @@ func TestState_Dump_NestedShape(t *testing.T) {
 	}
 }
 
-// TestState_Dump_JSONParity verifies SPEC-A2 acceptance: Dump(DumpJSON,
-// nil) round-trips to the same tree as json.Marshal(*state.Value) does
+// TestState_Dump_JSONParity verifies that Dump(DumpJSON, nil) round-trips
+// to the same tree as json.Marshal(*state.Value) does
 // (modulo whitespace/ordering — both sides unmarshal to identical maps).
 func TestState_Dump_JSONParity(t *testing.T) {
 	fs := fstest.MapFS{

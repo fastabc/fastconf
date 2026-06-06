@@ -105,15 +105,14 @@ mgr, _ := fastconf.New[AppConfig](ctx,
 cancel := fastconf.Subscribe(mgr,
     func(app *AppConfig) *DatabaseConfig { return &app.Database },
     func(old, neu *DatabaseConfig) {
-        if old != nil && *old == *neu { return } // 调用方自行 diff
-        reconnect(neu.DSN)
+        reconnect(neu.DSN) // 框架保证：DB 配置确实变了
     },
 )
 defer cancel()
 ```
 
-`Subscribe` 在每次成功 reload 时同步触发（reload goroutine 中执行；`recover()` 隔
-离 panic）。长耗时操作请自行 `go func()` 异步。
+`Subscribe` 仅在提取出的值发生变化时触发，并在 reload goroutine 中同步执行
+（`recover()` 隔离 panic）。长耗时操作请自行 `go func()` 异步。
 
 ### 手动触发 & 一次性 override
 
@@ -363,4 +362,3 @@ fastconf.PresetHierarchical(fastconf.HierarchicalOpts{ /* ... */ })
 ```
 
 ---
-

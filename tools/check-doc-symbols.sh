@@ -82,8 +82,7 @@ fi
 # Cookbook symbol audit. Every `fastconf.<Ident>` reference in
 # docs/cookbook/*.md must resolve to a Go identifier in the root
 # package (or a subpackage). This catches stale recipes after public-API
-# renames — e.g. the v0.18 Sub → Extract migration would have left
-# docs/cookbook/introspect.md referencing a non-existent symbol.
+# renames.
 COOKBOOK_DIR="$ROOT/docs/cookbook"
 COOKBOOK_FAIL=0
 if [ -d "$COOKBOOK_DIR" ]; then

@@ -3,7 +3,7 @@ package contracts
 import "context"
 
 // Snapshot is the richer return type used by SnapshotProvider. It augments
-// the legacy Load() map with two additional pieces of metadata that align
+// the plain Load() map with two additional pieces of metadata that align
 // FastConf's reload pipeline with etcd / Vault / Consul-style versioning:
 //
 //   - Revision is an opaque, monotonically-meaningful version string (e.g.

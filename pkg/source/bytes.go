@@ -34,7 +34,7 @@ type BytesSource struct {
 }
 
 // NewBytes constructs a BytesSource. The default priority is 9000
-// (above file layers, below CLI), matching the legacy bytes-provider
+// (above file layers, below CLI), matching the established bytes-provider
 // position in the merge order. Override via WithPriority.
 func NewBytes(name, contentType string, data []byte) *BytesSource {
 	sum := sha1.Sum(data)

@@ -40,7 +40,7 @@ func TestEnvKeyReplacer_DefaultDotToUnderscore(t *testing.T) {
 	}
 }
 
-// WithCoerce(true) opts back into the legacy bool/int/float coercion.
+// WithCoerce(true) opts into eager bool/int/float coercion.
 func TestEnvKeyReplacer_WithCoerceTrue(t *testing.T) {
 	t.Setenv("EBT2_SERVER_PORT", "9000")
 	t.Setenv("EBT2_DEBUG", "true")

@@ -121,36 +121,17 @@ func TestReloadLoopNoPendingAfterClose(t *testing.T) {
 	}
 }
 
-func TestReloadWithSource_PostMutationDoesNotAffectState(t *testing.T) {
-	type cfg struct {
-		K string `yaml:"k" json:"k"`
-	}
-	mfs := fstest.MapFS{
-		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("k: base\n")},
-	}
-	mgr, err := fastconf.New[cfg](context.Background(),
-		fastconf.WithFS(mfs),
-		fastconf.WithDir("conf.d"),
-	)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	defer mgr.Close()
-
-	override := map[string]any{"k": "v1"}
-	if err := mgr.Reload(context.Background(), fastconf.WithSourceOverride(override)); err != nil {
-		t.Fatalf("ReloadWithSource: %v", err)
-	}
-	override["k"] = "v2"
-
-	if got := mgr.Get().K; got != "v1" {
-		t.Fatalf("post-mutation leaked into state: got %q", got)
-	}
-}
-
 type rwsCfg struct {
 	Name string `json:"name"`
 	Port int    `json:"port"`
+}
+
+type rwsPointerCfg struct {
+	DB rwsPointerDB `json:"db" yaml:"db"`
+}
+
+type rwsPointerDB struct {
+	DSN string `json:"dsn" yaml:"dsn"`
 }
 
 func TestReloadWithSource_Atomic(t *testing.T) {
@@ -284,6 +265,33 @@ func (p *toggleProvider) Watch(_ context.Context) (<-chan contracts.Event, error
 	return nil, nil
 }
 
+type gateProvider struct {
+	block   atomic.Bool
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (p *gateProvider) Name() string  { return "gate" }
+func (p *gateProvider) Priority() int { return 100 }
+func (p *gateProvider) Load(ctx context.Context) (map[string]any, error) {
+	if !p.block.Load() {
+		return map[string]any{}, nil
+	}
+	select {
+	case p.entered <- struct{}{}:
+	default:
+	}
+	select {
+	case <-p.release:
+		return map[string]any{}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+func (p *gateProvider) Watch(_ context.Context) (<-chan contracts.Event, error) {
+	return nil, nil
+}
+
 // TestReload_PostConstructionCtxCancellation is the E2E counterpart to the
 // initial-reload test above. It builds a healthy manager, flips a provider
 // into slow mode, fires Reload(ctxWithTimeout) and asserts:
@@ -388,9 +396,9 @@ func TestReloadWithSource_AfterCloseFails(t *testing.T) {
 	}
 }
 
-// TestReloadWithSource_DeepCopyAtCall verifies SPEC-D1: WithSourceOverride
-// captures a deep copy at the call site, so callers can freely mutate
-// the source map afterwards without racing the reload pipeline.
+// TestReloadWithSource_DeepCopyAtCall verifies that WithSourceOverride
+// captures an independent copy, so callers can freely mutate the source map
+// afterwards without racing the reload pipeline.
 func TestReloadWithSource_DeepCopyAtCall(t *testing.T) {
 	fs := fstest.MapFS{
 		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("name: base\nport: 80\n")},
@@ -419,5 +427,89 @@ func TestReloadWithSource_DeepCopyAtCall(t *testing.T) {
 	}
 	if cfg.Port != 99 {
 		t.Errorf("WithSourceOverride did not deep-copy: got Port=%d, want 99", cfg.Port)
+	}
+}
+
+func TestReloadWithSource_DeepCopiesNestedPointerBeforePipeline(t *testing.T) {
+	fs := fstest.MapFS{
+		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("db:\n  dsn: base\n")},
+	}
+	gate := &gateProvider{
+		entered: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	mgr, err := fastconf.New[rwsPointerCfg](context.Background(),
+		fastconf.WithFS(fs),
+		fastconf.WithDir("conf.d"),
+		fastconf.WithProvider(gate),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.Close()
+
+	overrideDB := &rwsPointerDB{DSN: "snapshot"}
+	gate.block.Store(true)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- mgr.Reload(context.Background(), fastconf.WithSourceOverride(map[string]any{
+			"db": overrideDB,
+		}))
+	}()
+
+	select {
+	case <-gate.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("provider did not block reload")
+	}
+	overrideDB.DSN = "mutated"
+	close(gate.release)
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Reload: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Reload did not finish")
+	}
+	if got := mgr.Get().DB.DSN; got != "snapshot" {
+		t.Fatalf("nested pointer override aliased caller mutation: got %q, want snapshot", got)
+	}
+}
+
+func TestReloadWithSource_InvalidOverrideReturnsDecodeError(t *testing.T) {
+	fs := fstest.MapFS{
+		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("name: base\nport: 80\n")},
+	}
+	mgr, err := fastconf.New[rwsCfg](context.Background(),
+		fastconf.WithFS(fs),
+		fastconf.WithDir("conf.d"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.Close()
+
+	gen := mgr.Snapshot().Generation()
+	err = mgr.Reload(context.Background(), fastconf.WithSourceOverride(map[string]any{
+		"bad": func() {},
+	}))
+	if !errors.Is(err, fastconf.ErrDecode) {
+		t.Fatalf("Reload err: want ErrDecode, got %v", err)
+	}
+	if got := mgr.Snapshot().Generation(); got != gen {
+		t.Fatalf("invalid override advanced generation: got %d, want %d", got, gen)
+	}
+	if got := mgr.Get().Name; got != "base" {
+		t.Fatalf("invalid override changed state: got name %q, want base", got)
+	}
+	select {
+	case re := <-mgr.Errors():
+		if re.Reason != "override" || !errors.Is(re.Err, fastconf.ErrDecode) {
+			t.Fatalf("Errors entry = %+v, want override ErrDecode", re)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("invalid override did not publish to Errors")
 	}
 }

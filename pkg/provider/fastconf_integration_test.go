@@ -66,8 +66,6 @@ func TestProviderPriority_CLIWinsOverEnv(t *testing.T) {
 	}
 }
 
-// ── Folded from provider_internal_test.go ──
-
 func snapshotFS() fstest.MapFS {
 	return fstest.MapFS{
 		"conf.d/base/00-seed.yaml": &fstest.MapFile{Data: []byte("a: seed\ndatabase:\n  dsn: seed\n")},
@@ -87,16 +85,16 @@ func (s *snapProv) Load(context.Context) (map[string]any, error)             { r
 func (s *snapProv) Watch(context.Context) (<-chan contracts.Event, error)    { return nil, nil }
 func (s *snapProv) LoadSnapshot(context.Context) (contracts.Snapshot, error) { return s.snap, s.err }
 
-type legacyProv struct {
+type mapOnlyProv struct {
 	name string
 	pri  int
 	data map[string]any
 }
 
-func (s *legacyProv) Name() string                                          { return s.name }
-func (s *legacyProv) Priority() int                                         { return s.pri }
-func (s *legacyProv) Load(context.Context) (map[string]any, error)          { return s.data, nil }
-func (s *legacyProv) Watch(context.Context) (<-chan contracts.Event, error) { return nil, nil }
+func (s *mapOnlyProv) Name() string                                          { return s.name }
+func (s *mapOnlyProv) Priority() int                                         { return s.pri }
+func (s *mapOnlyProv) Load(context.Context) (map[string]any, error)          { return s.data, nil }
+func (s *mapOnlyProv) Watch(context.Context) (<-chan contracts.Event, error) { return nil, nil }
 
 func TestProvider_SnapshotRevisionPropagates(t *testing.T) {
 	type cfg struct {
@@ -142,11 +140,11 @@ func TestProvider_SnapshotRevisionPropagates(t *testing.T) {
 	}
 }
 
-func TestProvider_LegacyAdapterEmptyRevision(t *testing.T) {
+func TestProvider_MapOnlyProviderEmptyRevision(t *testing.T) {
 	type cfg struct {
 		A string `yaml:"a"`
 	}
-	p := &legacyProv{name: "legacy", pri: contracts.PriorityKV, data: map[string]any{"a": "x"}}
+	p := &mapOnlyProv{name: "map-only", pri: contracts.PriorityKV, data: map[string]any{"a": "x"}}
 	mgr, err := fastconf.New[cfg](context.Background(),
 		fastconf.WithFS(snapshotFS()),
 		fastconf.WithProvider(p),
@@ -157,12 +155,12 @@ func TestProvider_LegacyAdapterEmptyRevision(t *testing.T) {
 	defer mgr.Close()
 	st := mgr.Snapshot()
 	for _, src := range st.Sources() {
-		if src.Path == "provider://legacy" && src.Revision != "" {
-			t.Fatalf("legacy provider should yield empty Revision, got %q", src.Revision)
+		if src.Path == "provider://map-only" && src.Revision != "" {
+			t.Fatalf("map-only provider should yield empty Revision, got %q", src.Revision)
 		}
 	}
 	if mgr.Get().A != "x" {
-		t.Fatalf("legacy provider data lost in merge")
+		t.Fatalf("map-only provider data lost in merge")
 	}
 }
 

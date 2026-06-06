@@ -107,14 +107,16 @@ Package-level generics — anything that derives a subtree `M` from `*T`
 lives at the package level:
 
 ```go
-// Per-field subscribe; fires on every successful reload.
-func Subscribe[T, M any](m *Manager[T], extract func(*T) *M, fn func(old, new *M)) (cancel func())
+// Per-field subscribe; fires only when the extracted value actually changes.
+// Pass WithEqual(eq) to override the default reflect.DeepEqual comparator.
+func Subscribe[T, M any](m *Manager[T], extract func(*T) *M, fn func(old, new *M), opts ...SubscribeOption[M]) (cancel func())
+func WithEqual[M any](equal func(old, new *M) bool) SubscribeOption[M]
 
 // Typed feature-flag evaluation; type-mismatch returns def.
 func Eval[T, V any](m *Manager[T], key string, ctx feature.EvalContext, def V) V
 
 // Read-only subtree alias.
-func Sub[T, M any](s *State[T], extract func(*T) *M) *M
+func Extract[T, M any](s *State[T], extract func(*T) *M) *M
 ```
 
 ### `State[T]` — immutable snapshot

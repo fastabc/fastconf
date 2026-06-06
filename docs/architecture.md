@@ -1,6 +1,6 @@
 # FastConf Architecture
 
-This page is the canonical directory and dependency overview for the v0.18
+This page is the canonical directory and dependency overview for the current
 layout. Keep `tools/check-layout.sh`, `tools/check-deps.sh`, and this document
 in sync when moving packages.
 

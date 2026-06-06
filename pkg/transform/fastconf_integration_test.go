@@ -12,10 +12,10 @@ import (
 	"github.com/fastabc/fastconf/pkg/transform"
 )
 
-// TestTransformer_StructuralIdentity pins the SPEC-A3 contract: root
-// fastconf.Transformer and pkg/transform.Transformer are SEPARATE named
-// interfaces with the identical method set, so a concrete value
-// implementing one automatically satisfies the other (Go structural
+// TestTransformer_StructuralIdentity verifies that root fastconf.Transformer
+// and pkg/transform.Transformer are separate named interfaces with identical
+// method sets, so a concrete value implementing one automatically satisfies
+// the other (Go structural
 // typing) — but reflect.TypeFor returns distinct identities. Re-introducing
 // a Go type alias here would re-couple the root package's public API to
 // pkg/transform's internal evolution.

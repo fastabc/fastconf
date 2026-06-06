@@ -125,6 +125,10 @@ func (m *Manager[T]) Watcher() *Watcher[T] {
 
 type ReloadOption = imanager.ReloadOption
 
+// WithSourceOverride injects a one-shot in-memory layer for a single
+// Reload. Override values must be JSON-serializable; Reload copies the map
+// into an independent JSON-shaped tree when applying the option, then the
+// next plain Reload reverts to the natural source state.
 func WithSourceOverride(override map[string]any) ReloadOption {
 	return imanager.WithSourceOverride(override)
 }
@@ -264,11 +268,7 @@ func WithEqual[M any](equal func(old, new *M) bool) SubscribeOption[M] {
 // other subscribers. The returned cancel removes the subscription;
 // calling it after Close() is a no-op.
 //
-// # v0.19 breaking change
-//
-// In v0.18 Subscribe fired unconditionally on every reload and callers
-// implemented equality themselves. v0.19 inverts the default: the
-// framework does the diff. To restore the v0.18 fire-always behavior,
+// To run a side effect on every committed reload regardless of equality,
 // pass WithEqual(func(_, _ *T) bool { return false }).
 func Subscribe[T any, M any](
 	m *Manager[T],

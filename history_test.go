@@ -171,8 +171,8 @@ func TestState_Diff(t *testing.T) {
 	if !nameSeen || !poolSeen {
 		t.Fatalf("missing diffs: %+v", out)
 	}
-	// FormatDiff round-trips the structured entries back to the legacy
-	// human-readable lines so existing log scrapers keep working.
+	// FormatDiff round-trips the structured entries back to human-readable
+	// lines so existing log scrapers keep working.
 	lines := FormatDiff(out)
 	if len(lines) != len(out) {
 		t.Errorf("FormatDiff lost entries: %d → %d", len(out), len(lines))

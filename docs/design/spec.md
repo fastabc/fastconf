@@ -102,7 +102,7 @@ Any stage failure preserves the previous `*State[T]` and publishes one
 | Provenance         | `State.Origins / Explain`, `WithProvenance(level)` |
 | History + replay   | `Manager.Replay().List / Rollback(*State[T])`, `WithHistory(n)` |
 | Watch control      | `Manager.Watcher().Pause / Resume / Paused` |
-| Subscriptions      | `fastconf.Subscribe[T,M](m, extract, fn)` |
+| Subscriptions      | `fastconf.Subscribe[T,M](m, extract, fn, opts...)` |
 | Audit              | `AuditSink`, `JSONAuditSink`, `WithAuditSink` |
 | Metrics            | `MetricsSink` + `Provider / Stage / Render` extension interfaces |
 | Tracing            | `Tracer` interface + `observability/otel` sub-module |

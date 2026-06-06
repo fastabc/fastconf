@@ -2,7 +2,7 @@
 # tools/loc-budget.sh — LOC budget guard for the fastconf main package.
 #
 # Counts non-test Go lines in fastconf/ (direct files only, no sub-modules)
-# and exits 1 when the count exceeds the Wave 5 ratchet.
+# and exits 1 when the count exceeds the current release budget.
 #
 # Usage:
 #   bash tools/loc-budget.sh            # uses MAX_LOC default
@@ -12,20 +12,12 @@
 
 set -euo pipefail
 
-# Baseline ticks up with each absorbed feature batch so the guard keeps
-# blocking silent growth without serially rejecting deliberate work.
-#   v0.13.0 baseline: 5111
-#   v0.15.0 P1+P2 absorb: 5205
-#   v0.15.0 T1..T6 absorb (queue-depth telemetry + manager-local registry): 5387
-#   v0.18 Wave A+B partial (pipeline / manager / obs / registry splits): 4967.
-# Tighten the baseline to 5100 so the guard catches quiet regrowth while
-# keeping ~130 LOC of maintenance headroom.
+# Keep enough headroom for maintenance patches while still blocking quiet
+# growth in the root facade.
 MAX_LOC="${MAX_LOC:-2800}"
 
-# Count non-test .go files in the repo root only (v0.9.0 flatten: main API
-# files live at the repo root; sub-package directories like bus/, otel/,
-# pkg/, policy/, providers/, validate/, render/, metrics/, contracts/ are
-# excluded by maxdepth 1).
+# Count non-test .go files in the repo root only; implementation packages and
+# sub-modules are excluded by maxdepth 1.
 LIVE_LOC=$(find . -maxdepth 1 -name "*.go" ! -name "*_test.go" \
   -exec wc -l {} + 2>/dev/null \
   | awk '/total$/{print $1}')
@@ -40,7 +32,7 @@ echo "Main package (repo root) live LOC: ${LIVE_LOC}  (budget: ${MAX_LOC})"
 
 if [ "${LIVE_LOC}" -gt "${MAX_LOC}" ]; then
   echo "ERROR: LOC budget exceeded (${LIVE_LOC} > ${MAX_LOC})." >&2
-  echo "  Review docs/plans/2026-05-14-phase-87-wave5-aggressive-refactor.md SPEC-88." >&2
+  echo "  Move implementation detail out of the root facade or raise MAX_LOC deliberately." >&2
   exit 1
 fi
 

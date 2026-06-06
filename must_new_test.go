@@ -9,9 +9,9 @@ import (
 	"github.com/fastabc/fastconf"
 )
 
-// TestMustNew_PanicOnError pins SPEC-A9: when the initial reload would
-// have returned an error, MustNew panics with a wrapped error whose
-// message references the helper.
+// TestMustNew_PanicOnError verifies that when the initial reload would return
+// an error, MustNew panics with a wrapped error whose message references the
+// helper.
 func TestMustNew_PanicOnError(t *testing.T) {
 	t.Run("happy path returns manager", func(t *testing.T) {
 		mfs := fstest.MapFS{

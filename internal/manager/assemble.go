@@ -279,7 +279,7 @@ func sortProviderEntries(ps []providerEntry) {
 }
 
 // loadProviderSnapshot prefers SnapshotProvider.LoadSnapshot when the
-// provider implements it, and falls back to the legacy Load() map.
+// provider implements it, and falls back to the plain Load() map.
 func loadProviderSnapshot(ctx context.Context, p contracts.Provider) (contracts.Snapshot, error) {
 	if sp, ok := p.(contracts.SnapshotProvider); ok {
 		return sp.LoadSnapshot(ctx)

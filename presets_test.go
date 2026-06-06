@@ -79,9 +79,9 @@ type cfg124 struct {
 // TestGenerator_RawLayerPriority verifies that two RawLayers emitted by
 // the same Generator at distinct Priority values are stamped onto
 // SourceRef with Kind=LayerGenerator and Priority offset into
-// contracts.BandGenerator. This is the SPEC-A7 contract — the assemble
-// stage walks layers in priority-ascending order, so higher
-// RawLayer.Priority wins on conflicting keys.
+// contracts.BandGenerator. The assemble stage walks layers in
+// priority-ascending order, so higher RawLayer.Priority wins on conflicting
+// keys.
 func TestGenerator_RawLayerPriority(t *testing.T) {
 	gen := &priorityGen{}
 	fs := fstest.MapFS{

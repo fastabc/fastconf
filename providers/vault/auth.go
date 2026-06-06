@@ -34,7 +34,7 @@ type AuthFunc func(context.Context) (string, time.Duration, error)
 func (f AuthFunc) Login(ctx context.Context) (string, time.Duration, error) { return f(ctx) }
 
 // TokenAuth is a degenerate Auth that always returns the same static
-// token and a zero TTL. It exists for parity with the legacy New()
+// token and a zero TTL. It exists for parity with the New()
 // signature and for non-renewing service tokens.
 func TokenAuth(token string) Auth {
 	return AuthFunc(func(_ context.Context) (string, time.Duration, error) {

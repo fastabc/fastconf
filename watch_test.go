@@ -120,8 +120,8 @@ func TestSubscribe_FiresOnEveryReload(t *testing.T) {
 	defer mgr.Close()
 
 	var dbCalls, srvCalls atomic.Int64
-	// Force the v0.18 "fire on every reload" semantics via the documented
-	// idiom: a comparator that never reports equality.
+	// Force the fire-on-every-reload idiom with a comparator that never
+	// reports equality.
 	fireAlwaysDB := fastconf.WithEqual(func(_, _ *dbCfg) bool { return false })
 	fireAlwaysStr := fastconf.WithEqual(func(_, _ *string) bool { return false })
 	fastconf.Subscribe(mgr, func(c *appCfg) *dbCfg { return &c.Database }, func(_, _ *dbCfg) { dbCalls.Add(1) }, fireAlwaysDB)
@@ -171,6 +171,14 @@ func TestSubscribe_PanicIsolated(t *testing.T) {
 	}
 	if got := goodCalls.Load(); got != 1 {
 		t.Errorf("good subscriber should still fire: got %d", got)
+	}
+	select {
+	case re := <-mgr.Errors():
+		if re.Reason != "subscriber-panic" || re.Err == nil {
+			t.Errorf("subscriber panic error = %+v, want reason subscriber-panic with err", re)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Error("expected subscriber panic to surface on Errors()")
 	}
 }
 

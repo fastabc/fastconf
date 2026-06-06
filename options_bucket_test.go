@@ -114,8 +114,7 @@ func TestBucketOptions_Coalesce_Combinations(t *testing.T) {
 
 // TestBucketOptions_ProfileExprErrorMentionsBucketField proves the
 // startup-time validator wraps invalid expressions with "WithProfile.Expr"
-// (the SPEC-A1 / SPEC-F3 wording) so failures point users at the new
-// bucketed API rather than the deleted scalar WithProfileExpr.
+// so failures point users at the bucketed API field.
 func TestBucketOptions_ProfileExprErrorMentionsBucketField(t *testing.T) {
 	_, err := New[struct{}](context.Background(),
 		WithFS(fstest.MapFS{

@@ -47,7 +47,7 @@ func GetDotted(root map[string]any, dotted string) (any, bool) {
 
 // Set writes v at parts, creating intermediate maps as needed. Existing
 // non-map values along the path are silently overwritten by a fresh
-// map (matches the legacy env/consul behavior).
+// map (matches the established env/consul provider semantics).
 func Set(root map[string]any, parts []string, v any) {
 	if root == nil || len(parts) == 0 {
 		return

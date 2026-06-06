@@ -168,7 +168,7 @@ go install github.com/fastabc/fastconf/cmd/fastconfgen@latest
 | Go toolchain | 1.22, 1.23, 1.24, 1.25, 1.26 (no toolchain pin in `go.mod`) |
 | OS / arch | linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64 (binaries published on each tag) |
 | Module form | one root module + independent sub-modules (`cue`, `policy/opa`, `validate/playground`, `observability/{otel,metrics/prometheus}`, `providers/s3`, `integrations/{cli/pflag,log/phuslu,log/zerolog}`) |
-| Pre-release contract | semantic-version tags follow `vMAJOR.MINOR.PATCH`. The current line (`v0.18`) is the first public release and the rename / bucketed-Options boundary is locked in — see [migration-v0.18.md](docs/cookbook/migration-v0.18.md). |
+| Pre-release contract | semantic-version tags follow `vMAJOR.MINOR.PATCH`. The current public line is `v0.19`; release-to-release API changes are documented in [CHANGELOG.md](CHANGELOG.md) and focused migration recipes under `docs/cookbook/`. |
 
 ### Versioning
 
@@ -354,7 +354,7 @@ match: "prod | staging"     # &, |, !, () supported
 [
   { "op": "replace", "path": "/server/addr",      "value": ":8443" },
   { "op": "add",     "path": "/feature/darkMode", "value": true    },
-  { "op": "remove",  "path": "/legacy/key"                         }
+  { "op": "remove",  "path": "/obsolete/key"                       }
 ]
 ```
 
@@ -469,7 +469,7 @@ For multi-step schema migrations use `pkg/migration.NewChain`.
 `Subscribe` fires the callback only when the extracted value actually
 changes (DeepEqual on the dereferenced values). Pass `WithEqual` for a
 custom comparator — e.g. ignore noisy fields, hash-compare large structs,
-or restore the v0.18 "fire on every reload" idiom.
+or force a side effect on every committed reload.
 
 ```go
 cancel := fastconf.Subscribe(mgr,
@@ -487,7 +487,7 @@ fastconf.Subscribe(mgr,
     fastconf.WithEqual(func(a, b *DatabaseConfig) bool { return a.DSN == b.DSN }),
 )
 
-// Fire on every reload regardless of value (v0.18 semantics).
+// Fire on every reload regardless of value.
 fastconf.Subscribe(mgr,
     func(app *AppConfig) *AppConfig { return app },
     func(_, neu *AppConfig) { auditEveryReload(neu) },
@@ -716,7 +716,6 @@ go test -bench=BenchmarkGet -benchmem ./...
 | [docs/readme/](docs/readme/) | In-depth chapters: core model, pipeline, extensions, operations |
 | [docs/cookbook/README.md](docs/cookbook/README.md) | Ready recipes ordered by user journey |
 | [docs/design/spec.md](docs/design/spec.md) | Runtime model, concurrency, module boundaries |
-| [docs/cookbook/migration-v0.18.md](docs/cookbook/migration-v0.18.md) | v0.18 rename / bucketed-Options migration table |
 | [docs/cookbook/migration-v0.19.md](docs/cookbook/migration-v0.19.md) | v0.19 `Subscribe` diff-aware migration notes |
 | [GitHub Releases](https://github.com/fastabc/fastconf/releases) | Release notes and prebuilt CLI binaries |
 | [pkg.go.dev](https://pkg.go.dev/github.com/fastabc/fastconf) | godoc and runnable examples |

@@ -111,13 +111,13 @@ func TestAliases_RewriteLegacyKeys(t *testing.T) {
 		t.Errorf("alias not applied: %v", got)
 	}
 	if _, ok := root["db"].(map[string]any)["dsn"]; ok {
-		t.Errorf("legacy key not removed")
+		t.Errorf("old key not removed")
 	}
 	if got := root["cache"].(map[string]any)["redis"].(map[string]any)["host"]; got != "new" {
 		t.Errorf("existing target clobbered: %v", got)
 	}
 	if _, ok := root["redis"].(map[string]any)["host"]; ok {
-		t.Errorf("legacy redis.host not removed")
+		t.Errorf("old redis.host not removed")
 	}
 }
 

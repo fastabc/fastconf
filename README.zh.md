@@ -161,7 +161,7 @@ go install github.com/fastabc/fastconf/cmd/fastconfgen@latest
 | Go 工具链 | 1.22, 1.23, 1.24, 1.25, 1.26（`go.mod` 不再固定 toolchain） |
 | 操作系统 / 架构 | linux/amd64、linux/arm64、darwin/amd64、darwin/arm64、windows/amd64（每个 tag 都会发布二进制） |
 | 模块形态 | 一个根模块 + 独立子模块（`cue`、`policy/opa`、`validate/playground`、`observability/{otel,metrics/prometheus}`、`providers/s3`、`integrations/{cli/pflag,log/phuslu,log/zerolog}`） |
-| 预发布约定 | 语义化版本 `vMAJOR.MINOR.PATCH`。当前 `v0.18` 是首个公开版本，rename / bucketed-Options 边界已锁定，详见 [migration-v0.18.md](docs/cookbook/migration-v0.18.md)。 |
+| 预发布约定 | 语义化版本 `vMAJOR.MINOR.PATCH`。当前公开线为 `v0.19`；跨版本 API 变化记录在 [CHANGELOG.md](CHANGELOG.md)，重点迁移配方位于 `docs/cookbook/`。 |
 
 ### 版本策略
 
@@ -342,7 +342,7 @@ match: "prod | staging"     # 支持 &、|、!、()
 [
   { "op": "replace", "path": "/server/addr",      "value": ":8443" },
   { "op": "add",     "path": "/feature/darkMode", "value": true    },
-  { "op": "remove",  "path": "/legacy/key"                         }
+  { "op": "remove",  "path": "/obsolete/key"                       }
 ]
 ```
 
@@ -456,7 +456,7 @@ fastconf.WithMigrations(func(root map[string]any) error {
 
 `Subscribe` 仅在提取出的值真正发生变化时触发回调（默认按 DeepEqual 对解
 引用后的值比较）。通过 `WithEqual` 传入自定义比较器，可忽略噪声字段、对
-大结构体走哈希比较，或恢复 v0.18 的"每次 reload 都触发"语义。
+大结构体走哈希比较，或强制某个副作用在每次成功 reload 后执行。
 
 ```go
 cancel := fastconf.Subscribe(mgr,
@@ -474,7 +474,7 @@ fastconf.Subscribe(mgr,
     fastconf.WithEqual(func(a, b *DatabaseConfig) bool { return a.DSN == b.DSN }),
 )
 
-// 每次 reload 都触发（v0.18 行为的兼容写法）。
+// 无论值是否变化，每次 reload 都触发。
 fastconf.Subscribe(mgr,
     func(app *AppConfig) *AppConfig { return app },
     func(_, neu *AppConfig) { auditEveryReload(neu) },
@@ -703,7 +703,6 @@ go test -bench=BenchmarkGet -benchmem ./...
 | [docs/readme/zh/](docs/readme/zh/) | 深度章节：核心模型、pipeline、扩展机制、生产运维 |
 | [docs/cookbook/README.md](docs/cookbook/README.md) | 按使用旅程整理的实战配方 |
 | [docs/design/spec.md](docs/design/spec.md) | 运行时模型、并发、模块边界 |
-| [docs/cookbook/migration-v0.18.md](docs/cookbook/migration-v0.18.md) | v0.18 重命名 / bucketed-Options 迁移表 |
 | [docs/cookbook/migration-v0.19.md](docs/cookbook/migration-v0.19.md) | v0.19 `Subscribe` diff-aware 迁移说明 |
 | [GitHub Releases](https://github.com/fastabc/fastconf/releases) | 版本发布说明与预编译 CLI 二进制 |
 | [pkg.go.dev](https://pkg.go.dev/github.com/fastabc/fastconf) | godoc 与可运行示例 |

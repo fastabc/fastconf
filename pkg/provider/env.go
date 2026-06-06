@@ -189,7 +189,7 @@ func (p *EnvProvider) WithReplacer(r EnvKeyReplacer) *EnvProvider {
 //	provider.NewEnv("APP_").At("config.runtime")
 //	// APP_DATABASE_DSN → {"config":{"runtime":{"database":{"dsn":"..."}}}}
 //
-// An empty path (default) keeps the legacy root-level behavior.
+// An empty path (default) keeps the root-level mapping behavior.
 func (p *EnvProvider) At(path string) *EnvProvider {
 	p.root = mappath.Split(path)
 	return p

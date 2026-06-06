@@ -130,14 +130,16 @@ func (m *Manager[T]) Close() error
 包级泛型函数（“从 `*T` 抽 `M`” 一律走包级）：
 
 ```go
-// 字段订阅：每次成功 reload 都触发，回调内自行比较 old/new
-func Subscribe[T, M any](m *Manager[T], extract func(*T) *M, fn func(old, new *M)) (cancel func())
+// 字段级订阅；仅在提取出的值实际发生变化时触发。
+// 传入 WithEqual(eq) 可替换默认的 reflect.DeepEqual 比较器。
+func Subscribe[T, M any](m *Manager[T], extract func(*T) *M, fn func(old, new *M), opts ...SubscribeOption[M]) (cancel func())
+func WithEqual[M any](equal func(old, new *M) bool) SubscribeOption[M]
 
 // 强类型 feature flag 评估；类型不匹配返回 def
 func Eval[T, V any](m *Manager[T], key string, ctx feature.EvalContext, def V) V
 
 // 强类型子树视图（read-only 别名指针）
-func Sub[T, M any](s *State[T], extract func(*T) *M) *M
+func Extract[T, M any](s *State[T], extract func(*T) *M) *M
 ```
 
 ### `State[T]` — 不可变快照

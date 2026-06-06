@@ -15,8 +15,6 @@ import (
 	"github.com/fastabc/fastconf"
 )
 
-// ── Folded from observability_internal_test.go ──
-
 // TestAuditSink_EncoderReuse asserts that NewJSONAuditSink reuses a
 // single json.Encoder under its mutex so successive Audit calls do not
 // allocate a fresh encoder per line.
@@ -196,9 +194,9 @@ func TestObservability_SlogAndMetrics(t *testing.T) {
 	}
 }
 
-// TestObs_NilOptionsAreDeferredErrors locks in SPEC-D3: passing nil to
-// WithLogger / WithMetrics / WithTracer must surface as a DeferredErr
-// from New(), not be silently dropped.
+// TestObs_NilOptionsAreDeferredErrors verifies that passing nil to
+// WithLogger / WithMetrics / WithTracer surfaces as a DeferredErr from New(),
+// not a silent drop.
 func TestObs_NilOptionsAreDeferredErrors(t *testing.T) {
 	mfs := fstest.MapFS{
 		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("name: x\n")},

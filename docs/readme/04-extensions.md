@@ -135,16 +135,15 @@ mgr, _ := fastconf.New[AppConfig](ctx,
 cancel := fastconf.Subscribe(mgr,
     func(app *AppConfig) *DatabaseConfig { return &app.Database },
     func(old, neu *DatabaseConfig) {
-        if old != nil && *old == *neu { return } // caller-side diff
-        reconnect(neu.DSN)
+        reconnect(neu.DSN) // guaranteed: DB config actually changed
     },
 )
 defer cancel()
 ```
 
-Subscribe callbacks fire synchronously on the reload goroutine (a
-`recover()` shields the loop from a panicking subscriber). For long
-work, spawn a goroutine yourself.
+Subscribe callbacks fire only when the extracted value changes. They run
+synchronously on the reload goroutine; `recover()` shields the loop from a
+panicking subscriber. For long work, spawn a goroutine yourself.
 
 ### Manual reload with one-shot override
 
@@ -394,4 +393,3 @@ fastconf.PresetHierarchical(fastconf.HierarchicalOpts{ /* ... */ })
 ```
 
 ---
-

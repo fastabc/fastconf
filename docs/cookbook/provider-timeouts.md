@@ -22,15 +22,15 @@ This means HTTP-client `Timeout` is a *safety net*, not the primary knob.
 You set it conservatively so a rogue Provider can't pin a goroutine
 forever; you set the meaningful deadlines on the call ctx.
 
-## What changed in v0.15
+## Timeout Behavior Matrix
 
-| Aspect | Before | After |
-|---|---|---|
-| `Reload(ctx)` ctx | only gated enqueue/wait | **threads through pipeline** — `provider.Load(ctx)` honours it |
-| Provider Load error | always wrapped as `ErrDecode: provider %q: %v` | `context.Canceled` / `context.DeadlineExceeded` returned raw so `errors.Is` works |
-| Consul default client | `http.DefaultClient` (no timeout, shared globally) | isolated `&http.Client{}` (no Timeout — see below) |
-| Vault `AppRoleAuth` fallback | `http.DefaultClient` | isolated `&http.Client{Timeout: 10s}` |
-| HTTP provider | already isolated `&http.Client{Timeout: 10s}` | unchanged |
+| Aspect | Current behavior |
+|---|---|
+| `Reload(ctx)` ctx | Threads through the pipeline; `provider.Load(ctx)` honours cancellation and deadlines. |
+| Provider Load cancellation | `context.Canceled` / `context.DeadlineExceeded` are returned raw so `errors.Is` works. |
+| Consul default client | Isolated `&http.Client{}` with no `Timeout`; blocking queries are governed by ctx. |
+| Vault `AppRoleAuth` fallback | Isolated `&http.Client{Timeout: 10s}`. |
+| HTTP provider | Isolated `&http.Client{Timeout: 10s}`. |
 
 ## Per-provider defaults
 

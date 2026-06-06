@@ -48,7 +48,10 @@ The small-config publish tail is ~1.4 µs over the no-op path on this baseline. 
 
 ### Subscriber fan-out retest
 
-`Subscribe` now fires on every committed state and leaves “did the subtree really change?” filtering to the caller. The closeout retest quantifies the fan-out cost with 1 / 10 / 50 subscribers while forcing every reload to commit:
+`Subscribe` is diff-aware by default: it compares the extracted value and
+only runs callbacks when that value changes. The fan-out retest quantifies
+the dispatch cost with 1 / 10 / 50 subscribers while forcing every reload
+to commit a changed value:
 
 | Benchmark | ns/op | B/op | allocs/op |
 |---|---:|---:|---:|
@@ -56,7 +59,10 @@ The small-config publish tail is ~1.4 µs over the no-op path on this baseline. 
 | `BenchmarkReloadManySubscribers/10` | 16,813 | 14,615 | 180 |
 | `BenchmarkReloadManySubscribers/50` | 17,499 | 14,952 | 180 |
 
-On this baseline, 50 subscribers add ~0.9 µs over the one-subscriber case, with only one extra allocation over the plain commit path. That is small enough to keep the current “caller-side filter” design; no changed-only helper is justified by performance alone yet.
+On this baseline, 50 subscribers add ~0.9 µs over the one-subscriber case,
+with only one extra allocation over the plain commit path. Equal extracted
+values skip the callback entirely; callers can still force fire-on-every-reload
+side effects with `WithEqual(func(_, _ *T) bool { return false })`.
 
 ### Cold-path feature probes
 
@@ -70,7 +76,9 @@ On this baseline, 50 subscribers add ~0.9 µs over the one-subscriber case, with
 ### Active optimisations
 
 - `commit()` caches the most recent `mergedJSON-SHA → state-hash` pair. Idempotent reloads short-circuit the second `json.Marshal` entirely. First reload still pays the marshal cost (cache miss).
-- `Subscribe` fires on every committed state — there is no per-field hash table to maintain. The trade-off is "caller-side filter": the callback compares `old` and `new` itself, paying nothing on the reload hot path.
+- `Subscribe` performs per-subscriber equality at fan-out time and skips
+  callbacks for unchanged extracted values. There is no manager-wide
+  per-field hash table to maintain.
 
 ### Cold-path improvement backlog
 

@@ -1,6 +1,6 @@
 package transform
 
-// Aliases returns a Transformer that rewrites legacy keys to their new
+// Aliases returns a Transformer that rewrites old keys to their new
 // home. If the target path already has a value the new world wins and
 // the alias is dropped.
 func Aliases(mapping map[string]string) Transformer {

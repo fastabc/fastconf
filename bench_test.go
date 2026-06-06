@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/fastabc/fastconf/contracts"
-	istate "github.com/fastabc/fastconf/internal/state"
 	"github.com/fastabc/fastconf/internal/obs"
+	istate "github.com/fastabc/fastconf/internal/state"
 )
 
 type benchCfg struct {
@@ -65,10 +65,9 @@ func benchmarkReloadNoop(b *testing.B) {
 	}
 }
 
-// BenchmarkReloadAllocs is the v0.18 alloc baseline for the
-// reload-with-commit path. Pairs with BenchmarkReloadCommitSmall (which
-// has the same fixture) and is consumed by tools/bench-guard.sh as the
-// SPEC-C1 regression guard.
+// BenchmarkReloadAllocs is the allocation guard for the reload-with-commit
+// path. Pairs with BenchmarkReloadCommitSmall, which uses the same fixture,
+// and is consumed by tools/bench-guard.sh.
 func BenchmarkReloadAllocs(b *testing.B) {
 	mgr := newBenchManager(b)
 	defer mgr.Close()
@@ -97,8 +96,7 @@ func BenchmarkReloadCommitSmall(b *testing.B) {
 
 // BenchmarkSubscribeContention exercises the RWMutex path: 100 quiet
 // subscribers (read side) compete with frequent Subscribe/cancel churn
-// (write side) under continuous reload. Pre-SPEC-C2 the sync.Mutex
-// serialised both sides; under sync.RWMutex the read path runs in
+// (write side) under continuous reload. The read path should run in
 // parallel with itself, which this benchmark surfaces.
 func BenchmarkSubscribeContention(b *testing.B) {
 	const subscriberCount = 100
