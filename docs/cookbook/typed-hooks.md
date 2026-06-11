@@ -4,7 +4,7 @@
 
 ## Default
 
-`DurationHook` ships in `pkg/decoder.DefaultTypedHooks()` and is installed automatically. Any `time.Duration` field decodes from a Go duration string:
+`DurationHook` ships in `codec.DefaultTypedHooks()` and is installed automatically. Any `time.Duration` field decodes from a Go duration string:
 
 ```yaml
 server:
@@ -34,7 +34,7 @@ The pipeline stage is still present but no hook applies — `time.Duration` once
 Add a hook for a named scalar type (enum, custom int, …):
 
 ```go
-import "github.com/fastabc/fastconf/pkg/decoder"
+import "github.com/fastabc/fastconf/codec"
 
 type Mood int
 

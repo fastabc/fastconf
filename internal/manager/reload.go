@@ -37,20 +37,12 @@ func (m *M[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 			return fcerr.ErrClosed
 		default:
 		}
-		reason := cfg.reason
-		if reason == "manual" {
-			reason = "override"
-		}
+		reason := overrideReloadReason(cfg.reason)
 		m.publishReloadError(reason, cfg.err)
 		return cfg.err
 	}
 	if cfg.override == nil {
 		return m.requestReload(ctx, cfg.reason)
-	}
-	select {
-	case <-m.closed:
-		return fcerr.ErrClosed
-	default:
 	}
 	extra := stagedLayer{
 		src: istate.SourceRef{
@@ -60,33 +52,15 @@ func (m *M[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 		},
 		data: cfg.override,
 	}
-	reason := cfg.reason
-	if reason == "manual" {
-		reason = "override"
-	}
-	req := reloadRequest{
+	reason := overrideReloadReason(cfg.reason)
+	return m.enqueue(ctx, reloadRequest{
 		ctx:    ctx,
 		reason: reason,
 		doneCh: make(chan error, 1),
 		applyFn: func(pipeCtx context.Context) error {
 			return m.reloadWithExtra(pipeCtx, reason, extra)
 		},
-	}
-	select {
-	case m.reloadCh <- req:
-	case <-m.closed:
-		return fcerr.ErrClosed
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	select {
-	case err := <-req.doneCh:
-		return err
-	case <-m.closed:
-		return fcerr.ErrClosed
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	})
 }
 
 // ReloadOption tunes a single Reload invocation.
@@ -181,12 +155,31 @@ func (m *M[T]) requestReload(ctx context.Context, reason string) error {
 // where "key" is the parent directory whose burst triggered this reload.
 // The key is surfaced in istate.ReloadCause for audit fan-out.
 func (m *M[T]) requestReloadWithKey(ctx context.Context, reason, key string) error {
+	return m.enqueue(ctx, reloadRequest{ctx: ctx, reason: reason, key: key, doneCh: make(chan error, 1)})
+}
+
+func overrideReloadReason(reason string) string {
+	if reason == "manual" {
+		return "override"
+	}
+	return reason
+}
+
+func (m *M[T]) enqueue(ctx context.Context, req reloadRequest) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	select {
 	case <-m.closed:
 		return fcerr.ErrClosed
 	default:
 	}
-	req := reloadRequest{ctx: ctx, reason: reason, key: key, doneCh: make(chan error, 1)}
+	if req.ctx == nil {
+		req.ctx = ctx
+	}
+	if req.doneCh == nil {
+		req.doneCh = make(chan error, 1)
+	}
 	select {
 	case m.reloadCh <- req:
 	case <-m.closed:

@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/fastabc/fastconf"
-	"github.com/fastabc/fastconf/pkg/flog"
+	"github.com/fastabc/fastconf/internal/flog"
 )
 
 type server struct {

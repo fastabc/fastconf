@@ -22,7 +22,7 @@ import (
     "log"
 
     "github.com/fastabc/fastconf"
-    "github.com/fastabc/fastconf/pkg/provider"
+    "github.com/fastabc/fastconf/providers/env"
 )
 
 type AppConfig struct {
@@ -42,7 +42,7 @@ func main() {
             EnvVar:  "APP_PROFILE",
             Default: "dev",
         }),
-        fastconf.WithProvider(provider.NewEnv("APP_")),
+        fastconf.WithProvider(env.NewEnv("APP_")),
         fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
     )
     if err != nil {
@@ -86,7 +86,7 @@ APP_PROFILE=prod APP_DATABASE_POOL=20 go run .
 
 `APP_DATABASE_POOL=20` 会映射到 `database.pool`（默认单 `_` 分隔，Viper /
 Spring Boot 风格——若 key 中需要保留字面下划线，改用
-`provider.NewEnv("APP_").WithReplacer(provider.DoubleUnderscoreReplacer)`
+`env.NewEnv("APP_").WithReplacer(env.DoubleUnderscoreReplacer)`
 切回 `__` 约定）。外部注入的 label `server.addr=:9090` 会映射到
 `server.addr`。在这个例子里，env 会覆盖文件中的 `database.pool`，labels 会覆盖
 文件中的 `server.addr`。
@@ -114,19 +114,19 @@ zone / host 多轴叠加再看 `PresetHierarchical` 与 `WithMultiAxisOverlays`�
 
 | 你来自 | 原写法 | FastConf 等价 | 关键差异 |
 |---|---|---|---|
-| **spf13/viper** | `viper.BindPFlag(...)` | `provider.NewCLI(cliflag.FromChanged(cmd.Flags()))` | `BindPFlag` 会把 pflag **默认值** 也注入配置 → 覆盖 YAML / env 的合法值；FastConf 只转发用户显式 set 过的 flag。 |
+| **spf13/viper** | `viper.BindPFlag(...)` | `cliflag.NewCLI(pflagadapter.FromChanged(cmd.Flags()))` | `BindPFlag` 会把 pflag **默认值** 也注入配置 → 覆盖 YAML / env 的合法值；FastConf 只转发用户显式 set 过的 flag。 |
 | **spf13/viper** | 优先级（override > flag > env > config > kv > default） | `Priority*` 常量：`PriorityDotEnv=5` → `PriorityCLI=60`，7 个显式 band | DotEnv 与 K8s 都是 first-class；优先级是每个 provider 自己声明，不是全局开关。 |
 | **knadh/koanf** | `k.Load(provider, parser)` — last load wins | `mgr.Add(provider)` + 各 provider 的 `Priority()` | load 顺序**无关**；只看 priority。可随意调换注册顺序。 |
-| **knadh/koanf** | `koanf.WithMergeFunc(...)` | `pkg/merger` strategy + `policy/*` sub-module | strategy-driven merge（RFC 6902、mergeKeys 等），通过 option 配置。 |
-| **kelseyhightower/envconfig** | `envconfig.Process("APP", &cfg)` | `provider.NewEnv("APP_")` | prefix-based provider，不是 struct tag 扫描。CamelCase 自动拆分（`split_words`）**不支持** — 直接写 dotted key。 |
-| **kelseyhightower/envconfig** | `default:"foo"` tag | `merger.Defaults` 层（或 struct 零值） | 默认值在专门的 layer 里，不在 tag。 |
+| **knadh/koanf** | `koanf.WithMergeFunc(...)` | `confmap` strategy + `policy/*` sub-module | strategy-driven merge（RFC 6902、mergeKeys 等），通过 option 配置。 |
+| **kelseyhightower/envconfig** | `envconfig.Process("APP", &cfg)` | `env.NewEnv("APP_")` | prefix-based provider，不是 struct tag 扫描。CamelCase 自动拆分（`split_words`）**不支持** — 直接写 dotted key。 |
+| **kelseyhightower/envconfig** | `default:"foo"` tag | `transform.Defaults` 层（或 struct 零值） | 默认值在专门的 layer 里，不在 tag。 |
 | **kelseyhightower/envconfig** | `required:"true"` tag | `WithValidator(func(*T) error)` | validate 是独立 pipeline stage，merge 之后跑。 |
 | **caarlos0/env** | `envExpand`（`${VAR}` 插值） | `transform.EnvSubst()`（默认走 `os.Getenv`）或 `transform.EnvSubstWith(lookup func(string) string)`（自定义） | 显式 transformer；想先查 dotenv 再回退 `os.Getenv`，自己写一个 `lookup` 闭包传入。 |
-| **joho/godotenv** | `godotenv.Load(".env")` | `provider.NewDotEnv("APP_", ".env")` at `PriorityDotEnv=5` | **不调用 `os.Setenv`** — `.env` 作为 layer 注入，不是副作用。进程 env 仍然覆盖（presence 判定，所以 `APP_PORT=""` 也会 suppress）。 |
-| **joho/godotenv** | `godotenv.Overload(".env")`（强制覆盖） | `provider.NewDotEnv(...).WithPriority(contracts.PriorityCLI)` | 用 priority 旋钮替代双 API。 |
-| **spf13/cobra + pflag** | `cmd.Flags()` | `cliflag.FromChanged(cmd.Flags())` → `provider.NewCLI(...)` | sub-module `integrations/cli/pflag`，避免 pflag 进入根 module 依赖闭包。 |
-| **stdlib `flag`** | `flag.FlagSet` | `cliadapter.FromStdFlag(fs)` → `provider.NewCLI(...)` | 零依赖；在 `pkg/cliadapter`。 |
-| **alecthomas/kong** / **urfave/cli** | typed flag struct / `cli.Context` | 用 `cliadapter.From(visit)` + 一行 visit 闭包 | 套路：只遍历 `Changed` / `IsSet` 的 flag 并调 `yield(name, value)`。 |
+| **joho/godotenv** | `godotenv.Load(".env")` | `dotenv.NewDotEnv("APP_", ".env")` at `PriorityDotEnv=5` | **不调用 `os.Setenv`** — `.env` 作为 layer 注入，不是副作用。进程 env 仍然覆盖（presence 判定，所以 `APP_PORT=""` 也会 suppress）。 |
+| **joho/godotenv** | `godotenv.Overload(".env")`（强制覆盖） | `dotenv.NewDotEnv(...).WithPriority(contracts.PriorityCLI)` | 用 priority 旋钮替代双 API。 |
+| **spf13/cobra + pflag** | `cmd.Flags()` | `pflagadapter.FromChanged(cmd.Flags())` → `cliflag.NewCLI(...)` | sub-module `integrations/cli/pflag`，避免 pflag 进入根 module 依赖闭包。 |
+| **stdlib `flag`** | `flag.FlagSet` | `cliflag.FromStdFlag(fs)` → `cliflag.NewCLI(...)` | 零依赖；在 `providers/cliflag`。 |
+| **alecthomas/kong** / **urfave/cli** | typed flag struct / `cli.Context` | 用 `cliflag.From(visit)` + 一行 visit 闭包 | 套路：只遍历 `Changed` / `IsSet` 的 flag 并调 `yield(name, value)`。 |
 
 ### 并排：flag 绑定避开 default 泄漏陷阱
 
@@ -141,11 +141,14 @@ viper.BindPFlag("server.port", cmd.Flags().Lookup("server.port"))
 
 // FastConf（结构上只接受 changed）：
 //   只在用户显式 --server.port 时才生效
-import cliflag "github.com/fastabc/fastconf/integrations/cli/pflag"
+import (
+    pflagadapter "github.com/fastabc/fastconf/integrations/cli/pflag"
+    "github.com/fastabc/fastconf/providers/cliflag"
+)
 
 mgr, _ := fastconf.New[Cfg](ctx,
     fastconf.WithDir("conf.d"),
-    fastconf.WithProvider(provider.NewCLI(cliflag.FromChanged(cmd.Flags()))),
+    fastconf.WithProvider(cliflag.NewCLI(pflagadapter.FromChanged(cmd.Flags()))),
 )
 ```
 
@@ -171,7 +174,7 @@ mgr, _ := fastconf.New[Cfg](ctx,
             c.Server.Port = 8080
         }
     }),
-    fastconf.WithProvider(provider.NewEnv("APP_")),    // _ → . relaxed binding
+    fastconf.WithProvider(env.NewEnv("APP_")),         // _ → . relaxed binding
     fastconf.WithValidator(func(c *Cfg) error {
         if c.Database.DSN == "" {
             return errors.New("Database.DSN is required")

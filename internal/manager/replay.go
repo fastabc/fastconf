@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
-	"github.com/fastabc/fastconf/internal/fcerr"
 	istate "github.com/fastabc/fastconf/internal/state"
 )
 
@@ -41,46 +41,31 @@ func (r *Replay[T]) Rollback(target *istate.State[T]) error {
 		return fmt.Errorf("%w: generation %d not in history", ErrUnknownGeneration, target.Generation())
 	}
 
-	req := reloadRequest{
+	return m.enqueue(context.Background(), reloadRequest{
 		reason: "rollback",
 		applyFn: func(_ context.Context) error {
 			return m.applyRollback(target)
 		},
 		doneCh: make(chan error, 1),
-	}
-	select {
-	case m.reloadCh <- req:
-	case <-m.closed:
-		return fcerr.ErrClosed
-	}
-	select {
-	case err := <-req.doneCh:
-		return err
-	case <-m.closed:
-		return fcerr.ErrClosed
-	}
+	})
 }
 
 func (m *M[T]) applyRollback(target *istate.State[T]) error {
 	prev := m.state.Load()
-	m.state.Store(target)
-	for {
-		cur := m.gen.Load()
-		next := target.Generation() + 1
-		if cur >= next {
-			break
-		}
-		if m.gen.CompareAndSwap(cur, next) {
-			break
-		}
+	cause := istate.ReloadCause{
+		Reason: "rollback",
+		At:     time.Now().UnixNano(),
+		Tenant: m.tenant,
 	}
+	ns := istate.Restamp(target, m.gen.Add(1), cause)
+	m.publishSnapshot(prev, ns, "rollback")
+	m.fanoutAfterPublish(prev, ns, "rollback")
 	if prev != nil {
 		m.opts.Log.Info().
 			Uint64("from", prev.Generation()).
-			Uint64("to", target.Generation()).
+			Uint64("to", ns.Generation()).
 			Msg("fastconf rollback")
 	}
-	m.fireWatches(prev, target)
 	return nil
 }
 

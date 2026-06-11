@@ -1,36 +1,56 @@
 # Generators (Kustomize-style ConfigMap/Secret/Env generators)
 
-`WithProvider(provider.NewBytes(...))` and `WithDotEnvAuto(prefix)` already inject ad-hoc layers, but they hard-code the producer in the call site. `WithGenerator` formalises the same idea so third-party producers can register a stable `Generate` API.
+`WithSource(source.NewBytes(...), parser)` and `WithDotEnvAuto(prefix)` already inject ad-hoc layers, but they hard-code the producer in the call site. `WithGenerator` formalises the same idea so third-party producers can register a stable `Generate` API.
 
-A `Generator` produces zero or more `contracts.Source` values during the `assemble` stage, after file discovery and before providers run. Failure aborts the reload and preserves the previous state.
+A `Generator` produces zero or more `contracts.RawLayer` values during the `assemble` stage, after file discovery and before providers run. Failure aborts the reload and preserves the previous state.
 
 ## Interface
 
 ```go
 type Generator interface {
     Name() string
-    Generate(ctx context.Context) ([]contracts.Source, error)
+    Generate(ctx context.Context) ([]contracts.RawLayer, error)
 }
 ```
 
 ## Example: build-info generator
 
-`pkg/generator.BuildInfo` ships in-tree as a reference:
-
 ```go
 import (
+    "context"
+    "encoding/json"
+
     "github.com/fastabc/fastconf"
-    "github.com/fastabc/fastconf/pkg/generator"
+    "github.com/fastabc/fastconf/contracts"
 )
+
+type BuildInfo struct {
+    Version string
+    Commit  string
+}
+
+func (b BuildInfo) Name() string { return "buildinfo" }
+
+func (b BuildInfo) Generate(context.Context) ([]contracts.RawLayer, error) {
+    data, err := json.Marshal(map[string]any{
+        "app": map[string]any{
+            "version": b.Version,
+            "commit":  b.Commit,
+        },
+    })
+    if err != nil {
+        return nil, err
+    }
+    return []contracts.RawLayer{{
+        Name:  "info",
+        Codec: "json",
+        Data:  data,
+    }}, nil
+}
 
 mgr, _ := fastconf.New[AppConfig](ctx,
     fastconf.WithDir("conf.d"),
-    fastconf.WithGenerator(&generator.BuildInfo{
-        Keys: map[string]string{
-            "app.version": "1.2.3",
-            "app.commit":  "abc123",
-        },
-    }),
+    fastconf.WithGenerator(BuildInfo{Version: "1.2.3", Commit: "abc123"}),
 )
 ```
 

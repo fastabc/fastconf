@@ -5,7 +5,7 @@
 // custom encodings (TOML, HCL, JSON5, ...). The interfaces are intentionally
 // minimal so that v0.x → v1 migration is cheap.
 //
-// The pipeline packages (fastconf/pkg/provider, fastconf/pkg/decoder, ...)
+// The pipeline packages (fastconf/providers/*, fastconf/codec, ...)
 // type-alias these interfaces so the same value satisfies both the internal
 // and the public contract — no adapter shim required.
 //
@@ -58,8 +58,8 @@ type Event struct {
 
 // RawLayer is a self-describing in-memory contributor: the union of
 // (name, codec, bytes, optional priority). It is the carrier the
-// Generator contract uses to emit synthetic configuration layers (see
-// pkg/generator). For dynamic byte-stream contributors that the
+// Generator contract uses to emit synthetic configuration layers. For dynamic
+// byte-stream contributors that the
 // framework polls or watches, use the Source interface instead.
 //
 // Priority, when non-zero, is offset into the generator merge band (see
@@ -136,7 +136,7 @@ type Span interface {
 
 // Standard priority bands. Higher values override lower ones during merge.
 //
-// User-facing priorities (5–60) are what custom Provider implementations
+// User-facing priorities (5–70) are what custom Provider implementations
 // declare via Provider.Priority(). The framework offsets them into the
 // internal SourcePriorityBand ranges (1000–8999) when reporting
 // Snapshot().Sources so providers always win over file layers regardless
@@ -152,6 +152,10 @@ type Span interface {
 //	Environment           50  (PriorityEnv)
 //	Command-line flags    60  (PriorityCLI)
 //	Generator             70  (PriorityGenerator) ← highest user band
+//
+// Reserved framework-assigned user band:
+//
+//	Ordered providers    160  (PriorityOrderedBase) — base for WithProviderOrdered
 //
 // Internal bands (used by Snapshot().Sources reporting; not for caller
 // use):
@@ -173,6 +177,11 @@ const (
 	PriorityEnv       = 50
 	PriorityCLI       = 60
 	PriorityGenerator = 70
+
+	// PriorityOrderedBase is the reserved base used by WithProviderOrdered.
+	// Each input provider receives PriorityOrderedBase+i so call order wins
+	// without colliding with documented user-declared priority bands.
+	PriorityOrderedBase = 160
 )
 
 // SourcePriorityBand offsets for the framework-internal layer ranges.
@@ -181,11 +190,11 @@ const (
 // with the table above and the trimProviderPrefix helper in the root
 // state.go.
 const (
-	BandFileBase      = 1000
-	BandFileOverlay   = 2000
-	BandExtraOverlay  = 3000
-	BandGenerator     = 7000
-	BandProvider      = 8000
+	BandFileBase     = 1000
+	BandFileOverlay  = 2000
+	BandExtraOverlay = 3000
+	BandGenerator    = 7000
+	BandProvider     = 8000
 	// BandOverride is the priority band for one-shot in-process overrides
 	// (WithSourceOverride). Values in this band win over all provider layers.
 	BandOverride = 9000

@@ -84,6 +84,6 @@ Subscriptions push events into a buffered channel; if a downstream reload is slo
 ## Runnable example
 
 [`examples/external_source/example_test.go`](../../examples/external_source/example_test.go) —
-a stand-alone Provider plus an inline `WithSource(seed, parser.YAML())`
+a stand-alone Provider plus an inline `WithSource(seed, codec.YAMLParser())`
 byte-blob layer, the same two extension points used by the NATS / Redis
 adapters above. Run it with `go test ./examples/external_source/...`.

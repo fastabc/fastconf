@@ -29,6 +29,8 @@ var (
 	ErrClosed     = newFCErr("fastconf: manager closed")
 	ErrValidator  = newFCErr("fastconf: validator failed")
 	ErrTransform  = newFCErr("fastconf: transform failed")
+	ErrProvider   = newFCErr("fastconf: provider failed")
+	ErrGenerator  = newFCErr("fastconf: generator failed")
 	ErrNoOrigin   = newFCErr("fastconf: no origin for path")
 )
 

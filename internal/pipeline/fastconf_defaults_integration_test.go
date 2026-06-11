@@ -9,7 +9,7 @@ import (
 
 	"github.com/fastabc/fastconf"
 
-	"github.com/fastabc/fastconf/pkg/source"
+	"github.com/fastabc/fastconf/providers/source"
 )
 
 // emptyConfFS returns an FS with one placeholder file under conf.d/base

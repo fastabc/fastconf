@@ -21,7 +21,7 @@ repository root module):
 `cmd/fastconfctl`, `cmd/fastconfgen`, `cmd/fastconfd`,
 `integrations/bus`, `integrations/openfeature`, `integrations/render`,
 `contracts`, `providers/http`, `providers/nats`, `providers/redisstream`,
-`providers/vault`, `providers/consul`, `providers/k8s`, `pkg/*`,
+`providers/vault`, `providers/consul`, `providers/k8s`,
 `policy/` (root).
 
 `providers/s3/s3events` is a subpackage of the `providers/s3` module and is
@@ -55,10 +55,23 @@ therefore released by `providers/s3/vX.Y.Z`.
 4. Release PRs only update `CHANGELOG.md` (move `[Unreleased]` to a dated
    version) and bump example go.mod requires when needed.
 
+## Satellite `require` policy
+
+Satellite modules pin `github.com/fastabc/fastconf` to a **real released
+version** (never a `v0.0.0` placeholder, never a `replace` directive —
+`replace` is ignored by downstream consumers). Development resolution is
+handled by the repository's `go.work`. Bump a satellite's require only
+when the satellite starts depending on newer root APIs; Go's MVS picks
+the maximum of the consumer's and the satellite's requirement, so an
+older pin keeps working across root releases.
+
 ## Tagging procedure
 
-**Preferred: use the unified script** — tags all 10 modules in one command
-(1 root + 9 sub-modules):
+**Preferred: use the unified script** — changed-only tagging: the root
+module is always tagged (its tag drives the binary release workflow);
+a satellite module is tagged only when its directory content changed
+since that satellite's own most recent release tag. Pass `--all` to tag
+every module unconditionally (the pre-Wave-J behaviour):
 
 ```bash
 git switch main && git pull

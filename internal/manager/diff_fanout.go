@@ -17,9 +17,7 @@ func (m *M[T]) startDiffReporterWorkers() {
 		qcap = iopts.DiffReporterQueueCap
 	}
 	reps := make([]diffreport.Reporter[istate.DiffEvent], 0, len(m.opts.DiffReporters))
-	for _, r := range m.opts.DiffReporters {
-		reps = append(reps, r)
-	}
+	reps = append(reps, m.opts.DiffReporters...)
 	m.diffReportPool = diffreport.New[istate.DiffEvent](
 		reps, qcap, m.opts.Log.Slog(), m.opts.Metrics,
 		&m.bgWG, m.closed,

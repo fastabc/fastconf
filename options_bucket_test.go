@@ -126,8 +126,11 @@ func TestBucketOptions_ProfileExprErrorMentionsBucketField(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected expression error")
 	}
-	if !errors.Is(err, ErrDecode) {
-		t.Errorf("want ErrDecode, got %v", err)
+	if !errors.Is(err, ErrFastConf) {
+		t.Errorf("want ErrFastConf, got %v", err)
+	}
+	if errors.Is(err, ErrDecode) {
+		t.Errorf("profile expression syntax must not classify as ErrDecode: %v", err)
 	}
 	if !strings.Contains(err.Error(), "WithProfile.Expr") {
 		t.Errorf("error must point at bucketed field: %v", err)

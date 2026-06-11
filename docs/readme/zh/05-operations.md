@@ -39,7 +39,8 @@
 | 包 | 路径 | 说明 |
 |---|---|---|
 | contracts | `contracts` | Provider / Codec / Source / Event 接口定义 |
-| pkg/* | `pkg/{decoder,discovery,feature,flog,generator,mappath,merger,migration,profile,provider,transform,validate}` | 公开可复用实现原语 |
+| 领域包 | `codec`、`confmap`、`overlay`、`transform`、`feature`、`providers/{env,cliflag,dotenv,labels,source}` | 公开可复用实现原语 |
+| pkg/* | `pkg/{decoder,parser,discovery,profile,feature,mappath,merger,migration,provider,source,transform,typed,validate}` | v0.20 deprecated 转发壳 |
 | internal/* | `internal/{coalesce,diffreport,fcerr,fctypes,manager,obs,options,pipeline,provenance,registry,secret,state,tenant,testutil,typeinfo,watcher}` | 编译时 API boundary 私有 helper |
 | http        | `providers/http`   | HTTP / SSE Provider（build tag `no_provider_http`） |
 | vault       | `providers/vault`  | HashiCorp Vault KV v2（build tag `no_provider_vault`） |
@@ -130,7 +131,7 @@ fastconf.WithTransformers(PrefixTransformer{Prefix: "myorg"})
 
 ### 自定义 Codec
 
-YAML、JSON、TOML 已在 `pkg/decoder` 的 `init` 中注册，**无需**重复
+YAML、JSON、TOML 已在 `codec` 的 `init` 中注册，**无需**重复
 `RegisterCodec`。如需接入第三方格式（HCL、JSON5 等），按下例注册：
 
 ```go
@@ -145,7 +146,7 @@ fastconf.RegisterCodecExt("hcl", "hcl") // 让 .hcl 扩展名走 "hcl" codec
 | 新增数据源 | 实现 `contracts.Provider` |
 | 合并后改写树结构 | 实现 `Transformer` |
 | decode 前解密 leaf | 实现 `SecretResolver` |
-| decode 前类型重写 leaf | 实现 `decoder.TypedHook` |
+| decode 前类型重写 leaf | 实现 `codec.TypedHook` |
 | validate 后断言 | `WithValidator` / `WithPolicy` |
 | 发布后动作 | `AuditSink` / `DiffReporter` |
 | 新文件格式 | 实现 `contracts.Codec` + `RegisterCodec` |
@@ -207,10 +208,8 @@ go test -bench=BenchmarkGet -benchmem ./...
 # CI 防线
 bash tools/check-layout.sh
 bash tools/check-doc-symbols.sh
-bash tools/check-deps.sh
 bash tools/bench-guard.sh        # ns/op + allocs 阈值
-bash tools/loc-budget.sh         # 主包 LOC 预算
-bash tools/total-loc-budget.sh   # 全树 LOC 预算
+bash tools/loc-budget.sh         # 根 facade + 全树 LOC 预算
 
 # 代码评审依赖图
 bash tools/code-review-graph.sh

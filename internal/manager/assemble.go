@@ -12,12 +12,12 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/fastabc/fastconf/codec"
+	merger "github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/internal/fcerr"
 	istate "github.com/fastabc/fastconf/internal/state"
-	"github.com/fastabc/fastconf/pkg/decoder"
-	"github.com/fastabc/fastconf/pkg/discovery"
-	"github.com/fastabc/fastconf/pkg/merger"
+	discovery "github.com/fastabc/fastconf/overlay"
 )
 
 // stagedLayer is the unit produced by assemble() and consumed by commit().
@@ -121,7 +121,7 @@ func (m *M[T]) buildScanOptions(hostnameOverride string) (discovery.ScanOptions,
 		scanOpt.Profiles = []string{eff}
 	}
 
-	// Resolve multi-axis overlays via pkg/discovery. fastconfctl plan /
+	// Resolve multi-axis overlays via overlay. fastconfctl plan /
 	// PR-bots on CI runners can pin the hostname via WithPlanHostname so
 	// that the resulting diff is against the target environment, not the
 	// runner.
@@ -157,7 +157,7 @@ func (m *M[T]) assembleFileLayers(scanOpt discovery.ScanOptions) ([]stagedLayer,
 			Codec:    layer.Codec,
 		}
 		if layer.Kind == discovery.KindPatch {
-			raw, derr := decoder.DecodeAny(layer.Codec, layer.Bytes)
+			raw, derr := codec.DecodeAny(layer.Codec, layer.Bytes)
 			if derr != nil {
 				scanErr = fmt.Errorf("%w: %s: %w", fcerr.ErrDecode, layer.Path, derr)
 				return false
@@ -170,7 +170,7 @@ func (m *M[T]) assembleFileLayers(scanOpt discovery.ScanOptions) ([]stagedLayer,
 			staged = append(staged, stagedLayer{src: src, patch: patchBytes})
 			return true
 		}
-		dec, derr := decoder.For(layer.Codec)
+		dec, derr := codec.For(layer.Codec)
 		if derr != nil {
 			scanErr = fmt.Errorf("%w: %w", fcerr.ErrDecode, derr)
 			return false
@@ -194,10 +194,10 @@ func (m *M[T]) assembleGeneratorLayers(ctx context.Context) ([]stagedLayer, erro
 	for _, g := range m.opts.Generators {
 		srcs, err := g.Generate(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("%w: generator %q: %w", fcerr.ErrDecode, g.Name(), err)
+			return nil, fmt.Errorf("%w: generator %q: %w", fcerr.ErrGenerator, g.Name(), err)
 		}
 		for _, gs := range srcs {
-			dec, derr := decoder.For(gs.Codec)
+			dec, derr := codec.For(gs.Codec)
 			if derr != nil {
 				return nil, fmt.Errorf("%w: generator %q codec %q: %w", fcerr.ErrDecode, g.Name(), gs.Codec, derr)
 			}
@@ -238,7 +238,7 @@ func (m *M[T]) assembleProviderLayers(ctx context.Context) ([]stagedLayer, error
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
 			}
-			return nil, fmt.Errorf("%w: provider %q: %w", fcerr.ErrDecode, p.Name(), err)
+			return nil, fmt.Errorf("%w: provider %q: %w", fcerr.ErrProvider, p.Name(), err)
 		}
 		if snap.Map == nil {
 			continue

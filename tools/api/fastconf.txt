@@ -33,6 +33,8 @@ const LayerGenerator = istate.LayerGenerator
 
 const LayerMerge = istate.LayerMerge
 
+const LayerOverride = istate.LayerOverride
+
 const LayerPatch = istate.LayerPatch
 
 const LayerProvider = istate.LayerProvider
@@ -77,6 +79,8 @@ func NewProviderRegistry() *ProviderRegistry
 
 func NewTenantManager[T any]() *TenantManager[T]
 
+func NewValidator[T any](schema contracts.Schema) func(*T) error
+
 func ParseFieldTag(tag string) FieldSpec
 
 func PresetHierarchical(p HierarchicalOpts) Option
@@ -89,7 +93,7 @@ func PresetTesting(p TestingOpts) Option
 
 func RegisterCodec(name string, c contracts.Codec)
 
-func RegisterCodecExt(ext, codec string)
+func RegisterCodecExt(ext, codecName string)
 
 func RegisterProviderFactory(name string, f ProviderFactory)
 
@@ -174,7 +178,7 @@ func WithTracer(t Tracer) Option
 
 func WithTransformers(t ...Transformer) Option
 
-func WithTypedHook(h decoder.TypedHook) Option
+func WithTypedHook(h codec.TypedHook) Option
 
 func WithValidator[T any](v func(*T) error) Option
 
@@ -208,6 +212,8 @@ func (r *Replay[T]) List() []*State[T]
 
 func (r *Replay[T]) Rollback(target *State[T]) error
 
+func (s *State[T]) Cause() ReloadCause
+
 func (s *State[T]) Diff(other *State[T]) []DiffEntry
 
 func (s *State[T]) Dump(format DumpFormat, redactor SecretRedactor) ([]byte, error)
@@ -216,9 +222,13 @@ func (s *State[T]) Explain(path string) []provenance.Origin
 
 func (s *State[T]) FeatureRules() map[string]feature.Rule
 
+func (s *State[T]) Generation() uint64
+
+func (s *State[T]) Hash() [32]byte
+
 func (s *State[T]) Introspect() *Introspection
 
-func (s *State[T]) Lookup(path string) []provenance.Origin
+func (s *State[T]) LoadedAt() int64
 
 func (s *State[T]) LookupStrict(path string) ([]provenance.Origin, error)
 
@@ -227,6 +237,10 @@ func (s *State[T]) Origins() *provenance.Index
 func (s *State[T]) Redact(redactor SecretRedactor) map[string]any
 
 func (s *State[T]) Redacted() map[string]any
+
+func (s *State[T]) Sources() []SourceRef
+
+func (s *State[T]) Value() *T
 
 func (tm *TenantManager[T]) Add(ctx context.Context, id string, opts ...Option) (*Manager[T], error)
 
@@ -441,6 +455,8 @@ var ErrDecode = fcerr.ErrDecode
 
 var ErrFastConf = fcerr.ErrFastConf
 
+var ErrGenerator = fcerr.ErrGenerator
+
 var ErrHistoryDisabled = imanager.ErrHistoryDisabled
 
 var ErrMerge = fcerr.ErrMerge
@@ -454,6 +470,8 @@ var ErrParserUnknown = errors.New("fastconf: no parser for source content-type")
 var ErrPatch = fcerr.ErrPatch
 
 var ErrPolicyDenied = fcerr.ErrPolicyDenied
+
+var ErrProvider = fcerr.ErrProvider
 
 var ErrTenantExists = itenant.ErrTenantExists
 

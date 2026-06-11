@@ -18,7 +18,7 @@ import (
 	"strings"
 
 	"github.com/fastabc/fastconf"
-	"github.com/fastabc/fastconf/pkg/provider"
+	"github.com/fastabc/fastconf/providers/env"
 )
 
 // Flags is the canonical FastConf CLI flag set shared by fastconfd and
@@ -121,7 +121,7 @@ func (p ProviderFlags) Apply(opts *[]fastconf.Option) error {
 		switch name {
 		case "env":
 			prefix, _ := cfg["value"].(string)
-			*opts = append(*opts, fastconf.WithProvider(provider.NewEnv(prefix)))
+			*opts = append(*opts, fastconf.WithProvider(env.NewEnv(prefix)))
 		default:
 			*opts = append(*opts, fastconf.WithProviderByName(name, cfg))
 		}

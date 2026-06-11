@@ -17,7 +17,7 @@ provider.Watch events ────┘── backoff + drop-on-full ────�
 ```
 reloadCh.recv(req)
   │
-  ├─ stageMerge:      discovery.Scan(dir) → decode files → merger.Merge(layers)
+  ├─ stageMerge:      overlay.Scan(dir) → decode files → confmap merge(layers)
   │                   apply _meta.yaml（appendSlices / profileEnv / match）
   │                   apply _patch.json (RFC 6902)
   │
@@ -95,7 +95,7 @@ appendSlices: true            # slice 字段追加而非覆盖
 match: "prod | staging"       # 布尔 profile 表达式（&, |, !, () 均支持）
 ```
 
-`match` 由 `pkg/profile` 编译，语法：
+`match` 由 `overlay` 编译，语法：
 
 | 语法 | 含义 |
 |---|---|
@@ -134,7 +134,7 @@ mgr, err := fastconf.New[AppConfig](ctx,
 
 ## Provider 系统
 
-### 内置 byte-blob Source（`pkg/source`）
+### 内置 byte-blob Source（`providers/source`）
 
 每个 Source 通过 `WithSource(src, parser)` 与 Parser 配对。Parser 传 `nil`
 时按内容类型提示自动绑定（文件扩展名 / HTTP `Content-Type` / `ContentType` 构造参数）。
@@ -142,32 +142,32 @@ mgr, err := fastconf.New[AppConfig](ctx,
 | Source | 构造 | 说明 |
 |---|---|---|
 | File  | `source.NewFile(path)` | load 时读文件；内容类型来自扩展名 |
-| HTTP  | `source.NewHTTP(url)` | 带 ETag 条件 GET 短路；内容类型来自 `Content-Type` 头 |
+| HTTP  | `source.NewHTTP(url)` | 低层 Source 路径；完整远程 provider 行为优先用 `providers/http` |
 | Bytes | `source.NewBytes(name, contentType, data)` | 内存 layer（测试最常用） |
 
-### 内置 Parser（`pkg/parser`）
+### 内置 Parser（`codec`）
 
 | Parser | 声明的 content-type |
 |---|---|
-| `parser.YAML()` | `yaml` / `.yaml` / `.yml` / `application/yaml` / `application/x-yaml` / `text/yaml` |
-| `parser.JSON()` | `json` / `.json` / `application/json` / `text/json` |
-| `parser.TOML()` | `toml` / `.toml` / `application/toml` / `text/toml` |
+| `codec.YAMLParser()` | `yaml` / `.yaml` / `.yml` / `application/yaml` / `application/x-yaml` / `text/yaml` |
+| `codec.JSONParser()` | `json` / `.json` / `application/json` / `text/json` |
+| `codec.TOMLParser()` | `toml` / `.toml` / `application/toml` / `text/toml` |
 
-第三方 Parser 通过 `parser.Register` 注册自己的 content-type。
+第三方 Parser 通过 `codec.RegisterParser` 注册自己的 content-type。
 
-### 内置结构化 Provider（`pkg/provider`）
+### 内置结构化 Provider（`providers/*`）
 
 它们直接返回 `map[string]any` —— 无需 Parser。
 
 | Provider | 构造 | 说明 |
 |---|---|---|
-| Env         | `provider.NewEnv("APP_")` | 默认 `DotReplacer`：`APP_FOO_BAR` → `foo.bar`（单 `_`，Viper / Spring 风格）；值保持字符串，typed decoder 转换。链式 `.WithReplacer(DoubleUnderscoreReplacer)`、`.At("path")`、`.WithCoerce(true)` |
-| CLI         | `provider.NewCLI(map[string]any)` | 仅传入用户显式设置的 flag；不要把 parser 默认值塞进来，否则会无意覆盖文件/env |
-| DotEnv      | `provider.NewDotEnv("APP_", paths...)` | 显式 `.env` fallback 路径；实际进程 env 即使被设成 `""` 也优先。与 `NewEnv` 同样支持 replacer / `At` / `WithCoerce` |
-| Labels      | `provider.NewLabels(labels, provider.LabelOptions{})` | 低层 flat-label primitive；默认 `PriorityStatic`，需要更高优先级时由调用方显式指定 |
-| DottedLabels| `provider.NewDottedLabels(labels, provider.DottedLabelOptions{})` | 显式 dotted-config labels；当 key path 本身就是全部 DSL 时使用 |
-| RoutingLabels| `provider.NewRoutingLabels(labels, provider.RoutingLabelOptions{})` | routing DSL labels：支持 typed scalar、逗号 list、`[N]` index、可选 enable gate。若输入是 Traefik-style，再显式配置对应的 `Prefix` / `EnableGate` / `LowercaseKeys` |
-| LabelMap    | `provider.NewLabelMap(labels, provider.LabelOptions{})` | 低层 primitive 的 `map[string]string` 变体 |
+| Env         | `env.NewEnv("APP_")`（`providers/env`） | 默认 `DotReplacer`：`APP_FOO_BAR` → `foo.bar`（单 `_`，Viper / Spring 风格）；值保持字符串，typed decoder 转换。链式 `.WithReplacer(DoubleUnderscoreReplacer)`、`.At("path")`、`.WithCoerce(true)` |
+| CLI         | `cliflag.NewCLI(map[string]any)`（`providers/cliflag`） | 仅传入用户显式设置的 flag；不要把 parser 默认值塞进来，否则会无意覆盖文件/env |
+| DotEnv      | `dotenv.NewDotEnv("APP_", paths...)`（`providers/dotenv`） | 显式 `.env` fallback 路径；实际进程 env 即使被设成 `""` 也优先。与 `NewEnv` 同样支持 replacer / `At` / `WithCoerce` |
+| Labels      | `labels.NewLabels(labels, labels.LabelOptions{})`（`providers/labels`） | 低层 flat-label primitive；默认 `PriorityStatic`，需要更高优先级时由调用方显式指定 |
+| DottedLabels| `labels.NewDottedLabels(labels, labels.DottedLabelOptions{})` | 显式 dotted-config labels；当 key path 本身就是全部 DSL 时使用 |
+| RoutingLabels| `labels.NewRoutingLabels(labels, labels.RoutingLabelOptions{})` | routing DSL labels：支持 typed scalar、逗号 list、`[N]` index、可选 enable gate。若输入是 Traefik-style，再显式配置对应的 `Prefix` / `EnableGate` / `LowercaseKeys` |
+| LabelMap    | `labels.NewLabelMap(labels, labels.LabelOptions{})` | 低层 primitive 的 `map[string]string` 变体 |
 | K8s Downward| `k8s.NewDefault()`（`providers/k8s`） | 读取 `/etc/podinfo/{labels,annotations}`，默认 raw metadata 并挂到 `k8s.metadata.*`；启用 `WithWatch(WatchOptions{Enabled: true})` 时 mounted files 会自动接入统一 fs watcher。只有确实要配置式展开时才用 `NewExpandedDefault()` / `MetadataExpanded` |
 
 ### 内置 KV Provider（`providers/{vault,consul,http}`，主模块内）
@@ -276,12 +276,11 @@ provider 实现了 `contracts.Resumable.WatchFrom`，断线重连后不丢事件
 
 | Provider | 模块位置 | Watch 模型 | Resumable | Codec | 鉴权 | Build tag |
 |---|---|---|---|---|---|---|
-| `pkg/provider.Env` / `EnvReplacer` | 主模块 | load-only | — | 无 | env-var prefix | 无 |
-| `pkg/provider.CLI` | 主模块 | load-only | — | 无 | 无（in-memory） | 无 |
-| `pkg/provider.File` | 主模块 | load-only | — | 按扩展名推断 | 文件系统 | 无 |
-| `pkg/provider.Bytes` | 主模块 | load-only | — | 显式 | 无（in-memory） | 无 |
-| `pkg/provider.DotEnv` | 主模块 | load-only | — | 无 | 文件系统 | 无 |
-| `pkg/provider.Labels` / `LabelMap` / `DottedLabels` / `RoutingLabels` | 主模块 | load-only | — | 无 | 无（in-memory） | 无 |
+| `providers/env` | 主模块 | load-only | — | 无 | env-var prefix | 无 |
+| `providers/cliflag` | 主模块 | load-only | — | 无 | 无（in-memory） | 无 |
+| `providers/source` File / Bytes / HTTP Source | 主模块 | load-only | — | 显式或推断 | 文件系统 / 内存 / HTTP | 无 |
+| `providers/dotenv` | 主模块 | load-only | — | 无 | 文件系统 | 无 |
+| `providers/labels` | 主模块 | load-only | — | 无 | 无（in-memory） | 无 |
 | `providers/http` | 主模块 | ETag + body-hash 轮询 | — | 必填 | 静态 header（Bearer 等） | `no_provider_http` |
 | `providers/consul` | 主模块 | blocking query（X-Consul-Index） | — | 可选（Mode KV/Blob） | ACL Token | `no_provider_consul` |
 | `providers/vault` | 主模块 | metadata 版本轮询 | — | （JSON，内建） | 静态 Token / `WithAuth` | `no_provider_vault` |
@@ -326,9 +325,10 @@ type Provider interface {
 | `PriorityK8s` | 40 | K8s ConfigMap / Secret |
 | `PriorityEnv` | 50 | 进程环境变量 provider |
 | `PriorityCLI` | 60 | 命令行 flag provider（最高） |
+| `contracts.PriorityOrderedBase` | 160 | `WithProviderOrdered` 使用的保留基址 |
 
 如果不想思考 Priority，用 `WithProviderOrdered(p1, p2, p3)` — 它把传入的
-providers 按调用顺序分配 `PriorityCLI+100, +101, +102 …`，最后一个传入的赢；
+providers 按调用顺序分配 `contracts.PriorityOrderedBase+i`，最后一个传入的赢；
 若某个输入 provider 已显式设置非零 Priority，会直接报错，避免静默覆盖。
 
 ### Resumable（断点续订）

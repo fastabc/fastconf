@@ -47,7 +47,7 @@ import (
 	"time"
 
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/pkg/mappath"
+	mappath "github.com/fastabc/fastconf/confmap"
 )
 
 // Mode selects how the values returned by Consul are interpreted.

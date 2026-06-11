@@ -1,6 +1,6 @@
 # Feature flags & rollouts
 
-FastConf carries a tiny rule engine (`pkg/feature`) that piggy-backs on the lock-free `*State[T]` snapshot. `fastconf.Eval[T,V](mgr, key, ctx, def)` is the request-path entry point — one `atomic.Pointer.Load`, one map lookup, one deterministic compare/hash. The result is typed (no `any` cast). Safe for the hottest handler.
+FastConf carries a tiny rule engine (`feature`) that piggy-backs on the lock-free `*State[T]` snapshot. `fastconf.Eval[T,V](mgr, key, ctx, def)` is the request-path entry point — one `atomic.Pointer.Load`, one map lookup, one deterministic compare/hash. The result is typed (no `any` cast). Safe for the hottest handler.
 
 ## Rule shape
 
@@ -24,7 +24,7 @@ features:
 ```go
 import (
     "github.com/fastabc/fastconf"
-    "github.com/fastabc/fastconf/pkg/feature"
+    "github.com/fastabc/fastconf/feature"
 )
 
 type AppConfig struct {

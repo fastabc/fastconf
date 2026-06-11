@@ -13,7 +13,7 @@
 //     cannot starve the reload pipeline.
 //
 // The package depends only on the standard library; this rule is checked
-// by tools/check-deps.sh and mirrors the constraint pkg/flog operates under.
+// by tools/check-deps.sh and mirrors the constraint internal/flog operates under.
 package coalesce
 
 import (

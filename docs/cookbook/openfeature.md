@@ -10,7 +10,7 @@ The package **does not import** `github.com/open-feature/go-sdk`, so installing 
 import (
     "github.com/fastabc/fastconf"
     "github.com/fastabc/fastconf/integrations/openfeature"
-    "github.com/fastabc/fastconf/pkg/feature"
+    "github.com/fastabc/fastconf/feature"
 )
 
 type AppConfig struct {

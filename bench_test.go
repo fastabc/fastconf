@@ -211,7 +211,6 @@ var (
 	benchIntSink      int
 	benchSettingsSink map[string]any
 	benchKeysSink     []string
-	benchOriginsSink  []Origin
 )
 
 func BenchmarkIntrospectCold(b *testing.B) {

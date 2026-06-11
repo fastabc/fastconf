@@ -2,7 +2,7 @@
 
 FastConf 的日志接入完全走标准库 `*slog.Logger` / `slog.Handler`——"用什么后端"由调用方决定，根模块只依赖 `log/slog`，不绑死任何具体 logger。
 
-> **内部风格**：FastConf 自己写日志走 `pkg/flog` 的 fluent 风格（`log.Info().Str("k", v).Msg("...")`），底层仍是注入的 `*slog.Logger`。**这只影响 FastConf 内部调用点的写法**，对调用方完全透明——你写自己的日志想用什么风格，与此无关。如果你也想在自己的代码里用同样风格，可以 `import "github.com/fastabc/fastconf/pkg/flog"` 并 `flog.New(myLogger)`；详见文末「pkg/flog 简介」。
+> **内部风格**：FastConf 自己写日志走内部 `flog` fluent builder（`log.Info().Str("k", v).Msg("...")`），底层仍是注入的 `*slog.Logger`。这只影响 FastConf 内部调用点的写法，对调用方完全透明；应用代码继续直接使用自己的 logger。
 
 如果你需要 JSON 行式输出，常见有三条路径：
 
@@ -167,7 +167,7 @@ cfg, _ := fastconf.New[AppConfig](ctx,
 
 ---
 
-## `pkg/flog` 简介
+## 内部 `flog` 简介
 
 FastConf 内部不再写 `logger.Info("msg", "k", v, "k2", v2, ...)` 这种 slog 默认风格，而是包了一层 fluent builder：
 
@@ -182,11 +182,11 @@ log.Info().
 
 设计要点：
 
-- **底层仍是 `*slog.Logger`**——`flog.New(slog.New(handler))` 即可。所有上面讲过的 zerolog / phuslu / 标准库 Handler 都直接可用，**调用点不感知后端**。
+- **底层仍是 `*slog.Logger`**。所有上面讲过的 zerolog / phuslu / 标准库 Handler 都直接可用，**调用点不感知后端**。
 - **Level 短路 + 池化**：disabled 时 `Info()`/`Debug()` 返回 nil，所有链式方法 no-op，开销只剩一次 level 检查；`Msg()` 时通过 `sync.Pool` 回收 Event，amortized 零分配。
 - **强类型字段方法**：`Str / Strs / Int / Int64 / Uint64 / Float64 / Bool / Dur / Time / Err / NamedErr / Any / Attr`；写错类型编译期就拦下。
 - **互操作逃生口**：`log.Slog()` 返回底层 `*slog.Logger`，可塞给任意 slog-typed API。
 - **Ctx 变体**：`InfoCtx(ctx)` / `DebugCtx(ctx)` 等保留 context 传播。
 - **派生 logger**：`log.With().Str("component", "x").Group("stage").Str("name", "decode").Logger()` 等价于 zerolog 的 `With().Str(...).Logger()`。
 
-如果你只关心如何让 FastConf 自己产生 JSON / zerolog 风格的输出——**不需要 import `pkg/flog`**，只要按上面路径 A/B/C 配 Handler 就行。`pkg/flog` 是给"自己也想这么写日志的"调用方准备的。
+如果你只关心如何让 FastConf 自己产生 JSON / zerolog 风格的输出，只要按上面路径 A/B/C 配 Handler 即可；`flog` 现在是内部实现细节，不再作为公共包导出。

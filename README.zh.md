@@ -11,7 +11,7 @@ layer 叠加成一个强类型 Go 结构体，并在热更新时用单写者 rel
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-> **Status**: first-public。当前 API 仍以"把语义收准"为第一目标；
+> **Status**: public beta。当前 API 仍以"把语义收准"为第一目标；
 > [`pkg.go.dev`](https://pkg.go.dev/github.com/fastabc/fastconf) 与本文档描述的是当前真相。
 
 ---
@@ -50,7 +50,7 @@ import (
     "log"
 
     "github.com/fastabc/fastconf"
-    "github.com/fastabc/fastconf/pkg/provider"
+    "github.com/fastabc/fastconf/providers/env"
 )
 
 type AppConfig struct {
@@ -70,7 +70,7 @@ func main() {
             EnvVar:  "APP_PROFILE",
             Default: "dev",
         }),
-        fastconf.WithProvider(provider.NewEnv("APP_")),
+        fastconf.WithProvider(env.NewEnv("APP_")),
         fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
     )
     if err != nil {
@@ -172,15 +172,14 @@ go install github.com/fastabc/fastconf/cmd/fastconfgen@latest
   改动保持机械可执行。
 - `internal/*` 下的包属于实现细节，不在 SemVer 契约内 —— 根包的
   re-export（type alias 或 wrapper）才是稳定的对外面。
-- `pkg/*` 中的可复用原语保持单向依赖（详见 `CLAUDE.md` 的依赖白名单），
-  由 `tools/check-deps.sh` 在 CI 中静态强制；调用方可放心引用单个
-  `pkg/*` 子包而不会被引入隐藏的横向依赖。
+- 可复用原语位于领域包：`codec`、`confmap`、`overlay`、`transform`、
+  `feature` 和 `providers/*`。旧 `pkg/*` 导入路径已在 v0.20 移除。
 - 子模块独立打 tag 时尾后缀使用模块路径名，例如 `cue/vX.Y.Z` —— 在
   README 主表中通常不必关心，因为同一发版统一推送同一版本号。
-- 发版前会运行 `make test` + `tools/{check-layout,check-deps,
+- 发版前会运行 `make test` + `tools/{check-layout,
   check-doc-symbols,audit-phase-comments,check-cjk-comments,
-  loc-budget,total-loc-budget}.sh` 共 7 个 guard 脚本，保证目录布局、
-  依赖方向、对外符号、注释考古与体积红线全部满足约束。
+  loc-budget}.sh` 共 5 个 guard 脚本，保证目录布局、
+  对外符号、注释考古与体积红线全部满足约束。
 
 ---
 
@@ -293,7 +292,7 @@ func Eval[T, V any](m *Manager[T], key string, ctx feature.EvalContext, def V) V
 
 ```
 reloadCh.recv(req)
-  ├─ stageMerge:      discovery.Scan(dir) → 解码文件 → merger.Merge(layers)
+  ├─ stageMerge:      overlay.Scan(dir) → 解码文件 → confmap merge(layers)
   │                   应用 _meta.yaml（appendSlices / profileEnv / match）
   │                   应用 _patch.json（RFC 6902）
   ├─ stageAssemble:   各 provider: Load(ctx) → 按 Priority 合并
@@ -353,14 +352,14 @@ match: "prod | staging"     # 支持 &、|、!、()
 
 ## Provider 系统
 
-### 内置结构化 Provider（`pkg/provider`）
+### 内置结构化 Provider（`providers/*`）
 
 | Provider | 构造函数 | 说明 |
 |---|---|---|
-| Env | `provider.NewEnv("APP_")` | `APP_FOO_BAR` → `foo.bar`；支持 `.WithReplacer`、`.At`、`.WithCoerce` |
-| CLI | `provider.NewCLI(map)` | 仅传入用户显式设置的 flag，文件/env 保持权威 |
-| DotEnv | `provider.NewDotEnv("APP_", paths...)` | `.env` 兜底；进程环境变量优先 |
-| Labels | `provider.NewDottedLabels(labels, opts)` / `NewRoutingLabels(labels, opts)` | 配置标签与路由 DSL 标签 |
+| Env | `env.NewEnv("APP_")`（`providers/env`） | `APP_FOO_BAR` → `foo.bar`；支持 `.WithReplacer`、`.At`、`.WithCoerce` |
+| CLI | `cliflag.NewCLI(map)`（`providers/cliflag`） | 仅传入用户显式设置的 flag，文件/env 保持权威 |
+| DotEnv | `dotenv.NewDotEnv("APP_", paths...)`（`providers/dotenv`） | `.env` 兜底；进程环境变量优先 |
+| Labels | `labels.NewDottedLabels(labels, opts)` / `NewRoutingLabels(labels, opts)`（`providers/labels`） | 配置标签与路由 DSL 标签 |
 | K8s Downward | `k8s.NewDefault()` | 读取 `/etc/podinfo/{labels,annotations}` |
 
 根模块 KV Provider（可通过 build tag 裁剪）：
@@ -388,6 +387,7 @@ S3（`providers/s3`）。
 | `PriorityK8s` | 40 | Kubernetes ConfigMap / Secret |
 | `PriorityEnv` | 50 | 进程环境变量 |
 | `PriorityCLI` | 60 | 命令行参数（最高） |
+| `contracts.PriorityOrderedBase` | 160 | `WithProviderOrdered` 使用的保留基址 |
 
 使用 `WithProviderOrdered(p1, p2, p3)` 可按调用顺序自动分配优先级。
 
@@ -406,7 +406,7 @@ type Provider interface {
 
 ## Transformer 与迁移
 
-### 内置 Transformer（`pkg/transform`）
+### 内置 Transformer（`transform`）
 
 ```go
 fastconf.WithTransformers(
@@ -446,7 +446,7 @@ fastconf.WithMigrations(func(root map[string]any) error {
 })
 ```
 
-多步 schema 迁移请使用 `pkg/migration.NewChain`。
+多步 schema 迁移请使用 `transform.New`。
 
 ---
 
@@ -608,7 +608,7 @@ fastconf.PresetTesting(fastconf.TestingOpts{FS: memFS, Profile: "testing"})
 | 包 | 路径 |
 |---|---|
 | contracts | `contracts` — 公开接口 |
-| 可复用原语 | `pkg/{decoder,discovery,feature,flog,generator,merger,migration,provider,transform,validate}` |
+| 可复用原语 | `codec`、`confmap`、`overlay`、`transform`、`feature`、`providers/{env,cliflag,dotenv,labels,source}` |
 | http / vault / consul | `providers/{http,vault,consul}` — build tag：`no_provider_{http,vault,consul}` |
 | nats / redis-streams | `providers/{nats,redisstream}` — 调用方注入传输客户端 |
 | policy | `policy` — `Func` 适配器 |

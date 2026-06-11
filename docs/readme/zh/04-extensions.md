@@ -14,10 +14,10 @@ type Transformer interface {
 Transformer 在 merge 完成、decode 之前运行，接收 `map[string]any`，可安全修改树
 结构。
 
-### 内置 Transformer（`pkg/transform`）
+### 内置 Transformer（`transform`）
 
 ```go
-import "github.com/fastabc/fastconf/pkg/transform"
+import "github.com/fastabc/fastconf/transform"
 
 fastconf.WithTransformers(
     transform.Defaults(map[string]any{                 // 填默认（递归合并，不覆盖已有）
@@ -58,13 +58,16 @@ mgr, _ := fastconf.New[AppConfig](ctx,
 ### Migration（模式迁移）
 
 ```go
-import "github.com/fastabc/fastconf/pkg/migration"
+import "github.com/fastabc/fastconf/transform"
 
-chain := migration.NewChain(
-    migration.Step{From: "1", To: "2", Apply: migrateV1toV2},
-    migration.Step{From: "2", To: "3", Apply: migrateV2toV3},
+chain, _ := transform.New(3,
+    transform.Migration{From: 1, To: 2, Apply: migrateV1toV2},
+    transform.Migration{From: 2, To: 3, Apply: migrateV2toV3},
 )
-fastconf.WithMigrations(chain.Migrate)
+fastconf.WithMigrations(func(root map[string]any) error {
+    _, err := chain.Run(root)
+    return err
+})
 ```
 
 或一次性 inline：

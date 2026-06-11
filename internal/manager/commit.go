@@ -8,17 +8,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/fastabc/fastconf/feature"
 	istate "github.com/fastabc/fastconf/internal/state"
-	"github.com/fastabc/fastconf/pkg/feature"
 )
-
-// commit consumes assembled layers, runs the staged pipeline, and on
-// success atomically swaps state. The pipeline itself lives in
-// pipeline.go; commit() retains only the terminal "publish" duties:
-// hash, swap, history, audit, watches.
-func (m *M[T]) commit(ctx context.Context, staged []stagedLayer, appendSlices bool, reason string) error {
-	return m.commitWithKey(ctx, assemblyResult{staged: staged, appendSlices: appendSlices}, reason, "")
-}
 
 // commitWithKey is the variant used by the file-system watcher, which
 // supplies a parent-directory key so audit fan-out can attribute the
@@ -61,22 +53,19 @@ func (m *M[T]) stateHashFor(pc *pipelineCtx[T]) ([32]byte, error) {
 	// since the last commit. The cache is repopulated below after a
 	// successful swap so the first reload always pays the marshal cost
 	// (cache miss).
-	var hash [32]byte
+	var mergedSha [32]byte
 	if pc.mergedJSON != nil {
-		mergedSha := sha256.Sum256(pc.mergedJSON)
+		mergedSha = sha256.Sum256(pc.mergedJSON)
 		if cached := m.hashCache.Load(); cached != nil && cached.mergedSha == mergedSha {
 			return cached.stateHash, nil
 		}
-		h, err := canonicalHashBytes(pc.mergedJSON, pc.target, m.opts.CodecBridge)
-		if err != nil {
-			return hash, fmt.Errorf("fastconf: hash: %w", err)
-		}
-		m.hashCache.Store(&hashCacheEntry{mergedSha: mergedSha, stateHash: h})
-		return h, nil
 	}
 	h, err := canonicalHashBytes(pc.mergedJSON, pc.target, m.opts.CodecBridge)
 	if err != nil {
-		return hash, fmt.Errorf("fastconf: hash: %w", err)
+		return [32]byte{}, fmt.Errorf("fastconf: hash: %w", err)
+	}
+	if pc.mergedJSON != nil {
+		m.hashCache.Store(&hashCacheEntry{mergedSha: mergedSha, stateHash: h})
 	}
 	return h, nil
 }

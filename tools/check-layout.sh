@@ -11,7 +11,7 @@ error() { echo "MISSING: $1" >&2; FAIL=1; }
 # Root package files
 for f in \
   aliases.go bind.go defaults.go doc.go errors.go feature.go \
-  manager.go obs.go options.go presets.go registry.go state.go
+  manager.go obs.go options.go presets.go registry.go state.go validate.go
 do
   [ -f "$ROOT/$f" ] || error "root/$f"
 done
@@ -34,13 +34,8 @@ while IFS= read -r dir; do
   fi
 done < <(find "$ROOT" -maxdepth 1 -type d)
 
-# pkg/ packages
-for d in cliadapter decoder discovery feature flog generator mappath merger migration parser profile provider source transform validate; do
-  [ -d "$ROOT/pkg/$d" ] || error "pkg/$d"
-done
-
 # internal/ packages
-for d in coalesce diffreport fcerr fctypes manager obs options pipeline providerutil provenance registry secret state tenant testutil typeinfo watcher; do
+for d in coalesce diffreport fcerr flog manager obs options pipeline providerutil provenance registry secret state tenant testutil typeinfo watcher; do
   [ -d "$ROOT/internal/$d" ] || error "internal/$d"
 done
 
@@ -52,17 +47,21 @@ done
 [ -d "$ROOT/integrations/render" ] || error "integrations/render"
 
 # providers/
+[ -d "$ROOT/providers/cliflag" ] || error "providers/cliflag"
 [ -d "$ROOT/providers/consul" ] || error "providers/consul"
+[ -d "$ROOT/providers/dotenv" ] || error "providers/dotenv"
+[ -d "$ROOT/providers/env" ]    || error "providers/env"
 [ -d "$ROOT/providers/vault" ]  || error "providers/vault"
 [ -d "$ROOT/providers/http" ]   || error "providers/http"
 [ -d "$ROOT/providers/k8s" ]    || error "providers/k8s"
+[ -d "$ROOT/providers/labels" ] || error "providers/labels"
 [ -d "$ROOT/providers/nats" ]   || error "providers/nats"
 [ -d "$ROOT/providers/redisstream" ] || error "providers/redisstream"
 [ -d "$ROOT/providers/s3" ]     || error "providers/s3"
+[ -d "$ROOT/providers/source" ] || error "providers/source"
 
 # tools/
 [ -f "$ROOT/tools/loc-budget.sh" ]         || error "tools/loc-budget.sh"
-[ -f "$ROOT/tools/total-loc-budget.sh" ]   || error "tools/total-loc-budget.sh"
 [ -f "$ROOT/tools/bench-guard.sh" ]        || error "tools/bench-guard.sh"
 [ -f "$ROOT/tools/code-review-graph.sh" ]  || error "tools/code-review-graph.sh"
 [ -f "$ROOT/tools/check-api-snapshot.sh" ] || error "tools/check-api-snapshot.sh"

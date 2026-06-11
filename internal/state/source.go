@@ -2,17 +2,17 @@
 // the public fastconf facade and internal manager implementation.
 package state
 
-import "github.com/fastabc/fastconf/internal/fctypes"
+import "github.com/fastabc/fastconf/internal/provenance"
 
-type SourceRef = fctypes.SourceRef
-type LayerKind = fctypes.LayerKind
+type SourceRef = provenance.SourceRef
+type LayerKind = provenance.LayerKind
 
 const (
-	LayerUnknown   = fctypes.LayerUnknown
-	LayerMerge     = fctypes.LayerMerge
-	LayerPatch     = fctypes.LayerPatch
-	LayerProvider  = fctypes.LayerProvider
-	LayerSecret    = fctypes.LayerSecret
-	LayerGenerator = fctypes.LayerGenerator
-	LayerOverride  = fctypes.LayerOverride
+	LayerUnknown   = provenance.LayerUnknown
+	LayerMerge     = provenance.LayerMerge
+	LayerPatch     = provenance.LayerPatch
+	LayerProvider  = provenance.LayerProvider
+	LayerSecret    = provenance.LayerSecret
+	LayerGenerator = provenance.LayerGenerator
+	LayerOverride  = provenance.LayerOverride
 )

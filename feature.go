@@ -1,8 +1,8 @@
 package fastconf
 
 import (
+	"github.com/fastabc/fastconf/feature"
 	imanager "github.com/fastabc/fastconf/internal/manager"
-	"github.com/fastabc/fastconf/pkg/feature"
 )
 
 type EvalContext = feature.EvalContext

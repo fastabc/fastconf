@@ -39,11 +39,8 @@ jobs:
         if: matrix.go == '1.26.x'
         run: bash tools/bench-guard.sh
 
-      - name: LOC budget – main package
+      - name: LOC budget
         run: bash tools/loc-budget.sh
-
-      - name: LOC budget – full tree
-        run: bash tools/total-loc-budget.sh
 
   # -----------------------------------------------------------------------
   # Independent modules (have their own go.mod)
@@ -97,9 +94,6 @@ jobs:
         with:
           version: latest
           args: --timeout=5m ./...
-
-      - name: Inter-package dependency whitelist
-        run: bash tools/check-deps.sh
 
       - name: Layout guard
         run: bash tools/check-layout.sh

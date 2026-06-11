@@ -17,7 +17,7 @@ provider.Watch events ────┘── backoff + drop-on-full ────�
 ```
 reloadCh.recv(req)
   │
-  ├─ stageMerge:      discovery.Scan(dir) → decode files → merger.Merge(layers)
+  ├─ stageMerge:      overlay.Scan(dir) → decode files → confmap merge(layers)
   │                   apply _meta.yaml (appendSlices / profileEnv / match)
   │                   apply _patch.json (RFC 6902)
   │
@@ -99,7 +99,7 @@ appendSlices: true            # slices append instead of overwrite
 match: "prod | staging"       # boolean profile expression (&, |, !, () supported)
 ```
 
-`match` is compiled by `pkg/profile`:
+`match` is compiled by `overlay`:
 
 | Syntax | Meaning |
 |---|---|
@@ -140,7 +140,7 @@ decides whether it applies.
 
 ## Provider system
 
-### Built-in byte-blob sources (`pkg/source`)
+### Built-in byte-blob sources (`providers/source`)
 
 Pair each Source with a Parser via `WithSource(src, parser)`. Passing
 `nil` Parser auto-binds via the content-type hint (file extension,
@@ -149,32 +149,32 @@ HTTP `Content-Type` header, or `ContentType` ctor argument).
 | Source | Constructor | Notes |
 |---|---|---|
 | File  | `source.NewFile(path)` | Reads the file at load time; content-type from extension |
-| HTTP  | `source.NewHTTP(url)` | Conditional GET with ETag short-circuit; content-type from `Content-Type` header |
+| HTTP  | `source.NewHTTP(url)` | Low-level Source path; prefer `providers/http` for full remote-provider behavior |
 | Bytes | `source.NewBytes(name, contentType, data)` | In-memory layer (most common in tests) |
 
-### Built-in parsers (`pkg/parser`)
+### Built-in parsers (`codec`)
 
 | Parser | Content-types claimed |
 |---|---|
-| `parser.YAML()` | `yaml` / `.yaml` / `.yml` / `application/yaml` / `application/x-yaml` / `text/yaml` |
-| `parser.JSON()` | `json` / `.json` / `application/json` / `text/json` |
-| `parser.TOML()` | `toml` / `.toml` / `application/toml` / `text/toml` |
+| `codec.YAMLParser()` | `yaml` / `.yaml` / `.yml` / `application/yaml` / `application/x-yaml` / `text/yaml` |
+| `codec.JSONParser()` | `json` / `.json` / `application/json` / `text/json` |
+| `codec.TOMLParser()` | `toml` / `.toml` / `application/toml` / `text/toml` |
 
-Third-party parsers register their content-types via `parser.Register`.
+Third-party parsers register their content-types via `codec.RegisterParser`.
 
-### Built-in structured providers (`pkg/provider`)
+### Built-in structured providers (`providers/*`)
 
 These contribute `map[string]any` directly — no Parser needed.
 
 | Provider | Constructor | Notes |
 |---|---|---|
-| Env         | `provider.NewEnv("APP_")` | Default `DotReplacer`: `APP_FOO_BAR` → `foo.bar` (single `_`, Viper / Spring style). Values stay as strings; typed decoder converts. Chain `.WithReplacer(DoubleUnderscoreReplacer)`, `.At("path")`, `.WithCoerce(true)` as needed. |
-| CLI         | `provider.NewCLI(map[string]any)` | Pass only explicitly changed CLI flags; omit parser defaults so files/env remain authoritative unless the user typed an override |
-| DotEnv      | `provider.NewDotEnv("APP_", paths...)` | Explicit `.env` fallback paths; actual process env values win even when set to `""`. Same replacer / `At` / `WithCoerce` knobs as `NewEnv` |
-| Labels      | `provider.NewLabels(labels, provider.LabelOptions{})` | Low-level flat-label primitive. Default priority `PriorityStatic`; pass a higher band explicitly when the source should override |
-| DottedLabels| `provider.NewDottedLabels(labels, provider.DottedLabelOptions{})` | Explicit dotted-config labels when the key path itself is the whole DSL |
-| RoutingLabels| `provider.NewRoutingLabels(labels, provider.RoutingLabelOptions{})` | Routing DSL labels with typed scalars, comma lists, `[N]` indexes, and an optional enable gate. For Traefik-style inputs, opt into the matching `Prefix`, `EnableGate`, and `LowercaseKeys` settings explicitly |
-| LabelMap    | `provider.NewLabelMap(labels, provider.LabelOptions{})` | `map[string]string` variant of the low-level primitive |
+| Env         | `env.NewEnv("APP_")` (`providers/env`) | Default `DotReplacer`: `APP_FOO_BAR` → `foo.bar` (single `_`, Viper / Spring style). Values stay as strings; typed decoder converts. Chain `.WithReplacer(DoubleUnderscoreReplacer)`, `.At("path")`, `.WithCoerce(true)` as needed. |
+| CLI         | `cliflag.NewCLI(map[string]any)` (`providers/cliflag`) | Pass only explicitly changed CLI flags; omit parser defaults so files/env remain authoritative unless the user typed an override |
+| DotEnv      | `dotenv.NewDotEnv("APP_", paths...)` (`providers/dotenv`) | Explicit `.env` fallback paths; actual process env values win even when set to `""`. Same replacer / `At` / `WithCoerce` knobs as `NewEnv` |
+| Labels      | `labels.NewLabels(labels, labels.LabelOptions{})` (`providers/labels`) | Low-level flat-label primitive. Default priority `PriorityStatic`; pass a higher band explicitly when the source should override |
+| DottedLabels| `labels.NewDottedLabels(labels, labels.DottedLabelOptions{})` | Explicit dotted-config labels when the key path itself is the whole DSL |
+| RoutingLabels| `labels.NewRoutingLabels(labels, labels.RoutingLabelOptions{})` | Routing DSL labels with typed scalars, comma lists, `[N]` indexes, and an optional enable gate. For Traefik-style inputs, opt into the matching `Prefix`, `EnableGate`, and `LowercaseKeys` settings explicitly |
+| LabelMap    | `labels.NewLabelMap(labels, labels.LabelOptions{})` | `map[string]string` variant of the low-level primitive |
 | K8s Downward| `k8s.NewDefault()` (`providers/k8s`) | Reads `/etc/podinfo/{labels,annotations}` as raw metadata under `k8s.metadata.*`; mounted files automatically join the shared fs watcher when `WithWatch(WatchOptions{Enabled: true})` is enabled. Use `NewExpandedDefault()` or `MetadataExpanded` only when you intentionally want config-style expansion |
 
 ### First-party KV providers in the root module (`providers/{vault,consul,http}`)
@@ -289,12 +289,11 @@ events. "Codec" indicates whether the provider needs you to choose one.
 
 | Provider | Module | Watch model | Resumable | Codec | Auth model | Build tag |
 |---|---|---|---|---|---|---|
-| `pkg/provider.Env` / `EnvReplacer` | root | load-only | — | n/a | env-var prefix | n/a |
-| `pkg/provider.CLI` | root | load-only | — | n/a | n/a (in-memory) | n/a |
-| `pkg/provider.File` | root | load-only | — | inferred from ext | filesystem | n/a |
-| `pkg/provider.Bytes` | root | load-only | — | explicit | n/a (in-memory) | n/a |
-| `pkg/provider.DotEnv` | root | load-only | — | n/a | filesystem | n/a |
-| `pkg/provider.Labels` / `LabelMap` / `DottedLabels` / `RoutingLabels` | root | load-only | — | n/a | n/a (in-memory) | n/a |
+| `providers/env` | root | load-only | — | n/a | env-var prefix | n/a |
+| `providers/cliflag` | root | load-only | — | n/a | n/a (in-memory) | n/a |
+| `providers/source` File / Bytes / HTTP Source | root | load-only | — | explicit or inferred | filesystem / in-memory / HTTP | n/a |
+| `providers/dotenv` | root | load-only | — | n/a | filesystem | n/a |
+| `providers/labels` | root | load-only | — | n/a | n/a (in-memory) | n/a |
 | `providers/http` | root | ETag + body-hash poll | — | required | static headers (Bearer, …) | `no_provider_http` |
 | `providers/consul` | root | blocking query (X-Consul-Index) | — | optional (Mode KV/Blob) | ACL token | `no_provider_consul` |
 | `providers/vault` | root | metadata-version poll | — | (JSON, built-in) | static token / `WithAuth` | `no_provider_vault` |
@@ -339,10 +338,11 @@ Merge order follows `Priority()` ascending — higher values overwrite lower:
 | `PriorityK8s` | 40 | Kubernetes ConfigMap / Secret |
 | `PriorityEnv` | 50 | Process environment variables |
 | `PriorityCLI` | 60 | Command-line flag provider (highest) |
+| `contracts.PriorityOrderedBase` | 160 | Reserved base for `WithProviderOrdered` |
 
 If picking a priority feels arbitrary, use
 `WithProviderOrdered(p1, p2, p3)`: each provider receives
-`PriorityCLI+100, +101, +102 ...` in call order; later wins. A non-zero
+`contracts.PriorityOrderedBase+i` in call order; later wins. A non-zero
 explicit priority on an input is rejected to avoid silent override.
 
 ### Resumable (continuation)

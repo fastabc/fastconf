@@ -11,22 +11,22 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/feature"
 	"github.com/fastabc/fastconf/internal/coalesce"
 	"github.com/fastabc/fastconf/internal/diffreport"
 	"github.com/fastabc/fastconf/internal/fcerr"
+	"github.com/fastabc/fastconf/internal/flog"
 	"github.com/fastabc/fastconf/internal/obs"
 	"github.com/fastabc/fastconf/internal/provenance"
 	"github.com/fastabc/fastconf/internal/registry"
 	"github.com/fastabc/fastconf/internal/secret"
 	istate "github.com/fastabc/fastconf/internal/state"
-	"github.com/fastabc/fastconf/pkg/decoder"
-	"github.com/fastabc/fastconf/pkg/discovery"
-	"github.com/fastabc/fastconf/pkg/feature"
-	"github.com/fastabc/fastconf/pkg/flog"
-	"github.com/fastabc/fastconf/pkg/provider"
-	"github.com/fastabc/fastconf/pkg/transform"
+	discovery "github.com/fastabc/fastconf/overlay"
 	"github.com/fastabc/fastconf/policy"
+	"github.com/fastabc/fastconf/providers/dotenv"
+	transform "github.com/fastabc/fastconf/transform"
 )
 
 type Option func(*Options)
@@ -115,7 +115,7 @@ type Options struct {
 
 	Generators []contracts.Generator
 
-	TypedHooks    []decoder.TypedHook
+	TypedHooks    []codec.TypedHook
 	TypedHooksOff bool
 
 	MergeKeys map[string]string
@@ -152,9 +152,9 @@ func (o *Options) RefreshLog() {
 
 func (o *Options) ApplyDeferredDotEnvAuto() {
 	for _, prefix := range o.DotEnvAutoPrefixes {
-		paths := provider.AutoDotEnvPaths(o.Dir)
+		paths := dotenv.AutoDotEnvPaths(o.Dir)
 		if len(paths) > 0 {
-			o.Providers = append(o.Providers, provider.NewDotEnv(prefix, paths...))
+			o.Providers = append(o.Providers, dotenv.NewDotEnv(prefix, paths...))
 		}
 	}
 	o.DotEnvAutoPrefixes = nil

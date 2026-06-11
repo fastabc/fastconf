@@ -45,9 +45,9 @@ import (
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 
+	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/internal/providerutil"
-	"github.com/fastabc/fastconf/pkg/decoder"
 )
 
 // maxBodyBytes is the hard upper bound on an S3 object size accepted
@@ -162,12 +162,12 @@ func newProvider(cfg Config, client API) (*Provider, error) {
 	}
 	codecName := cfg.Codec
 	if codecName == "" {
-		codecName = decoder.LookupExt(filepath.Ext(cfg.Key))
+		codecName = codec.LookupExt(filepath.Ext(cfg.Key))
 	}
 	if codecName == "" {
 		return nil, fmt.Errorf("fastconf/s3: cannot infer codec from key %q; set Config.Codec explicitly", cfg.Key)
 	}
-	codec, err := decoder.For(codecName)
+	dec, err := codec.For(codecName)
 	if err != nil {
 		return nil, fmt.Errorf("fastconf/s3: %w", err)
 	}
@@ -181,7 +181,7 @@ func newProvider(cfg Config, client API) (*Provider, error) {
 		key:       cfg.Key,
 		versionID: cfg.VersionID,
 		priority:  priority,
-		codec:     codec,
+		codec:     dec,
 		client:    client,
 	}, nil
 }

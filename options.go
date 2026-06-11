@@ -6,13 +6,13 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/internal/coalesce"
 	"github.com/fastabc/fastconf/internal/fcerr"
 	iopts "github.com/fastabc/fastconf/internal/options"
 	"github.com/fastabc/fastconf/internal/secret"
-	"github.com/fastabc/fastconf/pkg/decoder"
-	"github.com/fastabc/fastconf/pkg/discovery"
+	discovery "github.com/fastabc/fastconf/overlay"
 	"github.com/fastabc/fastconf/policy"
 )
 
@@ -30,6 +30,9 @@ const (
 	BridgeJSON CodecBridge = iota
 	BridgeYAML
 )
+
+var _ = [1]struct{}{}[iopts.CodecBridge(BridgeJSON)-iopts.BridgeJSON]
+var _ = [1]struct{}{}[iopts.CodecBridge(BridgeYAML)-iopts.BridgeYAML]
 
 // OverlayAxis describes one multi-axis overlay layer. Resolution order:
 //
@@ -253,7 +256,6 @@ func WithSource(src contracts.Source, p contracts.Parser) Option {
 
 func WithProviderOrdered(ps ...contracts.Provider) Option {
 	return func(o *options) {
-		base := contracts.PriorityCLI + 100
 		for i, p := range ps {
 			if p == nil {
 				continue
@@ -263,7 +265,7 @@ func WithProviderOrdered(ps ...contracts.Provider) Option {
 					fmt.Errorf("WithProviderOrdered: provider #%d already has Priority=%d", i, p.Priority()))
 				continue
 			}
-			o.Providers = append(o.Providers, iopts.WrapWithPriority(p, base+i))
+			o.Providers = append(o.Providers, iopts.WrapWithPriority(p, contracts.PriorityOrderedBase+i))
 		}
 	}
 }
@@ -279,7 +281,7 @@ func WithGenerator(g contracts.Generator) Option {
 	return func(o *options) { o.Generators = append(o.Generators, g) }
 }
 
-func WithTypedHook(h decoder.TypedHook) Option {
+func WithTypedHook(h codec.TypedHook) Option {
 	if h == nil {
 		return func(*options) {}
 	}
@@ -372,7 +374,7 @@ func WithProfile(p ProfileOptions) Option {
 			o.Profile = p.Single
 		}
 		if len(p.Multi) > 0 {
-			o.Profiles = iopts.TrimProfiles(o.Profiles, p.Multi)
+			o.Profiles = iopts.TrimProfiles(nil, p.Multi)
 		}
 		if p.Expr != "" {
 			o.ProfileExpr = p.Expr

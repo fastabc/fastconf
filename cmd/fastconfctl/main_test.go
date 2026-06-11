@@ -38,7 +38,7 @@ func TestBuildJSONChanges(t *testing.T) {
 
 func TestMainDoesNotDefineLocalLookupPath(t *testing.T) {
 	if packageSourceContains(t, "func lookupPath(") {
-		t.Fatal("fastconfctl must use pkg/mappath.GetDotted instead of a local lookupPath")
+		t.Fatal("fastconfctl must use confmap.GetDotted instead of a local lookupPath")
 	}
 }
 

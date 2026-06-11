@@ -25,12 +25,12 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/internal/diffreport"
 	"github.com/fastabc/fastconf/internal/fcerr"
 	iopts "github.com/fastabc/fastconf/internal/options"
 	istate "github.com/fastabc/fastconf/internal/state"
-	"github.com/fastabc/fastconf/pkg/decoder"
-	"github.com/fastabc/fastconf/pkg/profile"
+	profile "github.com/fastabc/fastconf/overlay"
 )
 
 // ReloadChanCap is the buffered capacity of the reload request channel
@@ -96,7 +96,7 @@ type M[T any] struct {
 	// typedHookPlan holds the precomputed type-paired tree of typed
 	// decoder hooks built once at construction. nil when the option set
 	// disabled both defaults and extras.
-	typedHookPlan *decoder.TypedHookPlan
+	typedHookPlan *codec.TypedHookPlan
 
 	// hashCache is the most recent (mergedJSON-sha → state-hash) pair.
 	// Populated in commit() after a successful swap; consulted there
@@ -182,19 +182,19 @@ func newManagerFromOptions[T any](o iopts.Options) *M[T] {
 	}
 }
 
-func buildTypedHookPlanFor[T any](o iopts.Options) *decoder.TypedHookPlan {
+func buildTypedHookPlanFor[T any](o iopts.Options) *codec.TypedHookPlan {
 	// Build the typed hook plan once. Defaults are included unless
 	// WithoutDefaultTypedHooks was set.
-	hooks := []decoder.TypedHook{}
+	hooks := []codec.TypedHook{}
 	if !o.TypedHooksOff {
-		hooks = append(hooks, decoder.DefaultTypedHooks()...)
+		hooks = append(hooks, codec.DefaultTypedHooks()...)
 	}
 	hooks = append(hooks, o.TypedHooks...)
 	if len(hooks) == 0 {
 		return nil
 	}
 	var zero T
-	return decoder.BuildTypedHookPlan(reflect.TypeOf(zero), hooks)
+	return codec.BuildTypedHookPlan(reflect.TypeOf(zero), hooks)
 }
 
 func validateStartupOptions(o iopts.Options) error {
@@ -202,7 +202,7 @@ func validateStartupOptions(o iopts.Options) error {
 	// errors fail loudly instead of silently matching nothing per overlay.
 	if o.ProfileExpr != "" {
 		if _, err := profile.Compile(o.ProfileExpr); err != nil {
-			return fmt.Errorf("%w: WithProfile.Expr: %v", fcerr.ErrDecode, err)
+			return fmt.Errorf("%w: WithProfile.Expr: %v", fcerr.ErrFastConf, err)
 		}
 	}
 	return nil

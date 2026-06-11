@@ -10,7 +10,7 @@ import (
 	iobs "github.com/fastabc/fastconf/internal/obs"
 	iopts "github.com/fastabc/fastconf/internal/options"
 	"github.com/fastabc/fastconf/internal/testutil"
-	"github.com/fastabc/fastconf/pkg/migration"
+	migration "github.com/fastabc/fastconf/transform"
 )
 
 // Compile-time guard: defaultStages must yield ordered stage[T] values.

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/fastabc/fastconf/pkg/source"
+	"github.com/fastabc/fastconf/providers/source"
 )
 
 func TestProfile_ProfilesMatchExpression(t *testing.T) {
@@ -111,7 +111,10 @@ func TestProfile_InvalidExprFailsAtNew(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "WithProfile.Expr") {
 		t.Fatalf("expected WithProfile.Expr decode error, got %v", err)
 	}
-	if !errors.Is(err, ErrDecode) {
-		t.Fatalf("expected ErrDecode, got %v", err)
+	if !errors.Is(err, ErrFastConf) {
+		t.Fatalf("expected ErrFastConf, got %v", err)
+	}
+	if errors.Is(err, ErrDecode) {
+		t.Fatalf("profile expression syntax must not classify as ErrDecode: %v", err)
 	}
 }

@@ -1,39 +1,46 @@
 #!/usr/bin/env bash
-# tools/loc-budget.sh — LOC budget guard for the fastconf main package.
+# loc-budget.sh — LOC budget guard (root facade + whole main module).
 #
-# Counts non-test Go lines in fastconf/ (direct files only, no sub-modules)
-# and exits 1 when the count exceeds the current release budget.
+# Check 1: non-test Go LOC of the repo-root package        (MAX_LOC)
+# Check 2: non-test Go LOC of the entire main module,
+#          excluding nested go.mod sub-modules             (MAX_TOTAL_LOC)
 #
 # Usage:
-#   bash tools/loc-budget.sh            # uses MAX_LOC default
-#   MAX_LOC=3700 bash tools/loc-budget.sh
+#   bash tools/loc-budget.sh
+#   MAX_LOC=2000 MAX_TOTAL_LOC=15500 bash tools/loc-budget.sh
 #
-# Wired into .github/workflows/ci.yml after bench-guard.sh.
-
+# Ratcheted 2026-06-12 after Wave J consolidation (see
+# docs/plans/2026-06-12-wave-j-optimization.md): budgets set to the
+# measured live values plus a one-feature margin (~300 root, ~500
+# main-module) so quiet growth is blocked; raise deliberately in a PR
+# when a feature legitimately needs the room.
 set -euo pipefail
 
-# Keep enough headroom for maintenance patches while still blocking quiet
-# growth in the root facade.
-MAX_LOC="${MAX_LOC:-2800}"
+MAX_LOC="${MAX_LOC:-2000}"
+MAX_TOTAL_LOC="${MAX_TOTAL_LOC:-16900}"
+FAIL=0
 
-# Count non-test .go files in the repo root only; implementation packages and
-# sub-modules are excluded by maxdepth 1.
-LIVE_LOC=$(find . -maxdepth 1 -name "*.go" ! -name "*_test.go" \
-  -exec wc -l {} + 2>/dev/null \
-  | awk '/total$/{print $1}')
+count() { # $@ = find args; prints summed LOC (0 when no files)
+  local n
+  n=$(find "$@" -exec wc -l {} + 2>/dev/null | awk '/total$/{s=$1} END{print s+0}')
+  [ "$n" -gt 0 ] || n=$(find "$@" -exec cat {} + 2>/dev/null | wc -l | tr -d ' ')
+  echo "$n"
+}
 
-# Handle the edge case where only one file exists (no "total" line from wc).
-if [ -z "$LIVE_LOC" ]; then
-  LIVE_LOC=$(find . -maxdepth 1 -name "*.go" ! -name "*_test.go" \
-    -exec cat {} + | wc -l)
-fi
+ROOT_LOC=$(count . -maxdepth 1 -name '*.go' ! -name '*_test.go')
+echo "Root facade live LOC: ${ROOT_LOC}  (budget: ${MAX_LOC})"
+[ "$ROOT_LOC" -le "$MAX_LOC" ] || { echo "ERROR: root LOC budget exceeded." >&2; FAIL=1; }
 
-echo "Main package (repo root) live LOC: ${LIVE_LOC}  (budget: ${MAX_LOC})"
+EXCLUDES=()
+while IFS= read -r modfile; do
+  EXCLUDES+=( ! -path "${modfile%/go.mod}/*" )
+done < <(find . -mindepth 2 -name go.mod \
+  -not -path "./.git/*" -not -path "./.worktrees/*" -not -path "./.idea/*")
 
-if [ "${LIVE_LOC}" -gt "${MAX_LOC}" ]; then
-  echo "ERROR: LOC budget exceeded (${LIVE_LOC} > ${MAX_LOC})." >&2
-  echo "  Move implementation detail out of the root facade or raise MAX_LOC deliberately." >&2
-  exit 1
-fi
+TOTAL_LOC=$(count . -type f -name '*.go' ! -name '*_test.go' \
+  ! -path './.git/*' ! -path './.worktrees/*' ! -path './.idea/*' "${EXCLUDES[@]}")
+echo "Main-module non-test LOC: ${TOTAL_LOC}  (budget: ${MAX_TOTAL_LOC})"
+[ "$TOTAL_LOC" -le "$MAX_TOTAL_LOC" ] || { echo "ERROR: main-module LOC budget exceeded." >&2; FAIL=1; }
 
-echo "OK: LOC budget respected."
+[ "$FAIL" -eq 0 ] && echo "OK: LOC budgets respected."
+exit "$FAIL"

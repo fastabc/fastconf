@@ -1,5 +1,5 @@
 // Package cuelang provides a default cuelang.org/go-backed implementation
-// of fastconf/pkg/validate.Schema. It compiles a CUE source string once at
+// of contracts.Schema. It compiles a CUE source string once at
 // construction and unifies every JSON-encoded snapshot against it.
 //
 // The package lives in its own go.mod so projects that don't need CUE
@@ -9,7 +9,7 @@
 //
 //	sch, _ := cuelang.Compile("{ port: int & >0 & <65536 }")
 //	mgr, _ := fastconf.New[Cfg](ctx,
-//	    fastconf.WithValidator(validate.NewValidator[Cfg](sch)),
+//	    fastconf.WithValidator(fastconf.NewValidator[Cfg](sch)),
 //	)
 package cuelang
 
@@ -22,7 +22,7 @@ import (
 	"cuelang.org/go/encoding/json"
 )
 
-// Schema is the cuelang.org/go-backed fastconf/pkg/validate.Schema.
+// Schema is the cuelang.org/go-backed contracts.Schema.
 type Schema struct {
 	ctx    *cue.Context
 	schema cue.Value

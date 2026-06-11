@@ -6,7 +6,7 @@ import (
 	"testing/fstest"
 
 	"github.com/fastabc/fastconf"
-	"github.com/fastabc/fastconf/pkg/feature"
+	"github.com/fastabc/fastconf/feature"
 )
 
 type cfg121 struct {

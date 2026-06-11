@@ -140,6 +140,7 @@ port = 8080
 	got := mgr.Get()
 	if got == nil {
 		t.Fatal("Get returned nil")
+		return
 	}
 	if got.Name != "edge" {
 		t.Errorf("Name = %q, want edge", got.Name)

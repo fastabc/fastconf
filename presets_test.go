@@ -6,7 +6,6 @@ import (
 	"testing/fstest"
 
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/pkg/generator"
 )
 
 func TestPresetTesting(t *testing.T) {
@@ -134,7 +133,7 @@ func (priorityGen) Generate(_ context.Context) ([]contracts.RawLayer, error) {
 	}, nil
 }
 
-func TestGenerator_BuildInfoOverlaysFiles(t *testing.T) {
+func TestGenerator_OverlaysFiles(t *testing.T) {
 	fs := fstest.MapFS{
 		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte(`
 app:
@@ -144,12 +143,7 @@ app:
 	}
 	mgr, err := New[cfg124](context.Background(),
 		WithFS(fs),
-		WithGenerator(&generator.BuildInfo{
-			Keys: map[string]string{
-				"app.version": "1.2.3",
-				"app.commit":  "abc",
-			},
-		}),
+		WithGenerator(buildInfoGen{}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -165,4 +159,16 @@ app:
 	if got.App.Commit != "abc" {
 		t.Fatalf("generator should set commit: got %q", got.App.Commit)
 	}
+}
+
+type buildInfoGen struct{}
+
+func (buildInfoGen) Name() string { return "buildinfo" }
+
+func (buildInfoGen) Generate(_ context.Context) ([]contracts.RawLayer, error) {
+	return []contracts.RawLayer{{
+		Name:  "info",
+		Codec: "json",
+		Data:  []byte(`{"app":{"version":"1.2.3","commit":"abc"}}`),
+	}}, nil
 }

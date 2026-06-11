@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/fastabc/fastconf/feature"
 	istate "github.com/fastabc/fastconf/internal/state"
 	"github.com/fastabc/fastconf/policy"
 )
@@ -77,19 +78,24 @@ func (b *PlanBuilder[T]) Run(ctx context.Context) (*PlanResult[T], error) {
 		return nil, err
 	}
 
-	hash, err := canonicalHash(pc.target)
+	hash, err := canonicalHashBytes(pc.mergedJSON, pc.target, m.opts.CodecBridge)
 	if err != nil {
 		return nil, fmt.Errorf("fastconf: hash: %w", err)
 	}
+	var features map[string]feature.Rule
+	if m.opts.FeatureExtract != nil {
+		features = m.opts.FeatureExtract(pc.target)
+	}
+	now := time.Now().UnixNano()
 	proposed := istate.NewSnapshot(
 		pc.target,
 		hash,
-		time.Now().UnixNano(),
+		now,
 		pc.sources,
 		m.gen.Load(), // not incremented; this is dry-run
 		pc.origins,
-		istate.ReloadCause{Reason: "plan", At: time.Now().UnixNano(), Tenant: m.tenant},
-		nil,
+		istate.ReloadCause{Reason: "plan", At: now, Tenant: m.tenant},
+		features,
 		m.opts.SecretRedactor,
 	)
 

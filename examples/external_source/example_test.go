@@ -6,9 +6,9 @@ import (
 	"testing/fstest"
 
 	"github.com/fastabc/fastconf"
+	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/pkg/parser"
-	"github.com/fastabc/fastconf/pkg/source"
+	"github.com/fastabc/fastconf/providers/source"
 )
 
 type externalSourceExampleConfig struct {
@@ -75,7 +75,7 @@ func Example_externalSource() {
 		fastconf.WithFS(fstest.MapFS{
 			"conf.d/base/.keep": &fstest.MapFile{Data: []byte("")},
 		}),
-		fastconf.WithSource(seed, parser.YAML()),
+		fastconf.WithSource(seed, codec.YAMLParser()),
 		fastconf.WithProvider(demo),
 	)
 	if err != nil {

@@ -55,7 +55,7 @@ tenets:
 | Multi-axis overlays (`regions/<r>`, `zones/<z>`, …)   | 3000+              | Configured via `WithMultiAxisOverlays` |
 | `_meta.yaml` `mergeKeys`                              | n/a                | Drives strategic merge for list-of-object slices |
 | `generators`                                          | ~7000              | Between file discovery and providers |
-| Providers (KV, env, CLI, Vault, Consul, NATS, …)      | per provider       | Explicit `Priority()` integer; `pkg/provider.NewBytes` defaults to 9000 |
+| Providers (KV, env, CLI, Vault, Consul, NATS, …)      | per provider       | Explicit `Priority()` integer; `providers/source.NewBytes` defaults to 9000 |
 | `WithSourceOverride` (one-shot)                       | `PriorityCLI+1000` | Single-reload transient layer |
 
 File extensions decide kind: `.yaml/.json/.toml` → `MergeLayer`;
@@ -106,7 +106,7 @@ Any stage failure preserves the previous `*State[T]` and publishes one
 | Audit              | `AuditSink`, `JSONAuditSink`, `WithAuditSink` |
 | Metrics            | `MetricsSink` + `Provider / Stage / Render` extension interfaces |
 | Tracing            | `Tracer` interface + `observability/otel` sub-module |
-| Feature flags      | `pkg/feature.Rule`, `WithFeatureRules[T]`, `fastconf.Eval[T,V]` |
+| Feature flags      | `feature.Rule`, `WithFeatureRules[T]`, `fastconf.Eval[T,V]` |
 | Diff reporter      | `DiffReporter`, async post-commit fan-out |
 | Tenant isolation   | `TenantManager[T]` (independent of `Manager[T]`) |
 | Plan dry-run       | `Manager.Plan().WithHostname(s).Run(ctx) (*PlanResult[T], error)` |
@@ -121,7 +121,7 @@ Any stage failure preserves the previous `*State[T]` and publishes one
 |-----------------------------------------|:--:|
 | `.` (root package)                      | ✅ |
 | `contracts/`                            | inside root |
-| `pkg/*` (`decoder`, `discovery`, `flog`, `feature`, `generator`, `mappath`, `merger`, `migration`, `parser`, `profile`, `provider`, `source`, `transform`, `typed`, `validate`) | inside root |
+| Domain packages (`codec`, `confmap`, `overlay`, `feature`, `transform`, `providers/*`) | inside root |
 | `internal/*` (`coalesce`, `diffreport`, `fcerr`, `fctypes`, `manager`, `obs`, `options`, `pipeline`, `provenance`, `registry`, `secret`, `state`, `tenant`, `testutil`, `typeinfo`, `watcher`) | inside root |
 | `integrations/bus`, `integrations/openfeature`, `integrations/render` | inside root |
 | `integrations/log/{phuslu,zerolog}`     | ✅ (each) |

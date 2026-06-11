@@ -55,11 +55,9 @@ func (c *fakeClient) XRead(ctx context.Context, stream, lastID string, block tim
 		if len(next) > 0 {
 			return next, nil
 		}
-		// First-time tail subscribe — promote lastID to current head once.
-		if lastID == "$" {
-			// Treat first wait under "$" as ready to accept new entries; we
-			// detect "new" by snapshot length before/after wait.
-		}
+		// First-time tail subscribe under "$": treat the first wait as ready
+		// to accept new entries, detecting "new" by snapshot length around
+		// the wait (no head promotion needed here).
 		preLen := len(c.entries[stream])
 		// wait until either deadline or new append
 		done := make(chan struct{})

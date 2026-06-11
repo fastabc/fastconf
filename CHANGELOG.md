@@ -8,6 +8,47 @@ for the step-by-step migration guide.
 
 ### Breaking changes (API)
 
+- **`State.Lookup` removed.** Use `State.Explain(path)` for the same
+  provenance chain. `LookupStrict` is unchanged.
+
+- **Provider / generator failures have dedicated sentinels.** Errors from
+  `Provider.Load` now satisfy `errors.Is(err, fastconf.ErrProvider)`;
+  generator execution failures satisfy `errors.Is(err, fastconf.ErrGenerator)`.
+  These failures no longer classify as `ErrDecode`.
+
+- **`pkg/flog` moved internal.** FastConf's fluent logging wrapper is now
+  an implementation detail under `internal/flog`; applications should keep
+  using their own logger and pass it with `WithLogger`.
+
+- **Public helper packages moved out of `pkg/`.** The old import paths remain
+  as deprecated forwarding shims for the v0.20 migration window. Update new
+  code to import the domain packages directly:
+
+  | Old import path | New import path |
+  |---|---|
+  | `github.com/fastabc/fastconf/pkg/decoder` | `github.com/fastabc/fastconf/codec` |
+  | `github.com/fastabc/fastconf/pkg/parser` | `github.com/fastabc/fastconf/codec` |
+  | `github.com/fastabc/fastconf/pkg/merger` | `github.com/fastabc/fastconf/confmap` |
+  | `github.com/fastabc/fastconf/pkg/mappath` | `github.com/fastabc/fastconf/confmap` |
+  | `github.com/fastabc/fastconf/pkg/typed` | `github.com/fastabc/fastconf/confmap` |
+  | `github.com/fastabc/fastconf/pkg/discovery` | `github.com/fastabc/fastconf/overlay` |
+  | `github.com/fastabc/fastconf/pkg/profile` | `github.com/fastabc/fastconf/overlay` |
+  | `github.com/fastabc/fastconf/pkg/transform` | `github.com/fastabc/fastconf/transform` |
+  | `github.com/fastabc/fastconf/pkg/migration` | `github.com/fastabc/fastconf/transform` |
+  | `github.com/fastabc/fastconf/pkg/feature` | `github.com/fastabc/fastconf/feature` |
+  | `github.com/fastabc/fastconf/pkg/provider` | `github.com/fastabc/fastconf/providers/{env,cliflag,dotenv,labels}` |
+  | `github.com/fastabc/fastconf/pkg/cliadapter` | `github.com/fastabc/fastconf/providers/cliflag` |
+  | `github.com/fastabc/fastconf/pkg/source` | `github.com/fastabc/fastconf/providers/source` |
+  | `github.com/fastabc/fastconf/pkg/validate` | `contracts.Schema` + `fastconf.NewValidator` |
+
+- **`pkg/generator` removed.** Keep using the stable `contracts.Generator`
+  interface and return `contracts.RawLayer` values from your own generator
+  implementations.
+
+- **`WithProfile(ProfileOptions{Multi: ...})` is last-write-wins.** Multiple
+  calls replace the active multi-profile set instead of appending. To activate
+  a union, pass the full list in one `Multi` value.
+
 - **FastConf struct metadata now uses `fc:"..."`.** The previous
   project-name tag key is removed with no compatibility fallback. Update
   field defaults, field metadata, and secret redaction markers:

@@ -2,7 +2,7 @@
 
 ## Codec & bridge
 
-YAML, JSON, and TOML are registered at `init` by `pkg/decoder`. You do
+YAML, JSON, and TOML are registered at `init` by `codec`. You do
 not need to call `RegisterCodec` for these formats — they are immediately
 available to the discovery layer and to providers that take a `Codec`.
 
@@ -41,10 +41,10 @@ type Transformer interface {
 Transformers run after merge and before decode; they receive the merged
 `map[string]any` and may safely mutate the tree.
 
-### Built-in transformers (`pkg/transform`)
+### Built-in transformers (`transform`)
 
 ```go
-import "github.com/fastabc/fastconf/pkg/transform"
+import "github.com/fastabc/fastconf/transform"
 
 fastconf.WithTransformers(
     transform.Defaults(map[string]any{                 // recursive merge — does not overwrite
@@ -86,13 +86,16 @@ are checked in the same stage.
 ### Migration
 
 ```go
-import "github.com/fastabc/fastconf/pkg/migration"
+import "github.com/fastabc/fastconf/transform"
 
-chain := migration.NewChain(
-    migration.Step{From: "1", To: "2", Apply: migrateV1toV2},
-    migration.Step{From: "2", To: "3", Apply: migrateV2toV3},
+chain, _ := transform.New(3,
+    transform.Migration{From: 1, To: 2, Apply: migrateV1toV2},
+    transform.Migration{From: 2, To: 3, Apply: migrateV2toV3},
 )
-fastconf.WithMigrations(chain.Migrate)
+fastconf.WithMigrations(func(root map[string]any) error {
+    _, err := chain.Run(root)
+    return err
+})
 ```
 
 Or inline:

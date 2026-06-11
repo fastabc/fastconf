@@ -5,7 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/fastabc/fastconf/pkg/source"
+	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/providers/source"
 )
 
 func TestErrFastConfHierarchy(t *testing.T) {
@@ -28,6 +29,8 @@ func TestAllSentinelsChainToErrFastConf(t *testing.T) {
 		"ErrClosed":     ErrClosed,
 		"ErrValidator":  ErrValidator,
 		"ErrTransform":  ErrTransform,
+		"ErrProvider":   ErrProvider,
+		"ErrGenerator":  ErrGenerator,
 		"ErrNoOrigin":   ErrNoOrigin,
 	}
 	for name, e := range sentinels {
@@ -37,6 +40,54 @@ func TestAllSentinelsChainToErrFastConf(t *testing.T) {
 		if !errors.Is(e, e) {
 			t.Errorf("%s does not satisfy Is(self)", name)
 		}
+	}
+}
+
+var errFailingProvider = errors.New("provider boom")
+
+type failingProvider struct{}
+
+func (failingProvider) Name() string  { return "failing" }
+func (failingProvider) Priority() int { return 10 }
+func (failingProvider) Load(context.Context) (map[string]any, error) {
+	return nil, errFailingProvider
+}
+func (failingProvider) Watch(context.Context) (<-chan contracts.Event, error) {
+	return nil, nil
+}
+
+func TestErrProviderClassification(t *testing.T) {
+	_, err := New[map[string]any](context.Background(),
+		WithFS(emptyFS()),
+		WithProvider(failingProvider{}),
+	)
+	if !errors.Is(err, ErrProvider) {
+		t.Fatalf("want ErrProvider, got %v", err)
+	}
+	if errors.Is(err, ErrDecode) {
+		t.Fatalf("provider load failure must not classify as ErrDecode: %v", err)
+	}
+}
+
+var errFailingGenerator = errors.New("generator boom")
+
+type failingGenerator struct{}
+
+func (failingGenerator) Name() string { return "failing" }
+func (failingGenerator) Generate(context.Context) ([]contracts.RawLayer, error) {
+	return nil, errFailingGenerator
+}
+
+func TestErrGeneratorClassification(t *testing.T) {
+	_, err := New[map[string]any](context.Background(),
+		WithFS(emptyFS()),
+		WithGenerator(failingGenerator{}),
+	)
+	if !errors.Is(err, ErrGenerator) {
+		t.Fatalf("want ErrGenerator, got %v", err)
+	}
+	if errors.Is(err, ErrDecode) {
+		t.Fatalf("generator failure must not classify as ErrDecode: %v", err)
 	}
 }
 

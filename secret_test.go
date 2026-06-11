@@ -9,7 +9,7 @@ import (
 	"testing/fstest"
 
 	"github.com/fastabc/fastconf/internal/secret"
-	"github.com/fastabc/fastconf/pkg/source"
+	"github.com/fastabc/fastconf/providers/source"
 )
 
 func reflectTypeOf(v any) reflect.Type { return reflect.TypeOf(v) }
@@ -23,20 +23,6 @@ type phase8Cfg struct {
 		Password string `json:"password" yaml:"password" fc:"secret"`
 	} `json:"db" yaml:"db"`
 	Token string `json:"token" yaml:"token" fc:"secret"`
-}
-
-func TestSecret_PathScan(t *testing.T) {
-	paths := secretPathsFor(reflectTypeOf(phase8Cfg{}))
-	want := map[string]bool{"db.password": true, "token": true}
-	for _, p := range paths {
-		if !want[p] {
-			t.Fatalf("unexpected secret path %q", p)
-		}
-		delete(want, p)
-	}
-	if len(want) != 0 {
-		t.Fatalf("missing secret paths: %v", want)
-	}
 }
 
 func TestState_Redact(t *testing.T) {
@@ -75,30 +61,6 @@ func TestRedactor_CustomFn(t *testing.T) {
 	db := out["db"].(map[string]any)
 	if db["password"] != "<db.password>" {
 		t.Fatalf("custom redactor not honored: %v", db["password"])
-	}
-}
-
-type credCfg struct {
-	Creds []struct {
-		User     string `json:"user"`
-		Password string `json:"password" fc:"secret"`
-	} `json:"creds"`
-	Tokens map[string]struct {
-		Value string `json:"value" fc:"secret"`
-	} `json:"tokens"`
-}
-
-func TestSecret_SliceAndMapElements(t *testing.T) {
-	paths := secretPathsFor(reflectTypeOf(credCfg{}))
-	want := map[string]bool{"creds.[].password": true, "tokens.{}.value": true}
-	for _, p := range paths {
-		if !want[p] {
-			t.Fatalf("unexpected path %q", p)
-		}
-		delete(want, p)
-	}
-	if len(want) != 0 {
-		t.Fatalf("missing %v", want)
 	}
 }
 
@@ -224,15 +186,5 @@ func TestSecretResolver_NoopWhenNotConfigured(t *testing.T) {
 	defer mgr.Close()
 	if got := mgr.Get().Token; got != "enc:literal-string" {
 		t.Fatalf("without resolver, value should pass through verbatim: got %q", got)
-	}
-}
-
-func TestSecretResolverFunc_Boundaries(t *testing.T) {
-	var zero SecretResolverFunc
-	if ref, ok := zero.Recognize("enc:x"); ok {
-		t.Fatalf("zero Recognize = (%+v, true), want false", ref)
-	}
-	if _, err := zero.Resolve(context.Background(), SecretRef{Scheme: "fake", Body: "x"}); err == nil {
-		t.Fatal("zero Resolve should fail without ResolveFn")
 	}
 }

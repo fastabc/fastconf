@@ -3,7 +3,7 @@ package manager
 import (
 	"reflect"
 
-	"github.com/fastabc/fastconf/pkg/flog"
+	"github.com/fastabc/fastconf/internal/flog"
 )
 
 // warnIfYAMLOnlyTags scans T's exported fields once at construction time
@@ -20,9 +20,6 @@ func warnIfYAMLOnlyTags[T any](logger *flog.Logger) {
 		return
 	}
 	t := reflect.TypeFor[T]()
-	if t == nil {
-		return
-	}
 	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}

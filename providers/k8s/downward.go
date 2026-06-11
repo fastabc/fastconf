@@ -56,7 +56,7 @@ import (
 	"strings"
 
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/pkg/mappath"
+	mappath "github.com/fastabc/fastconf/confmap"
 )
 
 // Default Downward API file paths set by the Kubernetes documentation.

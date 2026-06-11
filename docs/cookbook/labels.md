@@ -8,17 +8,17 @@ FastConf 按来源语义区分 label。先按这条决策树挑入口，然后�
 你的 labels 来自哪里？
 │
 ├── docker run --label / docker-compose deploy.labels
-│       → provider.NewLabelMap(m, LabelOptions{})
+│       → labels.NewLabelMap(m, LabelOptions{})
 │         （不透明 metadata，值保持 string）
 │
 ├── traefik docker / swarm provider（labels 是路由 DSL）
-│       → provider.NewRoutingLabels(list, RoutingLabelOptions{
+│       → labels.NewRoutingLabels(list, RoutingLabelOptions{
 │             EnableGate: "traefik.enable",
 │         })
 │         （typed scalar + 逗号 list + [N] index + enable gate）
 │
 ├── 你自己定义的 dotted 应用配置（如 myapp.db.dsn=...）
-│       → provider.NewDottedLabels(list, DottedLabelOptions{})
+│       → labels.NewDottedLabels(list, DottedLabelOptions{})
 │         （显式表达"这些 key 就是 dotted config"）
 │
 ├── K8s Downward API（metadata.labels / annotations 投射到 volume）
@@ -30,7 +30,7 @@ FastConf 按来源语义区分 label。先按这条决策树挑入口，然后�
 │         （transformer，不是 provider；原地展开成子树）
 │
 └── 不确定 / 调用方自己决定 separator + priority
-        → provider.NewLabels / NewLabelMap（低层 primitive）
+        → labels.NewLabels / NewLabelMap（低层 primitive）
 ```
 
 **反例**：不要把 K8s `metadata.labels` 喂给 `NewDottedLabels` —— `app.kubernetes.io/name`
@@ -42,13 +42,13 @@ FastConf 按来源语义区分 label。先按这条决策树挑入口，然后�
 
 | 心智模型 | 推荐 API | 默认语义 |
 |---|---|---|
-| 原始 metadata | `provider.NewLabels(...)` / `provider.NewLabelMap(...)` | 低层 primitive；值保留 string；默认 `PriorityStatic` |
-| 明确把 label 当配置 DSL | `provider.NewDottedLabels(...)` / `provider.NewDottedLabelMap(...)` | 显式表达"这些 key 就是 dotted config" |
-| 路由 DSL labels | `provider.NewRoutingLabels(...)` / `provider.NewRoutingLabelMap(...)` | typed scalar + list + `[N]` index；可选整组 enable gate |
+| 原始 metadata | `labels.NewLabels(...)` / `labels.NewLabelMap(...)` | 低层 primitive；值保留 string；默认 `PriorityStatic` |
+| 明确把 label 当配置 DSL | `labels.NewDottedLabels(...)` / `labels.NewDottedLabelMap(...)` | 显式表达"这些 key 就是 dotted config" |
+| 路由 DSL labels | `labels.NewRoutingLabels(...)` / `labels.NewRoutingLabelMap(...)` | typed scalar + list + `[N]` index；可选整组 enable gate |
 | 配置文件里的 dotted label 字段 | `transform.ExpandLabels(at, to, opts)` | 把已有 list / map 原地展开成配置子树 |
 | K8s Downward API metadata | `k8s.NewDefault()` | 默认 raw + namespaced；`WithWatch(WatchOptions{Enabled: true})` 时跟随 projected-volume refresh |
 
-底层都复用 `pkg/mappath.ExpandLabels`；区别不在 merge 引擎，而在**调用方表达的意图**。
+底层都复用 `confmap.ExpandLabels`；区别不在 merge 引擎，而在**调用方表达的意图**。
 
 ---
 
@@ -115,14 +115,16 @@ routing:
 `NewDottedLabels` / `NewDottedLabelMap`：
 
 ```go
-labels := []string{
+import labelprovider "github.com/fastabc/fastconf/providers/labels"
+
+labelInput := []string{
     "server.addr=:9090",
     "feature.rollout=canary",
 }
 
 mgr, _ := fastconf.New[Cfg](ctx,
     fastconf.WithDir("conf.d"),
-    fastconf.WithProvider(provider.NewDottedLabels(labels, provider.DottedLabelOptions{})),
+    fastconf.WithProvider(labelprovider.NewDottedLabels(labelInput, labelprovider.DottedLabelOptions{})),
 )
 ```
 
@@ -132,7 +134,7 @@ annotations := map[string]string{
 }
 
 mgr, _ := fastconf.New[Cfg](ctx,
-    fastconf.WithProvider(provider.NewDottedLabelMap(annotations, provider.DottedLabelOptions{
+    fastconf.WithProvider(labelprovider.NewDottedLabelMap(annotations, labelprovider.DottedLabelOptions{
         Prefix:      "config.",
         StripPrefix: true,
     })),
@@ -144,7 +146,11 @@ mgr, _ := fastconf.New[Cfg](ctx,
 `PriorityStatic`，不会再隐式带入 K8s controller 假设：
 
 ```go
-fastconf.WithProvider(provider.NewLabelMap(labels, provider.LabelOptions{
+labelMap := map[string]string{
+    "app": "fastconf",
+}
+
+fastconf.WithProvider(labelprovider.NewLabelMap(labelMap, labelprovider.LabelOptions{
     Priority: contracts.PriorityK8s, // 只有调用方明确需要时才提升
 }))
 ```
@@ -162,7 +168,7 @@ fastconf.WithProvider(provider.NewLabelMap(labels, provider.LabelOptions{
 - 可选的整组 gate，例如 `routing.enable=false` 时跳过整组 labels。
 
 ```go
-labels := []string{
+labelInput := []string{
     "routing.enable=true",
     "routing.http.services.api.loadbalancer.server.port=8080",
     "routing.http.routers.api.entrypoints=web,websecure",
@@ -171,7 +177,7 @@ labels := []string{
 }
 
 mgr, _ := fastconf.New[Cfg](ctx,
-    fastconf.WithProvider(provider.NewRoutingLabels(labels, provider.RoutingLabelOptions{
+    fastconf.WithProvider(labelprovider.NewRoutingLabels(labelInput, labelprovider.RoutingLabelOptions{
         EnableGate: "routing.enable",
     })),
 )

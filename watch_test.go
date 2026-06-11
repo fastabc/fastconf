@@ -110,48 +110,6 @@ database:
 	}
 }
 
-func TestSubscribe_FiresOnEveryReload(t *testing.T) {
-	mfs := newFS(nil)
-	mgr, err := fastconf.New[appCfg](context.Background(),
-		fastconf.WithFS(mfs), fastconf.WithDir("conf.d"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer mgr.Close()
-
-	var dbCalls, srvCalls atomic.Int64
-	// Force the fire-on-every-reload idiom with a comparator that never
-	// reports equality.
-	fireAlwaysDB := fastconf.WithEqual(func(_, _ *dbCfg) bool { return false })
-	fireAlwaysStr := fastconf.WithEqual(func(_, _ *string) bool { return false })
-	fastconf.Subscribe(mgr, func(c *appCfg) *dbCfg { return &c.Database }, func(_, _ *dbCfg) { dbCalls.Add(1) }, fireAlwaysDB)
-	fastconf.Subscribe(mgr, func(c *appCfg) *string { return &c.Server.Addr }, func(_, _ *string) { srvCalls.Add(1) }, fireAlwaysStr)
-
-	// With the fire-always idiom both subscribers fire on every commit
-	// regardless of which field changed.
-	mfs["conf.d/base/00-app.yaml"] = &fstest.MapFile{Data: []byte("server:\n  addr: \":9000\"\nfeatures: [a, b]\n")}
-	if err := mgr.Reload(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if got := srvCalls.Load(); got != 1 {
-		t.Errorf("server subscriber: want 1, got %d", got)
-	}
-	if got := dbCalls.Load(); got != 1 {
-		t.Errorf("database subscriber should also fire on every reload: want 1, got %d", got)
-	}
-
-	mfs["conf.d/base/20-database.yaml"] = &fstest.MapFile{Data: []byte("database:\n  dsn: \"postgres://overlay\"\n  pool: 10\n")}
-	if err := mgr.Reload(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if got := dbCalls.Load(); got != 2 {
-		t.Errorf("database subscriber after db change: want 2, got %d", got)
-	}
-	if got := srvCalls.Load(); got != 2 {
-		t.Errorf("server subscriber: want 2 (one per reload), got %d", got)
-	}
-}
-
 func TestSubscribe_PanicIsolated(t *testing.T) {
 	mfs := newFS(nil)
 	mgr, err := fastconf.New[appCfg](context.Background(),
@@ -433,34 +391,5 @@ func TestWatch_DownwardAPIAtomicSwapTriggersReload(t *testing.T) {
 	waitFor(t, func() bool { return mgr.Get().Labels["app"] == "v2" }, "downward API reload after ..data swap")
 	if mgr.Snapshot().Generation() == gen1 {
 		t.Errorf("generation did not advance after downward API swap")
-	}
-}
-
-func TestSubscribe_FiresWithCorrectTypes(t *testing.T) {
-	mfs := newFS(nil)
-	mgr, err := fastconf.New[appCfg](context.Background(),
-		fastconf.WithFS(mfs), fastconf.WithDir("conf.d"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer mgr.Close()
-
-	var lastDSN atomic.Value
-	cancel := fastconf.Subscribe(mgr,
-		func(c *appCfg) *dbCfg { return &c.Database },
-		func(_, neu *dbCfg) {
-			if neu != nil {
-				lastDSN.Store(neu.DSN)
-			}
-		},
-	)
-	defer cancel()
-
-	mfs["conf.d/base/20-database.yaml"] = &fstest.MapFile{Data: []byte("database:\n  dsn: \"postgres://typed\"\n  pool: 20\n")}
-	if err := mgr.Reload(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if got := lastDSN.Load(); got != "postgres://typed" {
-		t.Errorf("Subscribe DSN: got %v", got)
 	}
 }

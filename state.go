@@ -5,10 +5,10 @@ import (
 	"strings"
 
 	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/feature"
 	"github.com/fastabc/fastconf/internal/provenance"
 	"github.com/fastabc/fastconf/internal/secret"
 	istate "github.com/fastabc/fastconf/internal/state"
-	"github.com/fastabc/fastconf/pkg/feature"
 )
 
 type State[T any] istate.State[T]
@@ -103,13 +103,6 @@ func (s *State[T]) Origins() *provenance.Index {
 
 func (s *State[T]) Explain(path string) []provenance.Origin {
 	return unwrapState(s).Explain(path)
-}
-
-// Lookup returns the provenance chain for path. It is identical to [Explain].
-//
-// Deprecated: use [Explain] instead. Lookup will be removed in a future version.
-func (s *State[T]) Lookup(path string) []provenance.Origin {
-	return unwrapState(s).Lookup(path)
 }
 
 func (s *State[T]) LookupStrict(path string) ([]provenance.Origin, error) {

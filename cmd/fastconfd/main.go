@@ -30,7 +30,7 @@ import (
 
 	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/cmd/internal/cli"
-	"github.com/fastabc/fastconf/pkg/flog"
+	"github.com/fastabc/fastconf/internal/flog"
 )
 
 // version is injected at build time via `-ldflags "-X main.version=<tag>"`

@@ -32,6 +32,7 @@ sources / generators / providers
 ```
 manager.go           — Manager[T] wrapper, MustNew, Subscribe, TenantManager facade
 state.go             — State[T], DiffEntry/DiffChange, Dump, SourcePriorityBand
+validate.go          — Schema validator adapter
 options.go           — WithXxx option builders + ProfileOptions / WatchOptions / CoalesceOptions
 aliases.go           — codec, secret, field-meta public facades
 errors.go            — public sentinel errors and ReloadError stream
@@ -55,16 +56,15 @@ internal/provenance  — Origin + OriginIndex
 
 ```
 fastconf  →  internal/{manager,options,state,tenant,obs}
-          →  pkg/{discovery,decoder,flog,merger,provider,validate}
+          →  {codec,confmap,overlay,transform,feature,providers/*,contracts}
           →  contracts
 
-pkg/* MUST NOT depend on each other except via this whitelist
-(kept in sync with tools/check-deps.sh):
-  pkg/discovery → pkg/profile
-  pkg/generator → pkg/mappath
-  pkg/provider  → pkg/decoder
-  pkg/provider  → pkg/mappath
-  pkg/transform → pkg/mappath
+Public domain packages form a small DAG:
+  codec       → contracts
+  overlay     → codec
+  transform   → confmap
+  providers/* → codec, confmap, contracts
+
 internal/* dependencies are implementation details; public code imports the
 root package facade.
 ```
@@ -132,7 +132,6 @@ type State[T any] struct {
 }
 
 func (s *State[T]) Explain(path string) []Origin             // oldest → newest override chain
-func (s *State[T]) Lookup(path string) []Origin              // deprecated alias of Explain
 func (s *State[T]) LookupStrict(path string) ([]Origin, error)
 func (s *State[T]) Origins() *OriginIndex
 func (s *State[T]) Introspect() *Introspection               // Keys / Settings / At
@@ -208,47 +207,50 @@ fastconf.WithProfile(fastconf.ProfileOptions{Multi: []string{"prod", "eu"}})
 
 FastConf splits the extension surface in two:
 
-- **`Source`** (`pkg/source`) — a byte-stream contributor (file, http,
-  inline bytes). Paired with a **`Parser`** (`pkg/parser`) at the call
+- **`Source`** (`providers/source`) — a byte-stream contributor (file, http,
+  inline bytes). Paired with a **`Parser`** (`codec`) at the call
   site, koanf-style, so the codec is named where the layer is declared.
-- **`Provider`** (`pkg/provider`) — an already-structured contributor
+- **`Provider`** (`providers/*`) — an already-structured contributor
   (env, cli, KV with one key per setting). No Parser needed.
 
 | Option | Purpose |
 |---|---|
 | `WithSource(src, parser)` | Bind a byte-blob Source with a Parser. Pass `nil` Parser to auto-pick via content-type hint |
 | `WithProvider(p)` | Register an already-structured provider |
-| `WithProviderOrdered(p...)` | Auto-assigns `CLI+100, +101, ...` in call order; errors if input has non-zero priority |
+| `WithProviderOrdered(p...)` | Auto-assigns `contracts.PriorityOrderedBase+i` in call order; errors if input has non-zero priority |
 | `WithProviderByName(name, cfg)` | Construct via factory registry (resolved after all options applied) |
 | `WithProviderRegistry(r)` | Manager-local `*ProviderRegistry` — local wins, then global default |
 | `WithGenerator(g)` | Synthesise a `[]RawLayer` in the assemble stage (e.g. BuildInfo) |
 | `WithDotEnvAuto(prefix)` | Auto-discover a `.env` file under `WithDir` |
 
-`pkg/source` and `pkg/parser` factory functions:
+`providers/source`, `codec`, and `providers/*` factory functions:
 
 ```go
 import (
     "github.com/fastabc/fastconf"
-    "github.com/fastabc/fastconf/pkg/parser"
-    "github.com/fastabc/fastconf/pkg/provider"
-    "github.com/fastabc/fastconf/pkg/source"
-    "github.com/fastabc/fastconf/pkg/transform"
+    "github.com/fastabc/fastconf/codec"
+    "github.com/fastabc/fastconf/providers/cliflag"
+    "github.com/fastabc/fastconf/providers/dotenv"
+    "github.com/fastabc/fastconf/providers/env"
+    "github.com/fastabc/fastconf/providers/labels"
+    "github.com/fastabc/fastconf/providers/source"
+    "github.com/fastabc/fastconf/transform"
 )
 
 fastconf.New[Cfg](ctx,
     // Byte-blob layers — explicit Source × Parser pairing:
-    fastconf.WithSource(source.NewFile("/etc/app/config.yaml"), parser.YAML()),
-    fastconf.WithSource(source.NewHTTP("https://kv/config"), parser.JSON()),
+    fastconf.WithSource(source.NewFile("/etc/app/config.yaml"), codec.YAMLParser()),
+    fastconf.WithSource(source.NewHTTP("https://kv/config"), codec.JSONParser()),
     fastconf.WithSource(source.NewBytes("inline", "yaml", data), nil), // nil = auto-bind by content-type
 
     // Structured providers — no Parser slot:
-    fastconf.WithProvider(provider.NewEnv("APP_")),                              // APP_DATABASE_DSN → database.dsn (default DotReplacer)
-    fastconf.WithProvider(provider.NewEnv("APP_").WithReplacer(provider.DoubleUnderscoreReplacer)), // preserves single "_", splits on "__"
-    fastconf.WithProvider(provider.NewEnv("APP_").At("config.runtime")),         // graft env tree under a sub-path
-    fastconf.WithProvider(provider.NewCLI(cliMap)),                       // explicit CLI overrides only
-    fastconf.WithProvider(provider.NewDotEnv("APP_", ".env")),                   // explicit .env fallback paths
-    fastconf.WithProvider(provider.NewDottedLabels(labels, provider.DottedLabelOptions{})), // explicit dotted config labels
-    fastconf.WithProvider(provider.NewRoutingLabels(labels, provider.RoutingLabelOptions{})), // routing DSL labels (typed/list/index semantics)
+    fastconf.WithProvider(env.NewEnv("APP_")),                                   // APP_DATABASE_DSN → database.dsn (default DotReplacer)
+    fastconf.WithProvider(env.NewEnv("APP_").WithReplacer(env.DoubleUnderscoreReplacer)), // preserves single "_", splits on "__"
+    fastconf.WithProvider(env.NewEnv("APP_").At("config.runtime")),              // graft env tree under a sub-path
+    fastconf.WithProvider(cliflag.NewCLI(cliMap)),                               // explicit CLI overrides only
+    fastconf.WithProvider(dotenv.NewDotEnv("APP_", ".env")),                     // explicit .env fallback paths
+    fastconf.WithProvider(labels.NewDottedLabels(labelInput, labels.DottedLabelOptions{})), // explicit dotted config labels
+    fastconf.WithProvider(labels.NewRoutingLabels(labelInput, labels.RoutingLabelOptions{})), // routing DSL labels (typed/list/index semantics)
     fastconf.WithTransformers(transform.ExpandLabels(at, to, opts)),
 )
 ```

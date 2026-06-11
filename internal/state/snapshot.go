@@ -2,13 +2,15 @@ package state
 
 import (
 	"context"
+	"maps"
 	"reflect"
+	"slices"
 
+	"github.com/fastabc/fastconf/feature"
 	"github.com/fastabc/fastconf/internal/diffreport"
 	"github.com/fastabc/fastconf/internal/fcerr"
 	"github.com/fastabc/fastconf/internal/provenance"
 	"github.com/fastabc/fastconf/internal/secret"
-	"github.com/fastabc/fastconf/pkg/feature"
 )
 
 // State is an immutable snapshot of the configuration at a point in time.
@@ -59,7 +61,7 @@ func (s *State[T]) Sources() []SourceRef {
 	if s == nil {
 		return nil
 	}
-	return s.sources
+	return slices.Clone(s.sources)
 }
 
 // Generation returns a monotonically increasing counter incremented on
@@ -106,6 +108,32 @@ func NewSnapshot[T any](
 	}
 }
 
+// Restamp returns a snapshot with the same immutable payload as s but a new
+// generation and cause. It is used by rollback, where the value/hash are from a
+// retained snapshot but the publication itself is a fresh commit.
+func Restamp[T any](s *State[T], generation uint64, cause ReloadCause) *State[T] {
+	if s == nil {
+		return nil
+	}
+	ns := &State[T]{
+		value:      s.value,
+		hash:       s.hash,
+		loadedAt:   cause.At,
+		sources:    slices.Clone(s.sources),
+		generation: generation,
+		origins:    s.origins,
+		cause:      cause,
+		features:   cloneFeatureRules(s.features),
+		redactor:   s.redactor,
+	}
+	// Carry over the memoised dotted-key view (identical immutable value ⇒
+	// identical Keys) without copying the atomic holder itself.
+	if k := s.keys.Load(); k != nil {
+		ns.keys.Store(k)
+	}
+	return ns
+}
+
 func (s *State[T]) Introspect() *Introspection {
 	if s == nil {
 		return nil
@@ -138,7 +166,23 @@ func (s *State[T]) FeatureRules() map[string]feature.Rule {
 	if s == nil {
 		return nil
 	}
-	return s.features
+	return cloneFeatureRules(s.features)
+}
+
+func cloneFeatureRules(in map[string]feature.Rule) map[string]feature.Rule {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]feature.Rule, len(in))
+	for k, r := range in {
+		r.Targets = slices.Clone(r.Targets)
+		for i := range r.Targets {
+			r.Targets[i].When = maps.Clone(r.Targets[i].When)
+		}
+		r.Rollouts = slices.Clone(r.Rollouts)
+		out[k] = r
+	}
+	return out
 }
 
 func (s *State[T]) Origins() *provenance.Index {
@@ -149,16 +193,6 @@ func (s *State[T]) Origins() *provenance.Index {
 }
 
 func (s *State[T]) Explain(path string) []provenance.Origin {
-	if s == nil {
-		return nil
-	}
-	return s.origins.Explain(path)
-}
-
-// Lookup returns the provenance chain for path. It is identical to [Explain].
-//
-// Deprecated: use [Explain] instead. Lookup will be removed in a future version.
-func (s *State[T]) Lookup(path string) []provenance.Origin {
 	if s == nil {
 		return nil
 	}

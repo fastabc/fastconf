@@ -123,6 +123,7 @@ func TestLoadConfig_WithDir(t *testing.T) {
 	got := mgr.Get()
 	if got == nil {
 		t.Fatal("Get: nil")
+		return
 	}
 	if (*got)["name"] != "testapp" {
 		t.Errorf("name: want testapp, got %v", (*got)["name"])

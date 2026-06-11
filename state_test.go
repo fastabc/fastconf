@@ -51,12 +51,6 @@ func TestState_NilSafety(t *testing.T) {
 		}
 	})
 
-	t.Run("Lookup", func(t *testing.T) {
-		if got := s.Lookup("any.path"); got != nil {
-			t.Errorf("Lookup on nil: want nil, got %v", got)
-		}
-	})
-
 	t.Run("LookupStrict", func(t *testing.T) {
 		got, err := s.LookupStrict("any.path")
 		if got != nil {
@@ -106,6 +100,61 @@ func TestState_NilSafety(t *testing.T) {
 			t.Errorf("Dump(redactor) on nil: unexpected error %v", err)
 		}
 	})
+}
+
+func TestState_SourcesAndFeatureRulesAreCopies(t *testing.T) {
+	type cfg struct {
+		Name     string                 `json:"name" yaml:"name"`
+		Features map[string]FeatureRule `json:"features" yaml:"features"`
+	}
+	fs := fstest.MapFS{
+		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte(`
+name: base
+features:
+  rollout:
+    default: false
+    targets:
+      - when: {region: eu}
+        value: true
+`)},
+	}
+	mgr, err := New[cfg](context.Background(),
+		WithFS(fs),
+		WithDir("conf.d"),
+		WithFeatureRules(func(c *cfg) map[string]FeatureRule { return c.Features }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.Close()
+
+	snap := mgr.Snapshot()
+	sources := snap.Sources()
+	if len(sources) == 0 {
+		t.Fatal("expected at least one source")
+	}
+	origPriority := sources[0].Priority
+	sources[0].Priority = 99999
+	if got := snap.Sources()[0].Priority; got != origPriority {
+		t.Fatalf("Sources returned internal slice: got priority %d want %d", got, origPriority)
+	}
+
+	rules := snap.FeatureRules()
+	if _, ok := rules["rollout"]; !ok {
+		t.Fatalf("missing feature rule: %+v", rules)
+	}
+	rule := rules["rollout"]
+	rule.Default = true
+	rule.Targets[0].When["region"] = "us"
+	rules["rollout"] = rule
+
+	fresh := snap.FeatureRules()["rollout"]
+	if fresh.Default != false {
+		t.Fatalf("FeatureRules returned internal map value: default=%v", fresh.Default)
+	}
+	if got := fresh.Targets[0].When["region"]; got != "eu" {
+		t.Fatalf("FeatureRules returned shared nested target map: region=%q", got)
+	}
 }
 
 type yamlCfg struct {

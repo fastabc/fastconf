@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"github.com/fastabc/fastconf"
-	"github.com/fastabc/fastconf/pkg/mappath"
+	mappath "github.com/fastabc/fastconf/confmap"
 )
 
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {

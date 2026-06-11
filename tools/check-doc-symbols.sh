@@ -20,7 +20,7 @@ check_symbol() {
     $RG -q --type go "$sym" "$ROOT" && return 0
   else
     grep -rq "$sym" "$ROOT"/*.go 2>/dev/null && return 0
-    grep -rqR "$sym" "$ROOT/pkg/" "$ROOT/contracts/" 2>/dev/null && return 0
+    grep -rqR "$sym" "$ROOT/contracts/" 2>/dev/null && return 0
   fi
   return 1
 }
@@ -102,7 +102,7 @@ if [ -d "$COOKBOOK_DIR" ]; then
         COOKBOOK_FAIL=1
       }
     else
-      grep -rq -E "\\b${sym}\\b" "$ROOT"/*.go "$ROOT"/pkg "$ROOT"/contracts 2>/dev/null || {
+      grep -rq -E "\\b${sym}\\b" "$ROOT"/*.go "$ROOT"/contracts 2>/dev/null || {
         echo "COOKBOOK GHOST SYMBOL: fastconf.${sym} (referenced in docs/cookbook/ but not defined in *.go)" >&2
         COOKBOOK_FAIL=1
       }

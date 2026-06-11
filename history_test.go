@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	istate "github.com/fastabc/fastconf/internal/state"
-	"github.com/fastabc/fastconf/pkg/source"
+	"github.com/fastabc/fastconf/providers/source"
 )
 
 type phase7Cfg struct {
@@ -89,6 +90,113 @@ func TestHistory_RingAndRollback(t *testing.T) {
 	}
 	if err := mgr.Replay().Rollback(nil); !errors.Is(err, ErrUnknownGeneration) {
 		t.Fatalf("rollback nil err=%v want ErrUnknownGeneration", err)
+	}
+}
+
+func TestHistory_RollbackPublishesFanoutAndCanRollForward(t *testing.T) {
+	auditCh := make(chan ReloadCause, 16)
+	diffCh := make(chan DiffEvent, 16)
+	mgr, err := New[phase7Cfg](context.Background(),
+		WithFS(emptyFS()),
+		WithSource(source.NewBytes("a", "yaml", []byte("name: alpha\n")), nil),
+		WithHistory(4),
+		WithAuditSink(AuditSinkFunc(func(_ context.Context, c ReloadCause) error {
+			auditCh <- c
+			return nil
+		})),
+		WithDiffReporter(DiffReporterFunc(func(_ context.Context, ev DiffEvent) error {
+			diffCh <- ev
+			return nil
+		})),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.Close()
+
+	if err := mgr.Reload(context.Background(), WithSourceOverride(map[string]any{"name": "beta"})); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Reload(context.Background(), WithSourceOverride(map[string]any{"name": "gamma"})); err != nil {
+		t.Fatal(err)
+	}
+	before := mgr.Snapshot()
+	var beta *State[phase7Cfg]
+	for _, s := range mgr.Replay().List() {
+		if s.Value().Name == "beta" {
+			beta = s
+			break
+		}
+	}
+	if beta == nil {
+		t.Fatalf("history missing beta snapshot: %+v", mgr.Replay().List())
+	}
+
+	if err := mgr.Replay().Rollback(beta); err != nil {
+		t.Fatalf("rollback beta: %v", err)
+	}
+	rolled := mgr.Snapshot()
+	if rolled.Value().Name != "beta" {
+		t.Fatalf("rollback value=%q want beta", rolled.Value().Name)
+	}
+	if rolled.Generation() <= before.Generation() {
+		t.Fatalf("rollback generation did not advance: before=%d after=%d", before.Generation(), rolled.Generation())
+	}
+	if rolled.Cause().Reason != "rollback" {
+		t.Fatalf("rollback cause=%q", rolled.Cause().Reason)
+	}
+	if cause := waitAuditReason(t, auditCh, "rollback"); cause.Reason != "rollback" {
+		t.Fatalf("missing rollback audit: %+v", cause)
+	}
+	if ev := waitDiffReason(t, diffCh, "rollback"); ev.NewGeneration != rolled.Generation() {
+		t.Fatalf("rollback diff event generation=%d want %d", ev.NewGeneration, rolled.Generation())
+	}
+
+	var gamma *State[phase7Cfg]
+	for _, s := range mgr.Replay().List() {
+		if s.Value().Name == "gamma" {
+			gamma = s
+			break
+		}
+	}
+	if gamma == nil {
+		t.Fatalf("history missing rolled-back gamma snapshot: %+v", mgr.Replay().List())
+	}
+	if err := mgr.Replay().Rollback(gamma); err != nil {
+		t.Fatalf("roll-forward gamma: %v", err)
+	}
+	if got := mgr.Snapshot().Value().Name; got != "gamma" {
+		t.Fatalf("roll-forward value=%q want gamma", got)
+	}
+}
+
+func waitAuditReason(t *testing.T, ch <-chan ReloadCause, reason string) ReloadCause {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case c := <-ch:
+			if c.Reason == reason {
+				return c
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for audit reason %q", reason)
+		}
+	}
+}
+
+func waitDiffReason(t *testing.T, ch <-chan DiffEvent, reason string) DiffEvent {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-ch:
+			if ev.Reason == reason {
+				return ev
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for diff reason %q", reason)
+		}
 	}
 }
 
@@ -179,7 +287,7 @@ func TestState_Diff(t *testing.T) {
 	}
 }
 
-func TestLookup_PerLayerValues(t *testing.T) {
+func TestExplain_PerLayerValues(t *testing.T) {
 	mgr, err := New[map[string]any](context.Background(),
 		WithFS(emptyFS()),
 		WithSource(source.NewBytes("base", "yaml", []byte("k: 1\n")), nil),
@@ -191,7 +299,7 @@ func TestLookup_PerLayerValues(t *testing.T) {
 	}
 	defer mgr.Close()
 
-	chain := mgr.Snapshot().Lookup("k")
+	chain := mgr.Snapshot().Explain("k")
 	if len(chain) < 2 {
 		t.Fatalf("want >=2 layers, got %d", len(chain))
 	}

@@ -13,6 +13,8 @@ var (
 	ErrClosed     = fcerr.ErrClosed
 	ErrValidator  = fcerr.ErrValidator
 	ErrTransform  = fcerr.ErrTransform
+	ErrProvider   = fcerr.ErrProvider
+	ErrGenerator  = fcerr.ErrGenerator
 	ErrNoOrigin   = fcerr.ErrNoOrigin
 )
 

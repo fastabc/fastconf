@@ -15,7 +15,7 @@ import (
 
 	iopts "github.com/fastabc/fastconf/internal/options"
 	istate "github.com/fastabc/fastconf/internal/state"
-	"github.com/fastabc/fastconf/pkg/discovery"
+	discovery "github.com/fastabc/fastconf/overlay"
 )
 
 // jsonBufPool reuses the byte slice that backs decodeInto's

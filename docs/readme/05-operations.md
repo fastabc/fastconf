@@ -7,7 +7,8 @@
 | Package | Path | Notes |
 |---|---|---|
 | contracts | `contracts` | Public interfaces: Provider / Codec / Source / Event |
-| pkg/* | `pkg/{decoder,discovery,feature,flog,generator,mappath,merger,migration,profile,provider,transform,validate}` | Reusable primitives |
+| domain packages | `codec`, `confmap`, `overlay`, `transform`, `feature`, `providers/{env,cliflag,dotenv,labels,source}` | Reusable primitives |
+| pkg/* | `pkg/{decoder,parser,discovery,profile,feature,mappath,merger,migration,provider,source,transform,typed,validate}` | Deprecated v0.20 forwarding shims |
 | internal/* | `internal/{coalesce,diffreport,fcerr,fctypes,manager,obs,options,pipeline,provenance,registry,secret,state,tenant,testutil,typeinfo,watcher}` | Compile-time API boundary |
 | http        | `providers/http`   | HTTP / SSE provider (build tag `no_provider_http`) |
 | vault       | `providers/vault`  | HashiCorp Vault KV v2 (build tag `no_provider_vault`) |
@@ -114,7 +115,7 @@ fastconf.RegisterCodecExt("hcl", "hcl") // .hcl files route to "hcl"
 | Add a data source | implement `contracts.Provider` |
 | Rewrite the merged tree | implement `Transformer` |
 | Decrypt leaves before decode | implement `SecretResolver` |
-| Type-rewrite leaves before decode | implement `decoder.TypedHook` |
+| Type-rewrite leaves before decode | implement `codec.TypedHook` |
 | Assert after decode | `WithValidator` / `WithPolicy` |
 | Act on successful publish | `AuditSink` / `DiffReporter` |
 | Add a file format | implement `contracts.Codec` + `RegisterCodec` |
@@ -197,10 +198,8 @@ go test -bench=BenchmarkGet -benchmem ./...
 # CI guards
 bash tools/check-layout.sh
 bash tools/check-doc-symbols.sh
-bash tools/check-deps.sh
 bash tools/bench-guard.sh
 bash tools/loc-budget.sh
-bash tools/total-loc-budget.sh
 
 # Code-review dependency graph
 bash tools/code-review-graph.sh

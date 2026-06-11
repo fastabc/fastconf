@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-
-	"github.com/fastabc/fastconf/internal/fctypes"
 )
 
 // maxDepth caps recordTree recursion to defeat pathological YAML
@@ -26,7 +24,7 @@ type Origin struct {
 	// Path is the dotted JSON path of the field, e.g. "database.dsn".
 	Path string
 	// Source is the SourceRef that contributed this value.
-	Source fctypes.SourceRef
+	Source SourceRef
 	// Value is the per-layer value as it appeared in this Source's
 	// contribution before downstream layers overrode it. Only populated
 	// when Full level is enabled and the value is a JSON leaf (non-map).
@@ -70,13 +68,13 @@ func NewIndex(level Level) *Index {
 
 // Record annotates path with src. Patches and providers append, the
 // chain order is preserved so callers can reconstruct merge history.
-func (o *Index) Record(path string, src fctypes.SourceRef) {
+func (o *Index) Record(path string, src SourceRef) {
 	o.RecordValue(path, src, nil)
 }
 
 // RecordValue is the value-carrying counterpart of Record; used by the
 // merger to capture the raw layer value when Full level is enabled.
-func (o *Index) RecordValue(path string, src fctypes.SourceRef, val any) {
+func (o *Index) RecordValue(path string, src SourceRef, val any) {
 	if o == nil {
 		return
 	}
@@ -89,11 +87,11 @@ func (o *Index) RecordValue(path string, src fctypes.SourceRef, val any) {
 // RecordTree walks a freshly-merged map and records every leaf path
 // that exists in it as having been written by src. Used by the merger
 // after deep-merging a layer so that overlay paths win.
-func (o *Index) RecordTree(prefix string, m map[string]any, src fctypes.SourceRef) {
+func (o *Index) RecordTree(prefix string, m map[string]any, src SourceRef) {
 	o.recordTreeDepth(prefix, m, src, 0)
 }
 
-func (o *Index) recordTreeDepth(prefix string, m map[string]any, src fctypes.SourceRef, depth int) {
+func (o *Index) recordTreeDepth(prefix string, m map[string]any, src SourceRef, depth int) {
 	if o == nil || depth > maxDepth {
 		return
 	}

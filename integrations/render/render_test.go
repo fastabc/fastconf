@@ -11,7 +11,7 @@ import (
 
 	"github.com/fastabc/fastconf"
 
-	"github.com/fastabc/fastconf/pkg/source"
+	"github.com/fastabc/fastconf/providers/source"
 )
 
 type cfg struct {

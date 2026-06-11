@@ -5,5 +5,3 @@ module github.com/fastabc/fastconf/integrations/log/phuslu
 go 1.22
 
 require github.com/phuslu/log v1.0.124
-
-replace github.com/fastabc/fastconf => ../../..

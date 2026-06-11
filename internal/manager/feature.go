@@ -1,6 +1,6 @@
 package manager
 
-import "github.com/fastabc/fastconf/pkg/feature"
+import "github.com/fastabc/fastconf/feature"
 
 func Eval[T any, V any](m *M[T], key string, ctx feature.EvalContext, def V) V {
 	if m == nil {

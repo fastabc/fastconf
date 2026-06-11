@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/pkg/parser"
 )
 
 // ErrParserUnknown is returned by a bound Source/Parser composite when
@@ -37,8 +37,8 @@ type boundSource struct {
 	parser contracts.Parser
 }
 
-func (b *boundSource) Name() string     { return b.src.Name() }
-func (b *boundSource) Priority() int    { return b.src.Priority() }
+func (b *boundSource) Name() string  { return b.src.Name() }
+func (b *boundSource) Priority() int { return b.src.Priority() }
 func (b *boundSource) Load(ctx context.Context) (map[string]any, error) {
 	data, ct, _, err := b.src.Read(ctx)
 	if err != nil {
@@ -50,7 +50,7 @@ func (b *boundSource) Load(ctx context.Context) (map[string]any, error) {
 	p := b.parser
 	if p == nil {
 		var ok bool
-		p, ok = parser.Lookup(ct)
+		p, ok = codec.LookupParser(ct)
 		if !ok {
 			return nil, fmt.Errorf("%w: source %q content-type %q", ErrParserUnknown, b.src.Name(), ct)
 		}

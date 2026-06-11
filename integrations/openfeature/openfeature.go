@@ -23,7 +23,7 @@ package openfeature
 
 import (
 	"github.com/fastabc/fastconf"
-	"github.com/fastabc/fastconf/pkg/feature"
+	"github.com/fastabc/fastconf/feature"
 )
 
 // EvaluationContext mirrors OpenFeature's evaluation-context shape.

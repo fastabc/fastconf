@@ -6,7 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/fastabc/fastconf/pkg/source"
+	"github.com/fastabc/fastconf/providers/source"
 )
 
 func TestPlan_ProducesDiff(t *testing.T) {
@@ -51,6 +51,48 @@ func TestPlan_ProducesDiff(t *testing.T) {
 	}
 	if mgr.Snapshot().Generation() != gen {
 		t.Fatalf("Plan must not bump generation: %d vs %d", mgr.Snapshot().Generation(), gen)
+	}
+}
+
+func TestPlan_MapHashMatchesCommittedSnapshot(t *testing.T) {
+	mgr, err := New[map[string]any](context.Background(),
+		WithFS(emptyFS()),
+		WithSource(source.NewBytes("base", "yaml", []byte("port: 8080\nnested:\n  enabled: true\n")), nil),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.Close()
+
+	plan, err := mgr.Plan().Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Proposed.Hash() != mgr.Snapshot().Hash() {
+		t.Fatalf("plan hash %x does not match committed hash %x", plan.Proposed.Hash(), mgr.Snapshot().Hash())
+	}
+}
+
+func TestPlan_ProposedIncludesFeatureRules(t *testing.T) {
+	type cfg struct {
+		Features map[string]FeatureRule `json:"features" yaml:"features"`
+	}
+	mgr, err := New[cfg](context.Background(),
+		WithFS(emptyFS()),
+		WithSource(source.NewBytes("base", "yaml", []byte("features:\n  checkout:\n    default: false\n")), nil),
+		WithFeatureRules(func(c *cfg) map[string]FeatureRule { return c.Features }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.Close()
+
+	plan, err := mgr.Plan().Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := plan.Proposed.FeatureRules(); len(got) != 1 {
+		t.Fatalf("proposed feature rules = %+v, want checkout rule", got)
 	}
 }
 

@@ -11,7 +11,7 @@ import (
 	"testing/fstest"
 
 	"github.com/fastabc/fastconf"
-	"github.com/fastabc/fastconf/pkg/source"
+	"github.com/fastabc/fastconf/providers/source"
 )
 
 type dbCfg struct {

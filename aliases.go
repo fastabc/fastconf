@@ -3,27 +3,27 @@ package fastconf
 import (
 	"reflect"
 
+	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/internal/pipeline"
 	"github.com/fastabc/fastconf/internal/secret"
-	"github.com/fastabc/fastconf/pkg/decoder"
-	"github.com/fastabc/fastconf/pkg/discovery"
+	discovery "github.com/fastabc/fastconf/overlay"
 )
 
 func init() {
-	discovery.CodecExtFunc = decoder.LookupExt
+	discovery.CodecExtFunc = codec.LookupExt
 }
 
 func RegisterCodec(name string, c contracts.Codec) {
-	decoder.Register(name, c)
+	codec.Register(name, c)
 }
 
-func RegisterCodecExt(ext, codec string) {
-	decoder.RegisterExt(ext, codec)
+func RegisterCodecExt(ext, codecName string) {
+	codec.RegisterExt(ext, codecName)
 }
 
 func LookupCodec(name string) (contracts.Codec, bool) {
-	return decoder.Lookup(name)
+	return codec.Lookup(name)
 }
 
 type SecretRedactor = secret.Redactor

@@ -9,7 +9,7 @@ import (
 
 	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/cmd/internal/cli"
-	"github.com/fastabc/fastconf/pkg/mappath"
+	mappath "github.com/fastabc/fastconf/confmap"
 )
 
 func runExplain(args []string) error {

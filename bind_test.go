@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/fastabc/fastconf"
+	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/pkg/parser"
-	"github.com/fastabc/fastconf/pkg/source"
+	"github.com/fastabc/fastconf/providers/source"
 )
 
 func TestBind_AutoByContentType(t *testing.T) {
@@ -27,7 +27,7 @@ func TestBind_AutoByContentType(t *testing.T) {
 func TestBind_ExplicitParserWinsOverHint(t *testing.T) {
 	// Source claims toml content-type, but we bind YAML — explicit wins.
 	src := source.NewBytes("misnamed", "toml", []byte("a: 1\n"))
-	p := fastconf.Bind(src, parser.YAML())
+	p := fastconf.Bind(src, codec.YAMLParser())
 	got, err := p.Load(context.Background())
 	if err != nil {
 		t.Fatalf("explicit parser should override hint: %v", err)

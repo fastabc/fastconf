@@ -32,6 +32,7 @@ sources / generators / providers
 ```
 manager.go           — Manager[T] wrapper, MustNew, Subscribe, TenantManager facade
 state.go             — State[T], DiffEntry/DiffChange, Dump, SourcePriorityBand
+validate.go          — Schema validator adapter
 options.go           — WithXxx option builders + ProfileOptions / WatchOptions / CoalesceOptions
 aliases.go           — codec, secret, field-meta public facades
 errors.go            — public sentinel errors and ReloadError stream
@@ -51,19 +52,8 @@ internal/pipeline    — struct defaults + field-meta runner
 internal/obs         — metrics/tracer/audit bridge 类型
 internal/provenance  — Origin + OriginIndex
 
-pkg/                 ← 公开可复用实现原语（可被外部 Provider / Codec 作者 import）
-  decoder/           YAML/JSON codec 注册表
-  discovery/         conf.d 目录扫描 + _meta.yaml 解析
-  feature/           feature flag rule + EvalContext
-  flog/              zerolog 风格 fluent wrapper over *slog.Logger
-  generator/         contracts.Generator helpers
-  mappath/           dotted-path Get/Set/Delete 工具
-  merger/            Kustomize 风格 map[string]any 叠加
-  migration/         Chain + Step（From/To/Apply）
-  profile/           profile 表达式编译器（&/|/!/()）
-  provider/          内置 Env / CLI / Bytes / File / Labels Provider
-  transform/         Defaults / SetIfAbsent / EnvSubst / DeletePaths / Aliases
-  validate/          Validator + ValidatorReport
+codec/ confmap/ overlay/ transform/ feature/ providers/*
+                     ← 公开可复用实现原语（可被外部 Provider / Codec 作者 import）
 
 contracts/           ← 稳定接口：Provider / Codec / Source / Event / Snapshot / Priority
 providers/           ← 内置 Provider（vault / consul / http / nats / redisstream；s3 独立 sub-module）
@@ -79,15 +69,15 @@ cmd/                 ← fastconfd（主模块）、fastconfctl、fastconfgen
 
 ```
 fastconf  →  internal/{manager,options,state,tenant,obs}
-          →  pkg/{discovery,decoder,flog,merger,provider,validate}
+          →  {codec,confmap,overlay,transform,feature,providers/*,contracts}
           →  contracts
 
-pkg/* 之间不得相互依赖，白名单例外（与 tools/check-deps.sh 同步）：
-  pkg/discovery → pkg/profile
-  pkg/generator → pkg/mappath
-  pkg/provider  → pkg/decoder
-  pkg/provider  → pkg/mappath
-  pkg/transform → pkg/mappath
+公共领域包是一张小 DAG：
+  codec       → contracts
+  overlay     → codec
+  transform   → confmap
+  providers/* → codec, confmap, contracts
+
 internal/* 是实现层，可按需依赖同层包；对外只暴露 root facade。
 ```
 
@@ -156,7 +146,6 @@ type State[T any] struct {
 }
 
 func (s *State[T]) Explain(path string) []Origin             // oldest → newest 覆盖链
-func (s *State[T]) Lookup(path string) []Origin              // deprecated；请用 Explain
 func (s *State[T]) LookupStrict(path string) ([]Origin, error)
 func (s *State[T]) Origins() *OriginIndex
 func (s *State[T]) Introspect() *Introspection               // Keys / Settings / At
@@ -268,46 +257,49 @@ fastconf.WithProfile(fastconf.ProfileOptions{Multi: []string{"prod", "eu"}})
 
 FastConf 把扩展面拆成两条：
 
-- **`Source`**（`pkg/source`）—— 字节流贡献者（file / http / inline bytes）。
-  在调用处以 koanf 风格与 **`Parser`**（`pkg/parser`）显式配对，codec 一眼可见。
-- **`Provider`**（`pkg/provider`）—— 已结构化的贡献者（env / cli / 一键一值的 KV）。
+- **`Source`**（`providers/source`）—— 字节流贡献者（file / http / inline bytes）。
+  在调用处以 koanf 风格与 **`Parser`**（`codec`）显式配对，codec 一眼可见。
+- **`Provider`**（`providers/*`）—— 已结构化的贡献者（env / cli / 一键一值的 KV）。
   无需 Parser。
 
 | Option | 说明 |
 |---|---|
 | `WithSource(src, parser)` | 绑定 byte-blob Source 与 Parser。Parser 传 `nil` 时按内容类型自动选择 |
 | `WithProvider(p)` | 注册已结构化的 provider（核心入口） |
-| `WithProviderOrdered(p...)` | 按调用顺序自动分配 `CLI+100, +101, ...`；输入已有非零 Priority 时报错 |
+| `WithProviderOrdered(p...)` | 按调用顺序自动分配 `contracts.PriorityOrderedBase+i`；输入已有非零 Priority 时报错 |
 | `WithProviderByName(name, cfg)` | 通过 Factory Registry 按名称构造 provider；解析在所有 Option 应用完之后做 |
 | `WithProviderRegistry(r)` | 注入 Manager-local `*ProviderRegistry`；先 local，后全局默认 |
 | `WithGenerator(g)` | assemble 阶段动态合成 `[]RawLayer`（如 BuildInfo） |
 | `WithDotEnvAuto(prefix)` | 在 `WithDir` 终值上自动发现 `.env` |
 
-`pkg/source` + `pkg/parser` + `pkg/provider` 的工厂函数：
+`providers/source` + `codec` + `providers/*` 的工厂函数：
 
 ```go
 import (
     "github.com/fastabc/fastconf"
-    "github.com/fastabc/fastconf/pkg/parser"
-    "github.com/fastabc/fastconf/pkg/provider"
-    "github.com/fastabc/fastconf/pkg/source"
-    "github.com/fastabc/fastconf/pkg/transform"
+    "github.com/fastabc/fastconf/codec"
+    "github.com/fastabc/fastconf/providers/cliflag"
+    "github.com/fastabc/fastconf/providers/dotenv"
+    "github.com/fastabc/fastconf/providers/env"
+    "github.com/fastabc/fastconf/providers/labels"
+    "github.com/fastabc/fastconf/providers/source"
+    "github.com/fastabc/fastconf/transform"
 )
 
 fastconf.New[Cfg](ctx,
     // byte-blob 层：显式 Source × Parser 配对
-    fastconf.WithSource(source.NewFile("/etc/app/config.yaml"), parser.YAML()),
-    fastconf.WithSource(source.NewHTTP("https://kv/config"), parser.JSON()),
+    fastconf.WithSource(source.NewFile("/etc/app/config.yaml"), codec.YAMLParser()),
+    fastconf.WithSource(source.NewHTTP("https://kv/config"), codec.JSONParser()),
     fastconf.WithSource(source.NewBytes("inline", "yaml", data), nil), // nil → 内容类型自动绑定
 
     // 已结构化的 provider —— 无 Parser 槽位：
-    fastconf.WithProvider(provider.NewEnv("APP_")),                              // APP_DATABASE_DSN → database.dsn（默认 DotReplacer）
-    fastconf.WithProvider(provider.NewEnv("APP_").WithReplacer(provider.DoubleUnderscoreReplacer)), // 保留单 "_"，仅在 "__" 分级
-    fastconf.WithProvider(provider.NewEnv("APP_").At("config.runtime")),         // 把 env 子树挂到指定路径
-    fastconf.WithProvider(provider.NewCLI(cliMap)),                       // 仅显式传入的 CLI override
-    fastconf.WithProvider(provider.NewDotEnv("APP_", ".env")),                   // 显式 .env fallback 路径
-    fastconf.WithProvider(provider.NewDottedLabels(labels, provider.DottedLabelOptions{})), // 显式 dotted config labels
-    fastconf.WithProvider(provider.NewRoutingLabels(labels, provider.RoutingLabelOptions{})), // routing DSL labels（typed/list/index 语义）
+    fastconf.WithProvider(env.NewEnv("APP_")),                                   // APP_DATABASE_DSN → database.dsn（默认 DotReplacer）
+    fastconf.WithProvider(env.NewEnv("APP_").WithReplacer(env.DoubleUnderscoreReplacer)), // 保留单 "_"，仅在 "__" 分级
+    fastconf.WithProvider(env.NewEnv("APP_").At("config.runtime")),              // 把 env 子树挂到指定路径
+    fastconf.WithProvider(cliflag.NewCLI(cliMap)),                               // 仅显式传入的 CLI override
+    fastconf.WithProvider(dotenv.NewDotEnv("APP_", ".env")),                     // 显式 .env fallback 路径
+    fastconf.WithProvider(labels.NewDottedLabels(labelInput, labels.DottedLabelOptions{})), // 显式 dotted config labels
+    fastconf.WithProvider(labels.NewRoutingLabels(labelInput, labels.RoutingLabelOptions{})), // routing DSL labels（typed/list/index 语义）
     fastconf.WithTransformers(transform.ExpandLabels(at, to, opts)),
 )
 ```

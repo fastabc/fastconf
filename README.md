@@ -11,7 +11,7 @@ via `atomic.Pointer`; the hot read path is one `atomic.Pointer.Load()`.
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-> **Status**: first-public. The API still moves where semantics demand it.
+> **Status**: public beta. The API still moves where semantics demand it.
 > [`pkg.go.dev`](https://pkg.go.dev/github.com/fastabc/fastconf) and this
 > README track the current truth of the codebase.
 
@@ -51,7 +51,7 @@ import (
     "log"
 
     "github.com/fastabc/fastconf"
-    "github.com/fastabc/fastconf/pkg/provider"
+    "github.com/fastabc/fastconf/providers/env"
 )
 
 type AppConfig struct {
@@ -71,7 +71,7 @@ func main() {
             EnvVar:  "APP_PROFILE",
             Default: "dev",
         }),
-        fastconf.WithProvider(provider.NewEnv("APP_")),
+        fastconf.WithProvider(env.NewEnv("APP_")),
         fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
     )
     if err != nil {
@@ -181,18 +181,17 @@ go install github.com/fastabc/fastconf/cmd/fastconfgen@latest
 - The internal package set under `internal/*` is implementation detail
   and not covered by the SemVer contract — root re-exports (type
   aliases or wrappers) are the only stable surface.
-- The reusable primitives under `pkg/*` keep a unidirectional dependency
-  shape (see the whitelist in `CLAUDE.md`); `tools/check-deps.sh`
-  statically enforces it in CI so consumers can pull in a single
-  `pkg/*` subpackage without dragging in hidden lateral dependencies.
+- Reusable primitives live in domain packages such as `codec`, `confmap`,
+  `overlay`, `transform`, `feature`, and `providers/*`. The old `pkg/*`
+  import paths were removed in v0.20.
 - When sub-modules tag independently the tag is module-path-prefixed
   (e.g. `cue/vX.Y.Z`); the README mostly hides this because a single
   release pushes the same version across the root and every sub-module.
-- Before each release we run `make test` plus seven guard scripts under
-  `tools/{check-layout,check-deps,check-doc-symbols,audit-phase-comments,
-  check-cjk-comments,loc-budget,total-loc-budget}.sh`, so directory
-  layout, dependency direction, public symbols, comment archaeology and
-  LOC budgets are all enforced before a tag is pushed.
+- Before each release we run `make test` plus five guard scripts under
+  `tools/{check-layout,check-doc-symbols,audit-phase-comments,
+  check-cjk-comments,loc-budget}.sh`, so directory
+  layout, public symbols, comment archaeology and LOC budgets are all
+  enforced before a tag is pushed.
 
 ---
 
@@ -305,7 +304,7 @@ The full reference is in [docs/readme/02-core-model.md](docs/readme/02-core-mode
 
 ```
 reloadCh.recv(req)
-  ├─ stageMerge:      discovery.Scan(dir) → decode files → merger.Merge(layers)
+  ├─ stageMerge:      overlay.Scan(dir) → decode files → confmap merge(layers)
   │                   apply _meta.yaml (appendSlices / profileEnv / match)
   │                   apply _patch.json (RFC 6902)
   ├─ stageAssemble:   for each provider: Load(ctx) → merge by Priority
@@ -365,14 +364,14 @@ Multi-profile mode: `WithProfile(ProfileOptions{Multi: []string{"prod", "eu-west
 
 ## Provider system
 
-### Built-in structured providers (`pkg/provider`)
+### Built-in structured providers (`providers/*`)
 
 | Provider | Constructor | Notes |
 |---|---|---|
-| Env | `provider.NewEnv("APP_")` | `APP_FOO_BAR` → `foo.bar`; chain `.WithReplacer`, `.At`, `.WithCoerce` |
-| CLI | `provider.NewCLI(map)` | Pass only explicitly changed flags; files/env stay authoritative |
-| DotEnv | `provider.NewDotEnv("APP_", paths...)` | `.env` fallback; process env wins |
-| Labels | `provider.NewDottedLabels(labels, opts)` / `NewRoutingLabels(labels, opts)` | Config and routing DSL labels |
+| Env | `env.NewEnv("APP_")` (`providers/env`) | `APP_FOO_BAR` → `foo.bar`; chain `.WithReplacer`, `.At`, `.WithCoerce` |
+| CLI | `cliflag.NewCLI(map)` (`providers/cliflag`) | Pass only explicitly changed flags; files/env stay authoritative |
+| DotEnv | `dotenv.NewDotEnv("APP_", paths...)` (`providers/dotenv`) | `.env` fallback; process env wins |
+| Labels | `labels.NewDottedLabels(labels, opts)` / `NewRoutingLabels(labels, opts)` (`providers/labels`) | Config and routing DSL labels |
 | K8s Downward | `k8s.NewDefault()` | `/etc/podinfo/{labels,annotations}` |
 
 First-party KV providers (root module, trim via build tag):
@@ -400,6 +399,7 @@ Merge order follows `Priority()` ascending — higher values overwrite lower:
 | `PriorityK8s` | 40 | Kubernetes ConfigMap / Secret |
 | `PriorityEnv` | 50 | Process environment variables |
 | `PriorityCLI` | 60 | Command-line flags (highest) |
+| `contracts.PriorityOrderedBase` | 160 | Reserved base used by `WithProviderOrdered` |
 
 Use `WithProviderOrdered(p1, p2, p3)` to auto-assign priorities in call order.
 
@@ -418,7 +418,7 @@ type Provider interface {
 
 ## Transformers & migration
 
-### Built-in transformers (`pkg/transform`)
+### Built-in transformers (`transform`)
 
 ```go
 fastconf.WithTransformers(
@@ -458,7 +458,7 @@ fastconf.WithMigrations(func(root map[string]any) error {
 })
 ```
 
-For multi-step schema migrations use `pkg/migration.NewChain`.
+For multi-step schema migrations use `transform.New`.
 
 ---
 
@@ -621,7 +621,7 @@ fastconf.PresetTesting(fastconf.TestingOpts{FS: memFS, Profile: "testing"})
 | Package | Path |
 |---|---|
 | contracts | `contracts` — public interfaces |
-| reusable primitives | `pkg/{decoder,discovery,feature,flog,generator,merger,migration,provider,transform,validate}` |
+| reusable primitives | `codec`, `confmap`, `overlay`, `transform`, `feature`, `providers/{env,cliflag,dotenv,labels,source}` |
 | http / vault / consul | `providers/{http,vault,consul}` — build tags: `no_provider_{http,vault,consul}` |
 | nats / redis-streams | `providers/{nats,redisstream}` — caller injects the transport client |
 | policy | `policy` — `Func` adapter |
