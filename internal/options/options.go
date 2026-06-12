@@ -255,6 +255,22 @@ func (p *priorityOverride) WatchFrom(ctx context.Context, lastRev string) (<-cha
 	return nil, contracts.ErrResumeUnsupported
 }
 
+// LoadSnapshot forwards to the inner provider when it implements
+// SnapshotProvider; otherwise it adapts plain Load, mirroring the
+// manager-side fallback so wrapping never strips Revision/Stale. Method
+// promotion through the embedded interface value would not satisfy
+// contracts.SnapshotProvider, so this must be declared explicitly.
+func (p *priorityOverride) LoadSnapshot(ctx context.Context) (contracts.Snapshot, error) {
+	if sp, ok := p.Provider.(contracts.SnapshotProvider); ok {
+		return sp.LoadSnapshot(ctx)
+	}
+	m, err := p.Provider.Load(ctx)
+	if err != nil {
+		return contracts.Snapshot{}, err
+	}
+	return contracts.Snapshot{Map: m}, nil
+}
+
 func WrapWithPriority(p contracts.Provider, prio int) contracts.Provider {
 	return &priorityOverride{Provider: p, priority: prio}
 }

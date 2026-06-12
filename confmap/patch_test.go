@@ -5,6 +5,39 @@ import (
 	"testing"
 )
 
+func TestPatchPaths(t *testing.T) {
+	cases := []struct {
+		name  string
+		patch string
+		want  []string
+	}{
+		{"simple", `[{"op":"replace","path":"/database/dsn","value":"x"}]`, []string{"database.dsn"}},
+		{"top level", `[{"op":"add","path":"/name","value":"x"}]`, []string{"name"}},
+		{"array index truncates to slice leaf", `[{"op":"add","path":"/list/0/host","value":"x"}]`, []string{"list"}},
+		{"nested map before index kept", `[{"op":"add","path":"/x/y/2/z","value":"x"}]`, []string{"x.y"}},
+		{"leading index yields empty", `[{"op":"replace","path":"/0","value":"x"}]`, []string{""}},
+		{"escapes", `[{"op":"add","path":"/a~1b/c~0d","value":"x"}]`, []string{"a/b.c~d"}},
+		{"root", `[{"op":"replace","path":"","value":{}}]`, []string{""}},
+		{"multi", `[{"op":"add","path":"/a","value":1},{"op":"add","path":"/b/c","value":2}]`, []string{"a", "b.c"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := PatchPaths([]byte(tc.patch))
+			if err != nil {
+				t.Fatalf("PatchPaths: %v", err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("path[%d] = %q, want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestApplyPatch_AddReplaceRemove(t *testing.T) {
 	doc := map[string]any{
 		"server":   map[string]any{"addr": ":8080"},

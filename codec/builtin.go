@@ -34,6 +34,9 @@ func (yamlDecoder) Decode(data []byte) (map[string]any, error) {
 
 // normalize recursively converts map[any]any sub-trees (possible with
 // yaml.v3 anchor references) into map[string]any for consistent merger input.
+// Keep the handled type set in sync with confmap.DeepClone (the B1 clone
+// boundary): values this collapses to plain map[string]any/[]any are the
+// only shapes the downstream walkers — and that clone — recurse.
 func normalize(in map[string]any) map[string]any {
 	for k, v := range in {
 		in[k] = normalizeValue(v)

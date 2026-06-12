@@ -7,6 +7,7 @@ package provenance
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -27,9 +28,9 @@ type Origin struct {
 	Source SourceRef
 	// Value is the per-layer value as it appeared in this Source's
 	// contribution before downstream layers overrode it. Only populated
-	// when Full level is enabled and the value is a JSON leaf (non-map).
-	// Map values are intentionally left nil to avoid retaining large
-	// subtrees.
+	// when Full level is enabled and the value is a JSON scalar leaf;
+	// map and slice values are recorded with a nil/cloned Value so the
+	// index never retains a large or aliased subtree.
 	Value any
 }
 
@@ -107,8 +108,23 @@ func (o *Index) recordTreeDepth(prefix string, m map[string]any, src SourceRef, 
 			} else {
 				o.Record(full, src)
 			}
+		case []any:
+			// Slices are reference types; the index is retained for the
+			// life of the State snapshot, so store a clone (Full only) to
+			// avoid aliasing layer data that later reloads may rewrite.
+			if o.level == Full {
+				o.RecordValue(full, src, slices.Clone(nested))
+			} else {
+				o.Record(full, src)
+			}
 		default:
-			o.RecordValue(full, src, v)
+			// Scalar leaf. Value is a Full-level feature only; at TopLevel
+			// record the path without a value (see Origin.Value doc).
+			if o.level == Full {
+				o.RecordValue(full, src, v)
+			} else {
+				o.Record(full, src)
+			}
 		}
 	}
 }

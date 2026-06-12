@@ -57,11 +57,40 @@ func (b *PlanBuilder[T]) WithHostname(host string) *PlanBuilder[T] {
 }
 
 // Run executes the configured dry-run preview without mutating Manager
-// state.
+// state. The preview is dispatched onto the single-writer reload
+// goroutine, so it never interleaves with a concurrent reload: user
+// hooks (Transformer/Validator/SecretResolver/Policy) are still only
+// ever invoked from one goroutine at a time. Run therefore queues behind
+// any in-flight reload (and vice versa), which is acceptable for a
+// dry-run preview. A failing preview is also published on Errors().
 func (b *PlanBuilder[T]) Run(ctx context.Context) (*PlanResult[T], error) {
 	if b == nil || b.m == nil {
 		return nil, fmt.Errorf("fastconf: nil manager")
 	}
+	m := b.m
+	var res *PlanResult[T]
+	err := m.enqueue(ctx, reloadRequest{
+		ctx:    ctx,
+		reason: "plan",
+		applyFn: func(pipeCtx context.Context) error {
+			r, err := b.runPlan(pipeCtx)
+			if err != nil {
+				return err
+			}
+			res = r
+			return nil
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// runPlan performs the dry-run pipeline on the reload goroutine. It must
+// only be called from reloadLoop via Run's enqueue so the single-writer
+// invariant holds.
+func (b *PlanBuilder[T]) runPlan(ctx context.Context) (*PlanResult[T], error) {
 	m := b.m
 	asm, err := m.assemble(ctx, b.hostnameOverride)
 	if err != nil {

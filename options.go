@@ -57,7 +57,7 @@ type OverlayAxis struct {
 // typed decoder runs, so they can rewrite keys, inject computed values,
 // or normalise vendor-specific layouts without touching *T.
 //
-// The same shape is reused inside pkg/transform for the built-in
+// The same shape is reused inside the transform package for the built-in
 // transformers (Aliases, KeyMap, DropPrefix, EnvReplacer, …); third
 // parties only need to satisfy this root interface.
 type Transformer interface {
@@ -118,6 +118,11 @@ func WithRawMapAccess(fn func(root map[string]any)) Option {
 
 func WithDir(dir string) Option     { return func(o *options) { o.Dir = dir } }
 func WithFS(f fs.FS) Option         { return func(o *options) { o.FS = f } }
+// WithStrict toggles strict overlay/merge handling. When enabled the
+// overlay scanner rejects files with unknown extensions and deep-merge
+// type conflicts become hard errors instead of last-write-wins. It does
+// NOT enable decode-time unknown-field detection: a typo'd YAML key is
+// still silently ignored (decode-side strictness is a v0.21 candidate).
 func WithStrict(strict bool) Option { return func(o *options) { o.Strict = strict } }
 
 // WithLogger overrides the default slog logger. Passing nil records a
@@ -301,7 +306,16 @@ func WithMergeKeys(keys map[string]string) Option {
 // satisfy the root [Transformer] interface (Name + Transform).
 func WithTransformers(t ...Transformer) Option {
 	return func(o *options) {
-		for _, x := range t {
+		for i, x := range t {
+			// runTransform calls x.Name()/Transform() on the reload
+			// goroutine without recover; a nil entry would panic there
+			// and breach the fail-safe contract. Loud-fail at construction
+			// instead, matching the other With* nil guards.
+			if x == nil {
+				o.DeferredErrs = append(o.DeferredErrs,
+					fmt.Errorf("%w: WithTransformers: nil transformer at #%d", fcerr.ErrFastConf, i))
+				continue
+			}
 			o.Transformers = append(o.Transformers, x)
 		}
 	}

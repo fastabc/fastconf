@@ -95,6 +95,15 @@ func Scan(root string, opt ScanOptions) LayerSeq {
 			yield(Layer{}, err)
 			return
 		}
+		// Base file priorities are BandFileBase+0..+n; they must stay
+		// inside the base band so they never overflow into the overlay
+		// band (BandFileOverlay) and reorder relative to overlays.
+		if len(baseLayers) >= baseBandWidth {
+			yield(Layer{}, fmt.Errorf(
+				"discovery: base dir %q holds %d layers; max %d (priority band width)",
+				opt.BaseDir, len(baseLayers), baseBandWidth-1))
+			return
+		}
 		for _, l := range baseLayers {
 			if !yield(l, nil) {
 				return
@@ -200,11 +209,29 @@ func collectOverlaysByExpression(fsys fs.FS, root string, opt ScanOptions) ([]La
 		if err != nil {
 			return nil, err
 		}
+		// File priorities are base+0..base+n; if a directory holds the
+		// whole stride its files would bleed into the next overlay's band
+		// and the two would interleave by name. Fail loud instead.
+		if len(layers) >= overlayStride {
+			return nil, fmt.Errorf(
+				"discovery: overlay %q holds %d layers; max %d per directory (priority stride)",
+				sub, len(layers), overlayStride-1)
+		}
 		out = append(out, layers...)
-		priorityBase += 100
+		priorityBase += overlayStride
 	}
 	return out, nil
 }
+
+// overlayStride is the per-overlay-directory priority window. A directory
+// must hold fewer than this many config files so its file-priority offsets
+// never overflow into the next matched overlay's band.
+const overlayStride = 100
+
+// baseBandWidth is the priority window for the base directory: its files
+// occupy BandFileBase..BandFileBase+baseBandWidth-1 and must not reach
+// the overlay band.
+const baseBandWidth = contracts.BandFileOverlay - contracts.BandFileBase
 
 // overlayMeta is the per-overlay-directory _meta.yaml subset the
 // discovery scanner consumes. Other fields are reserved for forward compatibility.
@@ -217,7 +244,13 @@ func overlayMatches(fsys fs.FS, root, sub, name string, active Set) (bool, error
 	data, err := readFile(fsys, metaPath)
 	if err != nil {
 		// No per-overlay meta — fall back to "name == active member".
-		return active.Has(name), nil
+		if errors.Is(err, fs.ErrNotExist) {
+			return active.Has(name), nil
+		}
+		// A meta file that exists but is unreadable changes match
+		// semantics; surface it instead of silently degrading to name
+		// matching.
+		return false, fmt.Errorf("discovery: read %s: %w", metaPath, err)
 	}
 	var m overlayMeta
 	if err := yaml.Unmarshal(data, &m); err != nil {

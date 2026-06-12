@@ -45,7 +45,8 @@ type K8sOpts struct {
 
 // PresetK8s returns the canonical option bundle for K8s side-by-side
 // ConfigMap deployments: directory load, profile from env, watch on,
-// strict mode (fail loud on unknown fields).
+// strict mode (unknown file extensions and merge type conflicts fail
+// loud; see WithStrict — this is not unknown-field detection).
 func PresetK8s(p K8sOpts) Option {
 	return func(o *options) {
 		dir := p.Dir
@@ -79,7 +80,7 @@ type SidecarOpts struct {
 
 // PresetSidecar returns options tuned for a sidecar daemon: bigger
 // history ring (so /events SSE consumers can replay), watch on by
-// default, less strict so unknown fields warn instead of fail.
+// default, strict left to the caller (default off; see WithStrict).
 func PresetSidecar(p SidecarOpts) Option {
 	return func(o *options) {
 		dir := p.Dir
@@ -99,7 +100,8 @@ func PresetSidecar(p SidecarOpts) Option {
 
 // TestingOpts captures the common knobs for hermetic unit/integration
 // tests: pass an fs.FS (often testing/fstest.MapFS), pin a profile,
-// disable watch, and force strict so tests catch typos eagerly.
+// disable watch, and force strict so bad extensions / merge conflicts
+// fail eagerly (strict does not catch unknown fields; see WithStrict).
 type TestingOpts struct {
 	FS      fs.FS
 	Profile string

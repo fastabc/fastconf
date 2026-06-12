@@ -2,6 +2,8 @@ package fastconf_test
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -58,6 +60,33 @@ features:
 	}
 	if v := fastconf.Eval(mgr, "missing", nil, "fallback"); v != "fallback" {
 		t.Fatalf("missing key should return def: got %v", v)
+	}
+}
+
+// BenchmarkFeatureEval guards O1: the request-path Eval must not clone
+// the whole rule table per call. With many rules the old cloning
+// accessor allocated O(rules) per evaluation; the ref accessor keeps it
+// allocation-free for value-typed defaults.
+func BenchmarkFeatureEval(b *testing.B) {
+	var sb strings.Builder
+	sb.WriteString("features:\n")
+	for i := range 50 {
+		fmt.Fprintf(&sb, "  flag%d:\n    default: false\n    targets:\n      - when: { region: eu }\n        value: true\n", i)
+	}
+	fs := fstest.MapFS{"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte(sb.String())}}
+	mgr, err := fastconf.New[cfg121](context.Background(),
+		fastconf.WithFS(fs),
+		fastconf.WithFeatureRules(func(c *cfg121) map[string]feature.Rule { return c.Features }),
+	)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer mgr.Close()
+	ctx := fastconf.EvalContext{"region": "us"}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		_ = fastconf.Eval(mgr, "flag25", ctx, false)
 	}
 }
 

@@ -1,6 +1,10 @@
 package overlay
 
-import "io/fs"
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+)
 
 // MetaFile is the deserialization target for conf.d/_meta.yaml.
 // Compile-time defaults are used when the file is absent. Only a subset
@@ -13,18 +17,17 @@ type MetaFile struct {
 }
 
 // MetaSpec mirrors the YAML schema. Apply() copies the subset that the
-// discovery scanner needs; the framework consumes the rest separately
-// (see ApplyManager in fastconf/manager.go).
+// discovery scanner needs (BaseDir/OverlayDir/PatchSuffixes/Strict); the
+// profile, append, and merge-key fields are consumed separately by the
+// manager's buildScanOptions (internal/manager/assemble.go).
 type MetaSpec struct {
 	BaseDir        string   `yaml:"baseDir"`
 	OverlayDir     string   `yaml:"overlayDir"`
 	ProfileEnv     string   `yaml:"profileEnv"`
 	DefaultProfile string   `yaml:"defaultProfile"`
 	PatchSuffixes  []string `yaml:"patchSuffixes"`
-	Ordering       string   `yaml:"ordering"`
 	Strict         bool     `yaml:"strict"`
 	AppendSlices   bool     `yaml:"appendSlices"`
-	RedactEnvKeys  []string `yaml:"redactEnvKeys"`
 	// MergeKeys enables Kustomize-style strategic merge on
 	// list-of-object slices. Each entry maps a dotted merged-tree path
 	// to the field name that identifies "the same item" across overlays.
@@ -52,13 +55,19 @@ func (m *MetaFile) Apply(opt *ScanOptions) {
 	}
 }
 
-// LoadMeta tries to read root/_meta.yaml. Returns (nil, nil) when the
-// file is absent — _meta.yaml is optional.
+// LoadMeta tries to read root/_meta.yaml. A missing file returns
+// (nil, nil) — _meta.yaml is optional. Any other read error (permission,
+// IO) is propagated: _meta.yaml changes merge semantics (strict,
+// appendSlices, mergeKeys), so silently treating an unreadable file as
+// "absent" would run with surprising semantics and no signal.
 func LoadMeta(fsys fs.FS, root string) ([]byte, error) {
 	p := root + "/_meta.yaml"
 	data, err := readFile(fsys, p)
 	if err != nil {
-		return nil, nil
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("discovery: read _meta.yaml: %w", err)
 	}
 	return data, nil
 }

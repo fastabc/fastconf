@@ -169,6 +169,18 @@ func (s *State[T]) FeatureRules() map[string]feature.Rule {
 	return cloneFeatureRules(s.features)
 }
 
+// FeatureRulesRef returns the internal rule map without cloning. The map
+// is immutable after publish, so internal read-only callers (feature
+// Eval) can skip the per-call deep clone that the public FeatureRules
+// accessor performs to protect external callers. Callers MUST treat the
+// result as read-only.
+func (s *State[T]) FeatureRulesRef() map[string]feature.Rule {
+	if s == nil {
+		return nil
+	}
+	return s.features
+}
+
 func cloneFeatureRules(in map[string]feature.Rule) map[string]feature.Rule {
 	if in == nil {
 		return nil

@@ -41,7 +41,19 @@ func runMerge[T any](_ context.Context, m *M[T], pc *pipelineCtx[T]) error {
 				return fmt.Errorf("%w: %s: %w", fcerr.ErrPatch, l.src.Path, err)
 			}
 			pc.merged = next
-			pc.origins.RecordTree("", pc.merged, l.src)
+			// Attribute only the paths the patch actually names — not the
+			// whole merged tree. RecordTree here would tag every leaf as
+			// patch-written, corrupting Explain/LookupStrict for untouched
+			// keys. Guard on origins to keep Off-level reloads walk-free.
+			if pc.origins != nil {
+				if paths, perr := merger.PatchPaths(l.patch); perr == nil {
+					for _, p := range paths {
+						if p != "" {
+							pc.origins.Record(p, l.src)
+						}
+					}
+				}
+			}
 		} else {
 			if err := merger.Deep(pc.merged, l.data, mergeOpt); err != nil {
 				return fmt.Errorf("%w: %s: %w", fcerr.ErrMerge, l.src.Path, err)

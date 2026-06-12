@@ -50,9 +50,9 @@ func (m *M[T]) runPipelineForCommit(ctx context.Context, asm assemblyResult, rea
 
 func (m *M[T]) stateHashFor(pc *pipelineCtx[T]) ([32]byte, error) {
 	// Short-circuit duplicate canonicalHash when mergedJSON has not changed
-	// since the last commit. The cache is repopulated below after a
-	// successful swap so the first reload always pays the marshal cost
-	// (cache miss).
+	// since the last commit. The cache is populated below on every cache
+	// miss, independent of whether the swap proceeds, so the first reload
+	// always pays the marshal cost (cache miss).
 	var mergedSha [32]byte
 	if pc.mergedJSON != nil {
 		mergedSha = sha256.Sum256(pc.mergedJSON)

@@ -12,8 +12,9 @@
 //   - caps every burst's total lifetime at MaxLag so pathological churn
 //     cannot starve the reload pipeline.
 //
-// The package depends only on the standard library; this rule is checked
-// by tools/check-deps.sh and mirrors the constraint internal/flog operates under.
+// The package depends only on the standard library; this rule is guarded
+// by check-layout.sh's directory allowlist and the go list -deps CI step,
+// and mirrors the constraint internal/flog operates under.
 package coalesce
 
 import (

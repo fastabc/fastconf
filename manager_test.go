@@ -3,6 +3,7 @@ package fastconf_test
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"testing/fstest"
 
@@ -94,6 +95,53 @@ database:
 	}
 	if got.Server.Addr != ":8080" {
 		t.Errorf("base lost: %q", got.Server.Addr)
+	}
+}
+
+func TestCloseIdempotent(t *testing.T) {
+	mfs := newFS(nil)
+	mgr, err := fastconf.New[appCfg](context.Background(),
+		fastconf.WithFS(mfs),
+		fastconf.WithDir("conf.d"),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := mgr.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	if err := mgr.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+}
+
+// TestCloseConcurrentWithFailingReload exercises the caller-side error
+// publish path (a Reload whose option fails publishes on the caller's
+// goroutine, outside the bgWG-tracked reload loop) racing Close. Run
+// with -race; a send on the closed Errors channel would panic here.
+func TestCloseConcurrentWithFailingReload(t *testing.T) {
+	bad := map[string]any{"ch": make(chan int)} // json.Marshal fails
+	for i := 0; i < 50; i++ {
+		mfs := newFS(nil)
+		mgr, err := fastconf.New[appCfg](context.Background(),
+			fastconf.WithFS(mfs),
+			fastconf.WithDir("conf.d"),
+		)
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		var wg sync.WaitGroup
+		for g := 0; g < 4; g++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = mgr.Reload(context.Background(), fastconf.WithSourceOverride(bad))
+			}()
+		}
+		if err := mgr.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+		wg.Wait()
 	}
 }
 

@@ -99,7 +99,11 @@ func (m *M[T]) buildScanOptions(hostnameOverride string) (discovery.ScanOptions,
 		FS:     m.opts.FS,
 	}
 	var metaOut assemblyMeta
-	if metaBytes, _ := discovery.LoadMeta(m.opts.FS, m.opts.Dir); len(metaBytes) > 0 {
+	metaBytes, err := discovery.LoadMeta(m.opts.FS, m.opts.Dir)
+	if err != nil {
+		return scanOpt, metaOut, fmt.Errorf("%w: _meta.yaml: %v", fcerr.ErrDecode, err)
+	}
+	if len(metaBytes) > 0 {
 		var meta discovery.MetaFile
 		if err := yaml.Unmarshal(metaBytes, &meta); err != nil {
 			return scanOpt, metaOut, fmt.Errorf("%w: _meta.yaml: %v", fcerr.ErrDecode, err)
@@ -280,13 +284,25 @@ func sortProviderEntries(ps []providerEntry) {
 
 // loadProviderSnapshot prefers SnapshotProvider.LoadSnapshot when the
 // provider implements it, and falls back to the plain Load() map.
+//
+// The returned map is deep-cloned: the provider keeps ownership of its
+// map (contracts.Provider.Load contract), but merge aliases subtrees
+// into pc.merged and the secret/typed-hook/transform stages then mutate
+// that tree in place. Without the clone those writes reach
+// provider-owned state — including resolved secret plaintext. File and
+// generator layers are decoded fresh per assemble and need no clone.
 func loadProviderSnapshot(ctx context.Context, p contracts.Provider) (contracts.Snapshot, error) {
 	if sp, ok := p.(contracts.SnapshotProvider); ok {
-		return sp.LoadSnapshot(ctx)
+		snap, err := sp.LoadSnapshot(ctx)
+		if err != nil {
+			return contracts.Snapshot{}, err
+		}
+		snap.Map = merger.DeepClone(snap.Map)
+		return snap, nil
 	}
 	m, err := p.Load(ctx)
 	if err != nil {
 		return contracts.Snapshot{}, err
 	}
-	return contracts.Snapshot{Map: m}, nil
+	return contracts.Snapshot{Map: merger.DeepClone(m)}, nil
 }

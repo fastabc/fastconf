@@ -360,6 +360,11 @@ match: "prod | staging"     # &, |, !, () supported
 Multi-profile mode: `WithProfile(ProfileOptions{Multi: []string{"prod", "eu-west", "canary"}})`
 — each overlay's `_meta.yaml.match` decides whether it applies.
 
+> **Per-directory file limit.** Each overlay directory holds **< 100**
+> config files and `base/` holds **< 1000**, so file priorities stay
+> inside their band. Exceeding the limit fails the scan loud instead of
+> silently interleaving layers across directories.
+
 ---
 
 ## Provider system

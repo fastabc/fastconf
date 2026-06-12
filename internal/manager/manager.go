@@ -81,6 +81,14 @@ type M[T any] struct {
 	// reload attempt. Consumers iterate via m.Errors(); closed during Close().
 	errsCh chan fcerr.ReloadError
 
+	// errsMu fences errsCh's close against the caller-side publish path:
+	// Reload option errors are published from the caller's goroutine,
+	// which bgWG does not track, so Close cannot rely on bgWG.Wait alone.
+	// errsClosed also makes a second Close a no-op (Close is documented
+	// as idempotent).
+	errsMu     sync.RWMutex
+	errsClosed bool
+
 	// Optional in-memory history ring + watch-pause toggle.
 	history     *istate.Ring[istate.State[T]]
 	historyMu   sync.Mutex
@@ -247,8 +255,15 @@ func (m *M[T]) Close() error {
 	// to exit. bgWG.Wait then blocks until they all return.
 	m.closeOnce.Do(func() { close(m.closed) })
 	m.bgWG.Wait()
-	// Background goroutines have stopped publishing — safe to close.
-	close(m.errsCh)
+	// Background goroutines have stopped publishing; caller-side
+	// publishers (Reload option errors) are fenced by errsMu. The
+	// errsClosed flag keeps a second Close from re-closing the channel.
+	m.errsMu.Lock()
+	if !m.errsClosed {
+		m.errsClosed = true
+		close(m.errsCh)
+	}
+	m.errsMu.Unlock()
 	return nil
 }
 

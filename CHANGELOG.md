@@ -83,6 +83,42 @@ for the step-by-step migration guide.
   see fewer invocations after upgrading. To restore the v0.18 semantics,
   pass `WithEqual(func(_, _ *T) bool { return false })`.
 
+### Fixed (Wave K — before the first v0.20.0 tag)
+
+- **Provider-owned maps are no longer mutated by the pipeline** (fixed
+  before first v0.20.0 tag). Provider snapshots are deep-cloned at the
+  assembly boundary, so typed-hook / secret-resolve / merge writes can no
+  longer reach a provider's (or the caller's) long-lived map — closing a
+  secret-plaintext leak path.
+- **`Close()` is now genuinely idempotent** (fixed before first v0.20.0
+  tag). A second `Close()` no longer panics on a double channel close, and
+  the caller-side error-publish path is fenced against a send-on-closed
+  race with `Close`.
+- **`WithProviderOrdered` no longer strips `SnapshotProvider`.** Ordered
+  providers keep their `Revision`/`Stale` metadata (audit + Watch resume).
+- **Patch-layer provenance** now attributes only the paths a patch names,
+  not the entire merged tree, so `Explain`/`LookupStrict` and audit
+  attribution are correct.
+- **`Plan().Run()` runs on the single-writer goroutine,** so a dry-run can
+  no longer invoke user hooks concurrently with a reload; failing Plans
+  are now published on `Errors()` as the godoc always claimed.
+- **`_meta.yaml` read errors fail loud.** A permission/IO error (as
+  opposed to "not found") now fails the reload instead of silently
+  degrading merge semantics.
+- **`WithTransformers(nil)` is rejected at construction** instead of
+  panicking on the reload goroutine.
+- **Overlay/base directories that overflow their priority band fail the
+  scan** instead of silently interleaving layers across directories.
+- `provenance.Origin.Value` matches its doc (Full-level only; slice
+  leaves cloned). Feature `Eval` no longer clones the whole rule table per
+  call (0 allocs/op).
+
+### Changed (pre-tag public surface)
+
+- **`overlay.MetaSpec` drops the never-read `Ordering` and `RedactEnvKeys`
+  fields.** They were silently accepted and ignored; removed in the last
+  pre-tag window to avoid carrying dead schema into SemVer.
+
 ### Added
 
 - **`WithEqual[M any](equal func(old, new *M) bool) SubscribeOption[M]`** —

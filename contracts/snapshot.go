@@ -8,8 +8,10 @@ import "context"
 //
 //   - Revision is an opaque, monotonically-meaningful version string (e.g.
 //     etcd revision, Vault KV current_version, Consul ModifyIndex). The
-//     framework records it per-provider and skips the rest of the pipeline
-//     when every provider's Revision is unchanged AND no file layer mutated.
+//     framework records it per-provider for audit (ReloadCause.Revisions)
+//     and Watch resume; it does NOT short-circuit the pipeline on an
+//     unchanged Revision. Pipeline-level deduplication is done after the
+//     pipeline runs, by comparing the canonical hash of the merged tree.
 //   - Stale means "this snapshot is best-effort and the provider could not
 //     verify it is fresh" (degraded read from a cache after the upstream
 //     went down). The framework logs a warning and forwards Stale through

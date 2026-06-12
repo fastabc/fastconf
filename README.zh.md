@@ -348,6 +348,10 @@ match: "prod | staging"     # 支持 &、|、!、()
 多 profile 模式：`WithProfile(ProfileOptions{Multi: []string{"prod", "eu-west", "canary"}})`
 —— 每个 overlay 的 `_meta.yaml.match` 决定是否应用。
 
+> **单目录文件数上限。** 每个 overlay 目录最多 **< 100** 个配置文件，`base/`
+> 最多 **< 1000** 个，以保证文件优先级落在各自 band 内。超过上限时扫描会
+> 直接报错，而不是静默地让不同目录的层交错合并。
+
 ---
 
 ## Provider 系统

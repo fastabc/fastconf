@@ -1,9 +1,32 @@
 package overlay
 
 import (
+	"fmt"
 	"testing"
 	"testing/fstest"
 )
+
+// An overlay directory that fills its priority stride would bleed into
+// the next overlay's band and interleave by name; the scan must fail loud.
+func TestScan_OverlayStrideOverflow(t *testing.T) {
+	fs := fstest.MapFS{
+		"conf.d/base/00-a.yaml": &fstest.MapFile{Data: []byte("k: 1")},
+	}
+	for i := range overlayStride {
+		fs[fmt.Sprintf("conf.d/overlays/prod/%03d.yaml", i)] = &fstest.MapFile{Data: []byte("k: 1")}
+	}
+	var seenErr error
+	Scan("conf.d", ScanOptions{Profiles: []string{"prod"}, FS: fs})(func(_ Layer, err error) bool {
+		if err != nil {
+			seenErr = err
+			return false
+		}
+		return true
+	})
+	if seenErr == nil {
+		t.Fatalf("expected stride-overflow error for a %d-file overlay", overlayStride)
+	}
+}
 
 func TestScan_BaseAndOverlayOrder(t *testing.T) {
 	fs := fstest.MapFS{

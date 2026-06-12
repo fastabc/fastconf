@@ -53,6 +53,12 @@ func WithTracer(t Tracer) Option {
 	}
 }
 
+// WithAuditSink registers a sink that receives the ReloadCause after each
+// successful reload. Sinks run synchronously and sequentially on the
+// reload goroutine after the new state is published; a slow or blocking
+// sink therefore stalls subsequent reloads. Implementations must be fast
+// or hand off to their own async machinery. A bounded WithAuditTimeout is
+// planned for v0.21.
 func WithAuditSink(sink AuditSink) Option {
 	return func(o *options) {
 		if sink != nil {
