@@ -287,3 +287,32 @@ func TestCoalesce_Options_NormalizeFillsZeros(t *testing.T) {
 		t.Errorf("zero Options not filled with defaults: %+v", o)
 	}
 }
+
+func TestPush_ExpiredBurstAndStaleTimer(t *testing.T) {
+	r := newRecorder()
+	c := New(Options{Quiet: time.Hour, MaxLag: time.Hour}, r.fn)
+	defer c.Stop()
+	c.Push("key", "old", false)
+	c.mu.Lock()
+	old := c.bursts["key"]
+	old.deadline = time.Now().Add(-time.Second)
+	c.mu.Unlock()
+	c.Push("key", "new", false)
+	calls := r.snapshot()
+	if len(calls) != 1 || calls[0].reason != "old" {
+		t.Fatalf("expired burst=%v; want old reason", calls)
+	}
+	c.mu.Lock()
+	current := c.bursts["key"]
+	c.mu.Unlock()
+	defer current.timer.Stop()
+	c.flush("key", old)
+	if r.count() != 1 {
+		t.Fatal("stale timer flushed the new burst")
+	}
+	c.flush("key", current)
+	calls = r.snapshot()
+	if len(calls) != 2 || calls[1].reason != "new" {
+		t.Fatalf("current burst=%v; want new reason", calls)
+	}
+}

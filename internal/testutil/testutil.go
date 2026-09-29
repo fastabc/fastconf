@@ -13,6 +13,7 @@ package testutil
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -35,8 +36,7 @@ func WriteFile(t *testing.T, p, content string) {
 
 // TempConf creates a temporary directory, populates it with files whose
 // paths (relative to the temp root) and contents are given by the files
-// map, and returns the temp root. The caller may use t.TempDir()-based
-// registration for cleanup — this function registers nothing itself.
+// map, and returns the temp root. t.TempDir registers automatic cleanup.
 //
 // Example:
 //
@@ -68,7 +68,7 @@ func WaitFor(t *testing.T, cond func() bool, timeout time.Duration, msg string) 
 }
 
 // FakeProvider is a stub contracts.Provider backed by a static map.
-// Watch returns nil (no change notifications). Useful for unit tests
+// It is load-only, without native notifications. Useful for unit tests
 // that need a provider without spinning up a real remote source.
 type FakeProvider struct {
 	name     string
@@ -84,17 +84,14 @@ func NewFakeProvider(name string, priority int, data map[string]any) *FakeProvid
 	return &FakeProvider{name: name, priority: priority, data: data}
 }
 
-func (f *FakeProvider) Name() string     { return f.name }
-func (f *FakeProvider) Priority() int    { return f.priority }
-func (f *FakeProvider) Watch(_ context.Context) (<-chan contracts.Event, error) { return nil, nil }
-func (f *FakeProvider) Load(_ context.Context) (map[string]any, error) {
+func (f *FakeProvider) Name() string { return f.name }
+func (f *FakeProvider) Describe() contracts.ProviderInfo {
+	return contracts.ProviderInfo{Priority: f.priority}
+}
+func (f *FakeProvider) Load(context.Context) (contracts.Snapshot, error) {
 	if f.LoadErr != nil {
-		return nil, f.LoadErr
+		return contracts.Snapshot{}, f.LoadErr
 	}
-	// Return a shallow copy so callers cannot mutate the stub's data.
-	out := make(map[string]any, len(f.data))
-	for k, v := range f.data {
-		out[k] = v
-	}
-	return out, nil
+	// Isolate top-level keys; nested values remain shared with the stub.
+	return contracts.Snapshot{Map: maps.Clone(f.data)}, nil
 }

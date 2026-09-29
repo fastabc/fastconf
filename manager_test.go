@@ -1,215 +1,147 @@
-package fastconf_test
+package fastconf
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"runtime"
 	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
-	"github.com/fastabc/fastconf"
+	"github.com/fastabc/fastconf/providers/source"
 )
 
-type dbCfg struct {
-	DSN  string `yaml:"dsn" json:"dsn"`
-	Pool int    `yaml:"pool" json:"pool"`
+func TestLoadRunsOneShotWithoutConfigDirectory(t *testing.T) {
+	s, err := Load[struct {
+		Port int `json:"port"`
+	}](context.Background(), WithProvider(source.NewBytes("inline", "json", []byte(`{"port": 8080}`))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s == nil || s.Value().Port != 8080 {
+		t.Fatalf("snapshot = %#v", s)
+	}
 }
 
-type appCfg struct {
-	Server struct {
-		Addr string `yaml:"addr" json:"addr"`
-	} `yaml:"server" json:"server"`
-	Database dbCfg    `yaml:"database" json:"database"`
-	Features []string `yaml:"features" json:"features"`
-}
-
-func newFS(extra map[string]string) fstest.MapFS {
+// TestLoadHonorsFileDiscoveryOptions verifies that Load resolves the same option
+// set as New, including WithFS / WithDir / WithProfile.
+func TestLoadHonorsFileDiscoveryOptions(t *testing.T) {
 	fs := fstest.MapFS{
-		"conf.d/base/00-app.yaml": &fstest.MapFile{Data: []byte(`
-server:
-  addr: ":8080"
-features: [a, b]
-`)},
-		"conf.d/base/20-database.yaml": &fstest.MapFile{Data: []byte(`
-database:
-  dsn: "postgres://base"
-  pool: 10
-`)},
+		"cfg/base/00.yaml":          &fstest.MapFile{Data: []byte("port: 1\n")},
+		"cfg/overlays/prod/00.yaml": &fstest.MapFile{Data: []byte("port: 2\n")},
 	}
-	for k, v := range extra {
-		fs[k] = &fstest.MapFile{Data: []byte(v)}
-	}
-	return fs
-}
-
-func TestNew_BaseOnly(t *testing.T) {
-	mfs := newFS(nil)
-	mgr, err := fastconf.New[appCfg](context.Background(),
-		fastconf.WithFS(mfs),
-		fastconf.WithDir("conf.d"),
-	)
+	s, err := Load[struct {
+		Port int `json:"port"`
+	}](context.Background(), WithFS(fs), WithDir("cfg"), WithProfile(Profile{Names: []string{"prod"}}))
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
-	defer mgr.Close()
-
-	got := mgr.Get()
-	if got.Server.Addr != ":8080" {
-		t.Errorf("addr = %q", got.Server.Addr)
-	}
-	if got.Database.DSN != "postgres://base" || got.Database.Pool != 10 {
-		t.Errorf("db = %+v", got.Database)
-	}
-	if len(got.Features) != 2 {
-		t.Errorf("features = %v", got.Features)
-	}
-	snap := mgr.Snapshot()
-	if snap.Generation() != 1 {
-		t.Errorf("gen = %d", snap.Generation())
-	}
-	if len(snap.Sources()) != 2 {
-		t.Errorf("sources = %d", len(snap.Sources()))
+	if s.Value().Port != 2 {
+		t.Fatalf("port = %d; want 2 from the prod overlay", s.Value().Port)
 	}
 }
 
-func TestNew_OverlayOverrides(t *testing.T) {
-	mfs := newFS(map[string]string{
-		"conf.d/overlays/prod/20-database.yaml": `
-database:
-  dsn: "postgres://prod"
-  pool: 50
-`,
+func TestLoadReturnsNoSnapshotOnFailure(t *testing.T) {
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		data string
+		want error
+	}{
+		{"source-parse", context.Background(), `{`, ErrProvider},
+		{"decode", context.Background(), `{"port":{}}`, ErrDecode},
+		{"validation", context.Background(), `{"port":0}`, ErrInvalid},
+		{"canceled", canceled, `{"port":8080}`, context.Canceled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := Load[struct {
+				Port int `json:"port" fc:"min=1"`
+			}](tc.ctx, WithProvider(source.NewBytes("inline", "json", []byte(tc.data))))
+			if s != nil || !errors.Is(err, tc.want) {
+				t.Fatalf("Load = %v, %v; want nil, %v", s, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestShutdownRetriesKeepGoroutinesBounded(t *testing.T) {
+	m := newRuntimeManager(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(release) })
+		_ = m.Close()
 	})
-	mgr, err := fastconf.New[appCfg](context.Background(),
-		fastconf.WithFS(mfs),
-		fastconf.WithDir("conf.d"),
-		fastconf.WithProfile(fastconf.ProfileOptions{Single: "prod"}),
-	)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	defer mgr.Close()
-	got := mgr.Get()
-	if got.Database.DSN != "postgres://prod" || got.Database.Pool != 50 {
-		t.Errorf("overlay not applied: %+v", got.Database)
-	}
-	if got.Server.Addr != ":8080" {
-		t.Errorf("base lost: %q", got.Server.Addr)
-	}
-}
-
-func TestCloseIdempotent(t *testing.T) {
-	mfs := newFS(nil)
-	mgr, err := fastconf.New[appCfg](context.Background(),
-		fastconf.WithFS(mfs),
-		fastconf.WithDir("conf.d"),
-	)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := mgr.Close(); err != nil {
-		t.Fatalf("first Close: %v", err)
-	}
-	if err := mgr.Close(); err != nil {
-		t.Fatalf("second Close: %v", err)
-	}
-}
-
-// TestCloseConcurrentWithFailingReload exercises the caller-side error
-// publish path (a Reload whose option fails publishes on the caller's
-// goroutine, outside the bgWG-tracked reload loop) racing Close. Run
-// with -race; a send on the closed Errors channel would panic here.
-func TestCloseConcurrentWithFailingReload(t *testing.T) {
-	bad := map[string]any{"ch": make(chan int)} // json.Marshal fails
-	for i := 0; i < 50; i++ {
-		mfs := newFS(nil)
-		mgr, err := fastconf.New[appCfg](context.Background(),
-			fastconf.WithFS(mfs),
-			fastconf.WithDir("conf.d"),
-		)
-		if err != nil {
-			t.Fatalf("New: %v", err)
-		}
-		var wg sync.WaitGroup
-		for g := 0; g < 4; g++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				_ = mgr.Reload(context.Background(), fastconf.WithSourceOverride(bad))
-			}()
-		}
-		if err := mgr.Close(); err != nil {
-			t.Fatalf("Close: %v", err)
-		}
-		wg.Wait()
-	}
-}
-
-func TestNoSources(t *testing.T) {
-	mfs := fstest.MapFS{}
-	_, err := fastconf.New[appCfg](context.Background(), fastconf.WithFS(mfs), fastconf.WithDir("conf.d"))
-	if err == nil {
-		t.Fatal("expected error for empty config")
-	}
-}
-
-// sinkInt prevents the compiler from optimising away the Get() call and
-// gives the BenchmarkGet allocs report a stable consumer of the value.
-var sinkInt int
-
-func BenchmarkGet(b *testing.B) {
-	mfs := newFS(nil)
-	mgr, err := fastconf.New[appCfg](context.Background(), fastconf.WithFS(mfs), fastconf.WithDir("conf.d"))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer mgr.Close()
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		sinkInt = mgr.Get().Database.Pool
-	}
-}
-
-func BenchmarkGetParallel(b *testing.B) {
-	mfs := newFS(nil)
-	mgr, err := fastconf.New[appCfg](context.Background(), fastconf.WithFS(mfs), fastconf.WithDir("conf.d"))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer mgr.Close()
-	b.ReportAllocs()
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		var local int
-		for pb.Next() {
-			local = mgr.Get().Database.Pool
-		}
-		sinkInt = local
+	cancelSub := Subscribe(m, func(c *runtimeConfig) *int { return &c.A }, func(_, _ *int) {
+		close(entered)
+		<-release
 	})
-}
-
-// BenchmarkReloadLarge exercises the full reload pipeline against a
-// synthetic 256-key configuration. It is intended as a regression
-// guard for assemble + merge + decode allocations.
-func BenchmarkReloadLarge(b *testing.B) {
-	const n = 256
-	mfs := fstest.MapFS{}
-	for i := 0; i < n; i++ {
-		mfs[fmt.Sprintf("conf.d/base/%03d.yaml", i)] = &fstest.MapFile{
-			Data: []byte(fmt.Sprintf("k%03d: %d\n", i, i)),
+	defer cancelSub()
+	reloaded := make(chan error, 1)
+	go func() {
+		reloaded <- m.Reload(context.Background(), WithOverride(map[string]any{"a": 2}))
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("subscriber did not start")
+	}
+	before := runtime.NumGoroutine()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := m.Shutdown(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown with blocked subscriber = %v", err)
+	}
+	canceled, stop := context.WithCancel(context.Background())
+	stop()
+	for i := 0; i < 128; i++ {
+		if err := m.Shutdown(canceled); !errors.Is(err, context.Canceled) {
+			t.Fatalf("Shutdown retry %d = %v", i, err)
 		}
 	}
-	mgr, err := fastconf.New[map[string]any](context.Background(), fastconf.WithFS(mfs), fastconf.WithDir("conf.d"))
-	if err != nil {
-		b.Fatal(err)
+	// Allow unrelated runtime workers, but not a new worker for every retry.
+	if growth := runtime.NumGoroutine() - before; growth > 8 {
+		t.Fatalf("128 shutdown retries added %d goroutines", growth)
 	}
-	defer mgr.Close()
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if err := mgr.Reload(context.Background()); err != nil {
-			b.Fatal(err)
+	select {
+	case _, ok := <-m.Errors():
+		if !ok {
+			t.Fatal("Errors closed before the subscriber finished")
+		}
+	default:
+	}
+	releaseOnce.Do(func() { close(release) })
+	finish, cancelFinish := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelFinish()
+	if err := m.Shutdown(finish); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := <-m.Errors(); ok {
+		t.Fatal("Errors remains open after shutdown completed")
+	}
+	select {
+	case err := <-reloaded:
+		if err != nil && !errors.Is(err, ErrClosed) {
+			t.Fatalf("in-flight Reload = %v", err)
+		}
+	case <-finish.Done():
+		t.Fatal("in-flight Reload did not finish")
+	}
+}
+
+func TestShutdownCompletedIgnoresCanceledContext(t *testing.T) {
+	m := newRuntimeManager(t)
+	if err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for i := 0; i < 32; i++ {
+		if err := m.Shutdown(ctx); err != nil {
+			t.Fatalf("completed Shutdown retry %d = %v", i, err)
 		}
 	}
 }

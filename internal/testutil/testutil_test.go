@@ -5,10 +5,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/internal/testutil"
 )
 
@@ -37,13 +37,12 @@ func TestTempConf_CreatesFiles(t *testing.T) {
 	}
 }
 
-func TestWaitFor_SuccessBeforeTimeout(t *testing.T) {
-	var n atomic.Int32
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		n.Store(1)
-	}()
-	testutil.WaitFor(t, func() bool { return n.Load() == 1 }, 3*time.Second, "counter never set")
+func TestWaitFor_PollsUntilSuccess(t *testing.T) {
+	calls := 0
+	testutil.WaitFor(t, func() bool { calls++; return calls == 3 }, time.Second, "condition was not polled")
+	if calls != 3 {
+		t.Fatalf("condition calls=%d; want 3", calls)
+	}
 }
 
 func TestFakeProvider_LoadReturnsData(t *testing.T) {
@@ -51,26 +50,22 @@ func TestFakeProvider_LoadReturnsData(t *testing.T) {
 	if p.Name() != "fp" {
 		t.Errorf("name: got %q want fp", p.Name())
 	}
-	if p.Priority() != 100 {
-		t.Errorf("priority: got %d want 100", p.Priority())
+	if contracts.Describe(p).Priority != 100 {
+		t.Errorf("priority: got %d want 100", contracts.Describe(p).Priority)
 	}
-	data, err := p.Load(context.Background())
+	snap, err := p.Load(context.Background())
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if data["key"] != "val" {
+	if data := snap.Map; data["key"] != "val" {
 		t.Errorf("key: got %v want val", data["key"])
 	}
 }
 
-func TestFakeProvider_WatchReturnsNil(t *testing.T) {
+func TestFakeProvider_LoadOnly(t *testing.T) {
 	p := testutil.NewFakeProvider("fp", 100, nil)
-	ch, err := p.Watch(context.Background())
-	if err != nil {
-		t.Fatalf("Watch: %v", err)
-	}
-	if ch != nil {
-		t.Error("Watch: expected nil channel")
+	if _, ok := any(p).(contracts.Watcher); ok {
+		t.Fatal("load-only provider unexpectedly implements Watcher")
 	}
 }
 
@@ -86,11 +81,11 @@ func TestFakeProvider_LoadReturnsError(t *testing.T) {
 func TestFakeProvider_LoadReturnsCopy(t *testing.T) {
 	orig := map[string]any{"k": "v"}
 	p := testutil.NewFakeProvider("fp", 100, orig)
-	data, _ := p.Load(context.Background())
-	data["k"] = "tampered"
-	data2, _ := p.Load(context.Background())
-	if data2["k"] != "v" {
-		t.Errorf("Load must return a copy; got %q after mutation", data2["k"])
+	snap, _ := p.Load(context.Background())
+	snap.Map["k"] = "tampered"
+	snap2, _ := p.Load(context.Background())
+	if snap2.Map["k"] != "v" {
+		t.Errorf("Load must return a copy; got %q after mutation", snap2.Map["k"])
 	}
 }
 

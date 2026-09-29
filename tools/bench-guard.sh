@@ -1,58 +1,31 @@
 #!/usr/bin/env bash
-# Benchmark regression guard for the lock-free read path.
-#
-# Runs BenchmarkGet from package fastconf and asserts:
-#   * ns/op  <= MAX_NS_PER_OP   (default 5)
-#   * allocs <= MAX_ALLOCS      (default 0)
-#
-# Wired into CI so any change that regresses the lock-free read path
-# fails the build instead of silently shipping. The benchmark lives in
-# bench_test.go and is intentionally minimal: a tiny config so the
-# measurement reflects only the atomic.Pointer.Load + struct-pointer
-# return cost.
-
+# Enforce the hot-read latency and allocation budgets without rounding.
 set -euo pipefail
-
-MAX_NS_PER_OP=${MAX_NS_PER_OP:-5}
-MAX_ALLOCS=${MAX_ALLOCS:-0}
-BENCH_TIME=${BENCH_TIME:-1s}
-
 cd "$(dirname "$0")/.."
-
-# -run x  ⇒ skip every Test*; we only want the bench.
-out=$(go test -run x -bench '^BenchmarkGet$' -benchmem -benchtime="$BENCH_TIME" . 2>&1)
-echo "$out"
-
-# Pick the LAST line containing "ns/op" — Go's testing package may
-# split a single Benchmark output line when other goroutines write to
-# the same stdout stream (the manager's INFO logger does so during
-# New). Matching on "ns/op" is robust to that interleaving.
-line=$(echo "$out" | grep -E 'ns/op' | tail -1)
-if [[ -z "$line" ]]; then
-  echo "bench-guard: no BenchmarkGet output found" >&2
+export GOWORK=off
+export GOFLAGS="${GOFLAGS:-} -mod=readonly"
+MAX_NS_PER_OP="${MAX_NS_PER_OP:-5}"
+MAX_ALLOCS="${MAX_ALLOCS:-0}"
+BENCH_TIME="${BENCH_TIME:-1s}"
+if ! out="$(go test -run '^$' -bench '^BenchmarkGet$' -benchmem -benchtime="$BENCH_TIME" . 2>&1)"; then
+  printf '%s\n' "$out" >&2
   exit 1
 fi
-
-# Format: "BenchmarkGet-8   N   X.XX ns/op   Y B/op   Z allocs/op"
-# But interleaved logs may shift columns; use the canonical positions
-# of the "ns/op" and "allocs/op" tokens themselves.
-ns=$(echo "$line" | awk '{ for(i=1;i<=NF;i++) if($i=="ns/op") print $(i-1) }')
-allocs=$(echo "$line" | awk '{ for(i=1;i<=NF;i++) if($i=="allocs/op") print $(i-1) }')
-
-# ns is a float; truncate to integer for shell comparison.
-ns_int=${ns%.*}
-
-fail=0
-if (( ns_int > MAX_NS_PER_OP )); then
-  echo "bench-guard: REGRESSION ns/op=$ns > limit=$MAX_NS_PER_OP" >&2
-  fail=1
-fi
-if (( allocs > MAX_ALLOCS )); then
-  echo "bench-guard: REGRESSION allocs=$allocs > limit=$MAX_ALLOCS" >&2
-  fail=1
-fi
-
-if (( fail == 0 )); then
-  echo "bench-guard: OK  ns/op=$ns  allocs=$allocs"
-fi
-exit $fail
+printf '%s\n' "$out"
+printf '%s\n' "$out" | awk -v max_ns="$MAX_NS_PER_OP" -v max_allocs="$MAX_ALLOCS" '
+  /ns\/op/ {
+    for (i = 2; i <= NF; i++) {
+      if ($i == "ns/op") ns = $(i-1)
+      if ($i == "allocs/op") allocs = $(i-1)
+    }
+  }
+  END {
+    if (ns !~ /^[0-9]+([.][0-9]+)?$/ || allocs !~ /^[0-9]+$/) {
+      print "bench-guard: missing or invalid benchmark metrics"; exit 1
+    }
+    if (ns > max_ns + 0 || allocs > max_allocs + 0) {
+      printf "bench-guard: REGRESSION ns/op=%s (limit=%s), allocs=%s (limit=%s)\n", ns, max_ns, allocs, max_allocs
+      exit 1
+    }
+    printf "bench-guard: OK ns/op=%s allocs=%s\n", ns, allocs
+  }'

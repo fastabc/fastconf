@@ -2,20 +2,24 @@ package main
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/fastabc/fastconf"
-	"github.com/fastabc/fastconf/internal/flog"
 )
 
 type server struct {
-	mgr   *fastconf.Manager[map[string]any]
-	bus   *eventBus
-	token string
-	log   *flog.Logger
+	mgr       *fastconf.Manager[map[string]any]
+	bus       *eventBus
+	token     string
+	readToken string
+	// unredactedToken gates ?unredacted=true on /config and /dump; empty
+	// disables plaintext output.
+	unredactedToken string
+	log             *slog.Logger
 }
 
-func newServer(mgr *fastconf.Manager[map[string]any], bus *eventBus, token string, log *flog.Logger) *server {
+func newServer(mgr *fastconf.Manager[map[string]any], bus *eventBus, token string, log *slog.Logger) *server {
 	return &server{mgr: mgr, bus: bus, token: token, log: log}
 }
 

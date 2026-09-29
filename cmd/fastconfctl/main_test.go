@@ -1,19 +1,12 @@
 package main
 
 import (
-	"flag"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/fastabc/fastconf"
-	"github.com/fastabc/fastconf/cmd/internal/cli"
 )
 
-// Flag-default tests for dir/profile/provider live in
-// cmd/internal/cli/setup_test.go (TestRegisterFlags_Defaults +
-// TestProviderFlags_Apply_*). This file only tests the JSON diff helper
-// which is local to fastconfctl.
 func TestBuildJSONChanges(t *testing.T) {
 	a := map[string]any{"x": 1.0, "y": "old", "z": "same"}
 	b := map[string]any{"x": 2.0, "y": "new", "w": "added"}
@@ -36,50 +29,53 @@ func TestBuildJSONChanges(t *testing.T) {
 	}
 }
 
-func TestMainDoesNotDefineLocalLookupPath(t *testing.T) {
-	if packageSourceContains(t, "func lookupPath(") {
-		t.Fatal("fastconfctl must use confmap.GetDotted instead of a local lookupPath")
-	}
-}
-
-// TestCLIFlagsParityWithInternalCLI pins the default values of the shared
-// cli.Flags type from cmd/internal/cli. fastconfctl now directly imports
-// that package, so parity is guaranteed at compile time.
-func TestCLIFlagsParityWithInternalCLI(t *testing.T) {
-	var f cli.Flags
-	cli.RegisterFlags(flag.NewFlagSet("test", flag.ContinueOnError), &f)
-	if f.Dir != fastconf.DefaultDir {
-		t.Errorf("Dir default: got %q, want fastconf.DefaultDir (%q)", f.Dir, fastconf.DefaultDir)
-	}
-	if f.Profile != "" {
-		t.Errorf("Profile default: got %q, want empty string", f.Profile)
-	}
-	if f.Strict {
-		t.Error("Strict default: got true, want false")
-	}
-	if f.Watch {
-		t.Error("Watch default: got true, want false")
-	}
-}
-
-func packageSourceContains(t *testing.T, needle string) bool {
-	t.Helper()
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatalf("read package dir: %v", err)
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
+func TestCommands(t *testing.T) {
+	dir := t.TempDir()
+	for path, body := range map[string]string{"base/a.yaml": "name: base\n", "overlays/prod/a.yaml": "name: prod\n"} {
+		file := filepath.Join(dir, path)
+		if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
+			t.Fatal(err)
 		}
-		src, err := os.ReadFile(name)
-		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
-		}
-		if strings.Contains(string(src), needle) {
-			return true
+		if err := os.WriteFile(file, []byte(body), 0600); err != nil {
+			t.Fatal(err)
 		}
 	}
-	return false
+	for _, tc := range []struct {
+		name string
+		run  func([]string) error
+		args []string
+		want string
+	}{
+		{"dump", runDump, []string{"-pretty=false"}, "{\"name\":\"base\"}\n"},
+		{"yaml", runDump, []string{"-format=yaml"}, "name: base\n"},
+		{"validate", runValidate, nil, "OK\n"},
+		{"diff", runDiff, []string{"-to=prod"}, "~ name : base -> prod\n"},
+		{"explain", runExplain, []string{"name"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := os.CreateTemp(t.TempDir(), "stdout")
+			if err != nil {
+				t.Fatal(err)
+			}
+			old := os.Stdout
+			os.Stdout = out
+			defer func() { os.Stdout = old; _ = out.Close() }()
+			err = tc.run(append([]string{"-dir", dir}, tc.args...))
+			os.Stdout = old
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(out.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.name == "explain" {
+				if !strings.Contains(string(data), `"value": "base"`) || !strings.Contains(string(data), `"priority": 1000`) || !strings.Contains(string(data), `"winner": {`) {
+					t.Fatalf("explain = %s", data)
+				}
+			} else if string(data) != tc.want {
+				t.Fatalf("got %q, want %q", data, tc.want)
+			}
+		})
+	}
 }

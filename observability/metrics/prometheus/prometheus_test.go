@@ -43,16 +43,25 @@ func TestSink_RecordsAllSeries(t *testing.T) {
 }
 
 func TestNew_NilRegistererUsesDefault(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatalf("expected double-register panic on prometheus.DefaultRegisterer")
+	previous := prometheus.DefaultRegisterer
+	reg := prometheus.NewRegistry()
+	prometheus.DefaultRegisterer = reg
+	t.Cleanup(func() { prometheus.DefaultRegisterer = previous })
+	s := New(nil)
+	s.StateGeneration(3)
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, family := range families {
+		if family.GetName() == "fastconf_state_generation" && family.GetMetric()[0].GetGauge().GetValue() == 3 {
+			return
 		}
-	}()
-	_ = New(nil)
-	_ = New(nil) // second registration on the same default registry must panic
+	}
+	t.Fatal("nil registerer did not use the default registry")
 }
 
-func TestSink_StageDuration_Phase28(t *testing.T) {
+func TestSink_StageDuration(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	s := New(reg)
 
@@ -100,4 +109,15 @@ func TestAlertRulesDocumentCriticalSignals(t *testing.T) {
 			t.Fatalf("alert_rules.yaml missing %q", want)
 		}
 	}
+}
+
+func TestNew_DuplicateRegistrationPanics(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	_ = New(reg)
+	defer func() {
+		if recover() == nil {
+			t.Fatal("duplicate registration did not panic")
+		}
+	}()
+	_ = New(reg)
 }

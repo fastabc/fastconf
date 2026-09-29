@@ -12,14 +12,15 @@ import (
 	"time"
 )
 
-// defaultTypedHooks returns the hook slice used by DefaultTypedHooks.
-// Keeping the constructor private lets the public API delegate cleanly
-// while keeping the implementation next to the hook types.
+// defaultTypedHooks returns the hook slice used by DefaultTypedHooks. Keeping the constructor
+// private lets the public API delegate cleanly while keeping the implementation next to the hook
+// types.
 func defaultTypedHooks() []TypedHook {
 	return []TypedHook{DurationHook{}, StringPrimitiveHook{}}
 }
 
-// DurationHook: "30s" → int64(30 * time.Second).
+// DurationHook: "30s" → time.Duration(30 * time.Second). Both decode bridges accept the result:
+// JSON reads its int64 nanoseconds and YAML re-encodes it as a duration string.
 type DurationHook struct{}
 
 var durationType = reflect.TypeOf(time.Duration(0))
@@ -33,7 +34,7 @@ func (DurationHook) Convert(raw any) (any, error) {
 		if err != nil {
 			return raw, fmt.Errorf("duration hook: %w", err)
 		}
-		return int64(d), nil
+		return d, nil
 	default:
 		return raw, nil
 	}
@@ -58,7 +59,8 @@ func (IPHook) Convert(raw any) (any, error) {
 	return ip.String(), nil
 }
 
-// URLHook: round-trips a URL string after validating.
+// URLHook parses a URL string into the url.URL or *url.URL destination. url.URL has no string wire
+// form, so the parsed value is assigned directly after decoding.
 type URLHook struct{}
 
 var (
@@ -68,7 +70,10 @@ var (
 
 func (URLHook) Match(t reflect.Type) bool { return t == urlType || t == urlValType }
 
-func (URLHook) Convert(raw any) (any, error) {
+// Convert returns a *url.URL; ConvertWithTarget picks the value form for url.URL fields.
+func (h URLHook) Convert(raw any) (any, error) { return h.ConvertWithTarget(raw, urlType) }
+
+func (URLHook) ConvertWithTarget(raw any, target reflect.Type) (any, error) {
 	s, ok := raw.(string)
 	if !ok {
 		return raw, nil
@@ -77,7 +82,10 @@ func (URLHook) Convert(raw any) (any, error) {
 	if err != nil {
 		return raw, fmt.Errorf("url hook: %w", err)
 	}
-	return u.String(), nil
+	if target == urlValType {
+		return *u, nil
+	}
+	return u, nil
 }
 
 // RegexHook: validates the pattern then passes through.
@@ -110,9 +118,8 @@ func (RegexHook) Convert(raw any) (any, error) {
 // "env value lands in a typed struct field" path works out of the box.
 type StringPrimitiveHook struct{}
 
-// Match accepts unnamed (builtin) primitive numeric / bool types.
-// Named types (PkgPath != "") are excluded so DurationHook and similar
-// keep their precedence.
+// Match accepts unnamed (builtin) primitive numeric / bool types. Named types (PkgPath != "") are
+// excluded so DurationHook and similar keep their precedence.
 func (StringPrimitiveHook) Match(t reflect.Type) bool {
 	if t == nil {
 		return false
@@ -130,13 +137,12 @@ func (StringPrimitiveHook) Match(t reflect.Type) bool {
 	return false
 }
 
-// Convert without a target type cannot pick a parse strategy, so it
-// returns raw untouched. The walker uses ConvertWithTarget when the
-// plan node records a target type.
+// Convert without a target type cannot pick a parse strategy, so it returns raw untouched. The
+// walker uses ConvertWithTarget when the plan node records a target type.
 func (StringPrimitiveHook) Convert(raw any) (any, error) { return raw, nil }
 
-// ConvertWithTarget parses the string into the requested kind. Non-string
-// raw values pass through unchanged.
+// ConvertWithTarget parses the string into the requested kind. Non-string raw values pass through
+// unchanged.
 func (StringPrimitiveHook) ConvertWithTarget(raw any, target reflect.Type) (any, error) {
 	s, ok := raw.(string)
 	if !ok {

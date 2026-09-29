@@ -1,5 +1,3 @@
-//go:build !no_provider_s3
-
 package s3_test
 
 import (
@@ -8,6 +6,7 @@ import (
 	"errors"
 	"io"
 	nethttp "net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -145,7 +144,7 @@ func TestProvider_LoadDecodesYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	srv, ok := m["server"].(map[string]any)
+	srv, ok := m.Map["server"].(map[string]any)
 	if !ok {
 		t.Fatalf("server key missing or wrong shape: %v", m)
 	}
@@ -167,7 +166,7 @@ func TestProvider_LoadDecodesJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if m["k"] != "v" {
+	if m.Map["k"] != "v" {
 		t.Errorf("got %v", m)
 	}
 }
@@ -185,8 +184,55 @@ func TestProvider_LoadRejectsOversizedBody(t *testing.T) {
 	big := make([]byte, 10*1024*1024+1)
 	api := &fakeAPI{objects: map[string]fakeObject{"b/k.yaml": {Body: big}}}
 	p, _ := s3prov.NewWithClient(s3prov.Config{Bucket: "b", Key: "k.yaml"}, api)
-	if _, err := p.Load(context.Background()); err == nil || !strings.Contains(err.Error(), "limit") {
+	_, err := p.Load(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "limit") {
 		t.Fatalf("expected size limit error, got %v", err)
+	}
+	if !errors.Is(err, contracts.ErrTooLarge) {
+		t.Fatalf("expected errors.Is(err, contracts.ErrTooLarge), got %v", err)
+	}
+}
+
+func TestProvider_MaxBodyBytes(t *testing.T) {
+	const defaultLimit = 10 << 20
+	for _, tc := range []struct {
+		name     string
+		limit    int64
+		size     int
+		tooLarge bool
+	}{
+		{"exact custom limit", 9, 9, false},
+		{"over custom limit", 9, 10, true},
+		{"zero restores default", 0, defaultLimit, false},
+		{"zero rejects oversized", 0, defaultLimit + 1, true},
+		{"negative restores default", -1, defaultLimit, false},
+		{"raised limit", defaultLimit + 1, defaultLimit + 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Trailing JSON whitespace reaches the limit without a huge decoded value.
+			body := []byte(`{"k":"v"}` + strings.Repeat(" ", tc.size-9))
+			api := &fakeAPI{objects: map[string]fakeObject{"b/k.json": {Body: body, ETag: "v1"}}}
+			p, err := s3prov.NewWithClient(s3prov.Config{Bucket: "b", Key: "k.json"}, api,
+				s3prov.WithMaxBodyBytes(1), s3prov.WithMaxBodyBytes(tc.limit))
+			if err != nil {
+				t.Fatal(err)
+			}
+			snapshot, err := p.Load(context.Background())
+			if tc.tooLarge {
+				if !errors.Is(err, contracts.ErrTooLarge) {
+					t.Fatalf("Load error = %v, want ErrTooLarge", err)
+				}
+				// A rejected response must not seed the ETag cache.
+				api.objects["b/k.json"] = fakeObject{Body: []byte(`{"k":"v"}`), ETag: "v1"}
+				snapshot, err = p.Load(context.Background())
+				if api.lastIn.IfNoneMatch != nil {
+					t.Fatal("oversized response populated ETag cache")
+				}
+			}
+			if err != nil || snapshot.Map["k"] != "v" || snapshot.Revision != "v1" {
+				t.Fatalf("Load = %+v, %v", snapshot, err)
+			}
+		})
 	}
 }
 
@@ -217,7 +263,7 @@ func TestProvider_ETagShortCircuit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Load: %v", err)
 	}
-	if m1["k"] != "v1" {
+	if m1.Map["k"] != "v1" {
 		t.Errorf("first Load decoded wrong: %v", m1)
 	}
 	// Swap the body to garbage that would fail decode. Same ETag → server
@@ -227,8 +273,11 @@ func TestProvider_ETagShortCircuit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Load: %v", err)
 	}
-	if m2["k"] != "v1" {
+	if m2.Map["k"] != "v1" {
 		t.Errorf("expected cached v1, got %v", m2)
+	}
+	if m1.Revision != `"abc"` || m2.Revision != m1.Revision {
+		t.Fatalf("ETag revisions = %q, %q", m1.Revision, m2.Revision)
 	}
 	if api.calls != 2 {
 		t.Errorf("expected 2 GetObject calls, got %d", api.calls)
@@ -256,7 +305,7 @@ func TestProvider_ETagRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Load: %v", err)
 	}
-	if m["k"] != "v2" {
+	if m.Map["k"] != "v2" {
 		t.Errorf("expected v2, got %v", m)
 	}
 }
@@ -266,15 +315,19 @@ func TestProvider_ETagRefresh(t *testing.T) {
 func TestProvider_LoadReturnsFreshMap(t *testing.T) {
 	api := &fakeAPI{
 		objects: map[string]fakeObject{
-			"b/cfg.yaml": {Body: []byte("k: v"), ETag: `"e"`},
+			"b/cfg.yaml": {Body: []byte("k: v\nnested: {key: value}"), ETag: `"e"`},
 		},
 	}
 	p, _ := s3prov.NewWithClient(s3prov.Config{Bucket: "b", Key: "cfg.yaml"}, api)
 	m1, _ := p.Load(context.Background())
-	m1["k"] = "MUTATED"
+	m1.Map["k"] = "MUTATED"
+	m1.Map["nested"].(map[string]any)["key"] = "MUTATED"
 	m2, _ := p.Load(context.Background()) // hits 304 path
-	if m2["k"] != "v" {
+	if m2.Map["k"] != "v" {
 		t.Errorf("cache was poisoned: %v", m2)
+	}
+	if m2.Map["nested"].(map[string]any)["key"] != "value" {
+		t.Errorf("nested cache was poisoned: %v", m2)
 	}
 }
 
@@ -306,46 +359,46 @@ func TestProvider_NameAndPriority(t *testing.T) {
 	if p.Name() != "s3://my-bucket/prod/app.yaml" {
 		t.Errorf("Name: %s", p.Name())
 	}
-	if p.Priority() != contracts.PriorityKV {
-		t.Errorf("Priority: %d", p.Priority())
+	if p.Describe().Priority != contracts.PriorityKV {
+		t.Errorf("Priority: %d", p.Describe().Priority)
 	}
 
 	p2, _ := s3prov.NewWithClient(s3prov.Config{Bucket: "b", Key: "k.yaml", Priority: 99}, api)
-	if p2.Priority() != 99 {
-		t.Errorf("custom priority: %d", p2.Priority())
+	if p2.Describe().Priority != 99 {
+		t.Errorf("custom priority: %d", p2.Describe().Priority)
 	}
 }
 
-func TestProvider_WatchReturnsNil(t *testing.T) {
+func TestProvider_LoadOnly(t *testing.T) {
 	api := &fakeAPI{}
 	p, _ := s3prov.NewWithClient(s3prov.Config{Bucket: "b", Key: "k.yaml"}, api)
-	ch, err := p.Watch(context.Background())
-	if err != nil || ch != nil {
-		t.Errorf("Watch: expected (nil, nil), got (%v, %v)", ch, err)
+	if _, ok := any(p).(contracts.Watcher); ok {
+		t.Fatal("load-only provider unexpectedly implements Watcher")
 	}
-}
-
-func TestProvider_ImplementsContracts(t *testing.T) {
-	api := &fakeAPI{}
-	p, _ := s3prov.NewWithClient(s3prov.Config{Bucket: "b", Key: "k.yaml"}, api)
-	var _ contracts.Provider = p
 }
 
 func TestNew_BuildsRealClient(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		_, _ = io.WriteString(w, "k: value")
+	}))
+	defer srv.Close()
 	p, err := s3prov.New(s3prov.Config{
 		Region:    "us-east-1",
 		Bucket:    "b",
 		Key:       "k.yaml",
 		AccessKey: "AKIA",
 		SecretKey: "secret",
-		Endpoint:  "http://localhost:9000",
+		Endpoint:  srv.URL,
 		PathStyle: true,
-	})
+	}, s3prov.WithMaxBodyBytes(4))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if p.Name() != "s3://b/k.yaml" {
 		t.Errorf("Name: %s", p.Name())
+	}
+	if _, err := p.Load(context.Background()); !errors.Is(err, contracts.ErrTooLarge) {
+		t.Fatalf("New did not apply body limit: %v", err)
 	}
 }
 

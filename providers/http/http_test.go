@@ -1,9 +1,8 @@
-//go:build !no_provider_http
-
 package http_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	nethttp "net/http"
@@ -46,8 +45,8 @@ func TestNew_Validation(t *testing.T) {
 	if _, err := httpprov.New("n", "", yamlCodec{}); err == nil {
 		t.Error("expected error on empty url")
 	}
-	if _, err := httpprov.New("n", "http://x", nil); err == nil {
-		t.Error("expected error on nil codec")
+	if _, err := httpprov.New("n", "http://x", nil); err != nil {
+		t.Error("nil codec should select by Content-Type:", err)
 	}
 }
 
@@ -70,7 +69,8 @@ func TestProvider_LoadAndETagShortCircuit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := p.Load(context.Background())
+	outSnapshot, err := p.Load(context.Background())
+	out := outSnapshot.Map
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -78,7 +78,8 @@ func TestProvider_LoadAndETagShortCircuit(t *testing.T) {
 		t.Errorf("decoded: %v", out)
 	}
 	// Second load should re-use cached body when server returns 304.
-	out2, err := p.Load(context.Background())
+	out2Snapshot, err := p.Load(context.Background())
+	out2 := out2Snapshot.Map
 	if err != nil {
 		t.Fatalf("Load #2: %v", err)
 	}
@@ -108,19 +109,16 @@ func TestProvider_WatchEmitsOnDiff(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	ch, err := p.Watch(ctx)
+	ch, err := p.Watch(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Mutate the response; expect at least one event.
-	go func() {
-		time.Sleep(80 * time.Millisecond)
-		v2 := "key: b"
-		current.Store(&v2)
-	}()
+	v2 := "key: b"
+	current.Store(&v2)
 	select {
 	case ev := <-ch:
-		if ev.Source != "watch" {
+		if ev.Source != "watch" || ev.Reason != "http-poll-diff" {
 			t.Errorf("source: %v", ev.Source)
 		}
 	case <-ctx.Done():
@@ -129,4 +127,47 @@ func TestProvider_WatchEmitsOnDiff(t *testing.T) {
 
 	// Implements the contracts.Provider interface.
 	var _ contracts.Provider = p
+}
+
+func TestProvider_RejectsOversizedResponse(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		_, _ = io.WriteString(w, "key: too-large")
+	}))
+	defer srv.Close()
+	p, err := httpprov.New("limited", srv.URL, yamlCodec{}, httpprov.WithMaxBodyBytes(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Load(context.Background()); !errors.Is(err, contracts.ErrTooLarge) {
+		t.Fatalf("Load error = %v, want ErrTooLarge", err)
+	}
+}
+
+func TestContentTypeAndManualReload(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		hits++
+		if r.Header.Get("If-None-Match") == "rev1" {
+			w.WriteHeader(nethttp.StatusNotModified)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("ETag", "rev1")
+		_, _ = w.Write([]byte(`{"port":8080}`))
+	}))
+	defer srv.Close()
+	p, err := httpprov.New("remote", srv.URL, nil, httpprov.WithInterval(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		snap, err := p.Load(context.Background())
+		if err != nil || snap.Map["port"] != json.Number("8080") || snap.Revision != "rev1" {
+			t.Fatalf("Load = %#v, %v", snap, err)
+		}
+	}
+	ch, err := p.Watch(context.Background(), "")
+	if err != nil || ch != nil || hits != 2 {
+		t.Fatalf("Watch = %v, %v; hits=%d", ch, err, hits)
+	}
 }

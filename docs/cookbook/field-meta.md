@@ -17,17 +17,30 @@ type Config struct {
 | `min=N` / `max=N` | numeric bounds (inclusive) | `field-meta` |
 | `oneof=a\|b\|c` | string enumeration | `field-meta` |
 | `default=…` | populate zero values (after decode) | `decode` |
-| `secret` | mark for `SecretRedactor` | display only — see [secrets.md](secrets.md) for *decryption* |
-| `desc=…` | human-readable description (used by `fastconfgen`) | doc-time |
+| `secret` | mark for diagnostic redaction | display only — see [secrets.md](secrets.md) for *decryption* |
+| `desc=…` | human-readable annotation; not a runtime constraint | doc-time |
+
+## Collection elements
+
+Defaults and validation tags (`default`, `required`, `min`, `max`, `oneof`)
+traverse nested structs and pointers, but do not traverse slice, array, or map
+elements. A tag on the collection field itself still applies to that field.
+For example, `Items []Item` does not apply `Item.Port`'s `fc:"default=80"`
+or `fc:"required"` tag to each item. Implement a `Defaulter` for element defaults
+and `WithValidate` for element checks. Secret redaction uses a separate walker
+and is unaffected by this limitation.
 
 ## Plan dry-run collects every violation
 
-In normal reload the `field-meta` stage fails fast on the first violation; in `mgr.Plan()` it collects everything so a PR-bot can show all missing required fields at once.
+In a normal reload, any field metadata violations reject the candidate with
+`ErrInvalid`. `mgr.Plan(ctx)` collects these violations in `Validators` without
+rejecting the preview; inspect each report's `Err` before approving it. See the
+[runnable reload example](../../examples/reload/README.md).
 
-## Pairing with WithValidator
+## Pairing with WithValidate
 
-Tag-based checks are best for static constraints (non-empty / range / enum). Use `WithValidator(func(*T) error)` for **cross-field** logic the tag cannot express.
+Tag-based checks are best for static constraints (non-empty / range / enum). Use `WithValidate(func(*T) error)` for **cross-field** logic the tag cannot express.
 
 ## Why not `validate:"…"`?
 
-We deliberately do not run `go-playground/validator` from the core; that lives in the optional `validate/playground` sub-module. The built-in `fc:"…"` tag covers the 80% case without pulling a heavy dependency into the root go.mod.
+We deliberately do not run `go-playground/validator` from the core; that lives in the optional `validate/playground` sub-module. The built-in tag supports common constraints without that dependency.

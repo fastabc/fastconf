@@ -1,5 +1,5 @@
-// Package merger implements Kustomize-style deep merge for map[string]any
-// trees.
+// Package confmap operates on JSON-shaped map[string]any trees: Kustomize-style deep merge, RFC
+// 6902 patches, dotted-path access, cloning and coercion.
 package confmap
 
 import (
@@ -32,7 +32,7 @@ type Options struct {
 }
 
 // Deep merges src into dst (dst is mutated in place). Runs in O(n) and
-// does not allocate a new top-level map.
+// does not allocate a new top-level map. A nil dst is an error unless src is empty.
 //
 // Rules:
 //   - dst[k] missing → dst[k] = src[k];
@@ -43,6 +43,9 @@ type Options struct {
 //     field;
 //   - type mismatch: Strict=true errors, otherwise src replaces dst.
 func Deep(dst, src map[string]any, opt Options) error {
+	if dst == nil && len(src) != 0 {
+		return fmt.Errorf("merger: cannot merge into a nil destination")
+	}
 	return deepAt(dst, src, "", opt)
 }
 
@@ -76,6 +79,9 @@ func mergeValue(path string, dv, sv any, opt Options) (any, error) {
 			}
 			return sv, nil
 		}
+		if ds == nil {
+			return ss, nil
+		}
 		if err := deepAt(ds, ss, path, opt); err != nil {
 			return nil, err
 		}
@@ -106,10 +112,9 @@ func mergeValue(path string, dv, sv any, opt Options) (any, error) {
 	}
 }
 
-// strategicMergeList aligns dst (a) and src (b) by the value of each
-// entry's mergeKey field. Existing entries with matching keys are
-// merged in place; entries with new keys are appended. Non-map entries
-// are passed through unchanged.
+// strategicMergeList aligns dst (a) and src (b) by the value of each entry's mergeKey field.
+// Existing entries with matching keys are merged in place; entries with new keys are appended.
+// Non-map entries are passed through unchanged.
 func strategicMergeList(path string, a, b []any, key string, opt Options) ([]any, error) {
 	idx := map[string]int{}
 	for i, e := range a {
@@ -178,11 +183,10 @@ func sameKind(a, b any) bool {
 	}
 }
 
-// isNumber matches the canonical Go numeric kinds plus json.Number.
-// Stringer types deliberately do NOT count — time.Time, *os.File and
-// other Stringers must not be silently treated as numbers in strict
-// merges. Callers that need lenient "looks-like-a-number" semantics
-// should opt into Coerce instead.
+// isNumber matches the canonical Go numeric kinds plus json.Number. Stringer types deliberately do
+// NOT count — time.Time, *os.File and other Stringers must not be silently treated as numbers in
+// strict merges. Callers that need lenient "looks-like-a-number" semantics should opt into Coerce
+// instead.
 func isNumber(v any) bool {
 	switch v.(type) {
 	case int, int8, int16, int32, int64,

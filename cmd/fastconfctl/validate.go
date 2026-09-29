@@ -13,7 +13,7 @@ func runValidate(args []string) error {
 	var f cli.Flags
 	cli.RegisterFlags(fs, &f)
 	_ = fs.Parse(args)
-	if _, err := loadDump(f); err != nil {
+	if _, err := loadSnapshot(f); err != nil {
 		fmt.Fprintln(os.Stderr, "FAIL:", err)
 		return err
 	}

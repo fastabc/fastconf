@@ -6,43 +6,6 @@ import (
 	"testing"
 )
 
-func TestDefaults_FillsMissingOnly(t *testing.T) {
-	root := map[string]any{
-		"server": map[string]any{"port": 9090},
-	}
-	tr := Defaults(map[string]any{
-		"server": map[string]any{"port": 8080, "addr": "0.0.0.0"},
-		"log":    map[string]any{"level": "info"},
-	})
-	if err := tr.Transform(root); err != nil {
-		t.Fatalf("transform: %v", err)
-	}
-	srv := root["server"].(map[string]any)
-	if srv["port"] != 9090 {
-		t.Errorf("port: existing 9090 must win, got %v", srv["port"])
-	}
-	if srv["addr"] != "0.0.0.0" {
-		t.Errorf("addr: missing key must be filled, got %v", srv["addr"])
-	}
-	if root["log"].(map[string]any)["level"] != "info" {
-		t.Errorf("log.level missing")
-	}
-}
-
-func TestSetIfAbsent(t *testing.T) {
-	root := map[string]any{}
-	if err := SetIfAbsent("a.b.c", 42).Transform(root); err != nil {
-		t.Fatal(err)
-	}
-	if v := root["a"].(map[string]any)["b"].(map[string]any)["c"]; v != 42 {
-		t.Fatalf("expected 42, got %v", v)
-	}
-	_ = SetIfAbsent("a.b.c", 99).Transform(root)
-	if v := root["a"].(map[string]any)["b"].(map[string]any)["c"]; v != 42 {
-		t.Fatalf("existing value clobbered: %v", v)
-	}
-}
-
 func TestEnvSubst_BraceWithDefault(t *testing.T) {
 	root := map[string]any{
 		"db":   map[string]any{"dsn": "${DB_DSN:-postgres://localhost/x}"},
@@ -56,7 +19,7 @@ func TestEnvSubst_BraceWithDefault(t *testing.T) {
 		}
 		return ""
 	})
-	if err := tr.Transform(root); err != nil {
+	if err := tr(root); err != nil {
 		t.Fatal(err)
 	}
 	if got := root["db"].(map[string]any)["dsn"]; got != "postgres://localhost/x" {
@@ -79,7 +42,7 @@ func TestDeletePaths(t *testing.T) {
 		"a": map[string]any{"b": 1, "c": 2},
 		"d": 3,
 	}
-	if err := DeletePaths("a.b", "d", "missing.path").Transform(root); err != nil {
+	if err := DeletePaths("a.b", "d", "missing.path")(root); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := root["d"]; ok {
@@ -104,7 +67,7 @@ func TestAliases_RewriteLegacyKeys(t *testing.T) {
 		"db.dsn":     "database.dsn",
 		"redis.host": "cache.redis.host",
 	})
-	if err := tr.Transform(root); err != nil {
+	if err := tr(root); err != nil {
 		t.Fatal(err)
 	}
 	if got := root["database"].(map[string]any)["dsn"]; got != "postgres://x" {
@@ -126,12 +89,12 @@ func TestEnvSubst_RequiredVariableMissing(t *testing.T) {
 		"db": map[string]any{"dsn": "${DB_DSN:?database DSN is required}"},
 	}
 	tr := EnvSubstWith(func(string) string { return "" })
-	err := tr.Transform(root)
+	err := tr(root)
 	if err == nil {
 		t.Fatal("expected error for missing required variable")
 	}
-	if !errors.Is(err, ErrTransform) {
-		t.Fatalf("error must wrap ErrTransform: %v", err)
+	if !errors.Is(err, errRequired) {
+		t.Fatalf("error must wrap the required-variable error: %v", err)
 	}
 	const want = "database DSN is required"
 	if !strings.Contains(err.Error(), want) {
@@ -142,12 +105,12 @@ func TestEnvSubst_RequiredVariableMissing(t *testing.T) {
 func TestEnvSubst_RequiredVariableEmpty(t *testing.T) {
 	root := map[string]any{"x": "${X:?}"}
 	tr := EnvSubstWith(func(string) string { return "" })
-	err := tr.Transform(root)
+	err := tr(root)
 	if err == nil {
 		t.Fatal("expected error for required-but-empty variable")
 	}
-	if !errors.Is(err, ErrTransform) {
-		t.Fatalf("error must wrap ErrTransform: %v", err)
+	if !errors.Is(err, errRequired) {
+		t.Fatalf("error must wrap the required-variable error: %v", err)
 	}
 }
 
@@ -159,7 +122,7 @@ func TestEnvSubst_RequiredVariablePresent(t *testing.T) {
 		}
 		return ""
 	})
-	if err := tr.Transform(root); err != nil {
+	if err := tr(root); err != nil {
 		t.Fatalf("expected no error when variable is set: %v", err)
 	}
 	if got := root["x"]; got != "set" {
@@ -172,26 +135,12 @@ func TestEnvSubst_RequiredFirstErrorWins(t *testing.T) {
 		"a": "${A:?first}",
 		"b": "${B:?second}",
 	}
-	err := EnvSubstWith(func(string) string { return "" }).Transform(root)
+	err := EnvSubstWith(func(string) string { return "" })(root)
 	if err == nil {
 		t.Fatal("expected error")
 	}
 	// Either first-walked key may fire; just ensure exactly one wrapped error.
-	if !errors.Is(err, ErrTransform) {
-		t.Fatalf("error must wrap ErrTransform: %v", err)
-	}
-}
-
-func TestTransformerFunc_NameAndError(t *testing.T) {
-	want := errors.New("boom")
-	tr := TransformerFunc{
-		NameStr: "explode",
-		Fn:      func(map[string]any) error { return want },
-	}
-	if tr.Name() != "explode" {
-		t.Fatalf("name")
-	}
-	if got := tr.Transform(nil); !errors.Is(got, want) {
-		t.Fatalf("error: %v", got)
+	if !errors.Is(err, errRequired) {
+		t.Fatalf("error must wrap the required-variable error: %v", err)
 	}
 }

@@ -4,7 +4,9 @@ Two patterns, pick one.
 
 ## A. In-process (preferred for Go services)
 
-Mount your ConfigMap as a volume; FastConf watches the directory.
+Mount the ConfigMap key `app.yaml` at `base/00-app.yaml`; FastConf scans the
+base directory under `WithDir`. Map overlay files under `overlays/<profile>/`
+in the same way. The snippets below are container/pod spec fragments.
 
 ```yaml
 volumeMounts:
@@ -15,19 +17,23 @@ volumes:
   - name: cfg
     configMap:
       name: myapp-config
+      items:
+        - key: app.yaml
+          path: base/00-app.yaml
 ```
 
 ```go
 mgr, err := fastconf.New[MyApp](ctx,
     fastconf.WithDir("/etc/myapp/conf.d"),
-    fastconf.WithProfile(fastconf.ProfileOptions{EnvVar: "APP_PROFILE"}),
-    fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
+    fastconf.WithProfile(fastconf.Profile{Env: "APP_PROFILE"}),
+    fastconf.WithWatch(fastconf.Watch{}),
 )
 ```
 
-ConfigMap edits propagate to the volume after the kubelet's sync
-period (~60s). For instant rotation, use a `Secret` mounted with
-`projected` volume + `defaultMode`.
+Mounted ConfigMaps and Secrets update asynchronously. Projection can take
+the kubelet sync period plus cache propagation delay; a projected Secret
+does not provide instant rotation. See the Kubernetes documentation on
+[mounted Secret updates](https://kubernetes.io/docs/concepts/configuration/secret/#using-secrets-as-files-from-a-pod).
 
 ### Downward API metadata
 
@@ -55,14 +61,14 @@ import k8s "github.com/fastabc/fastconf/providers/k8s"
 mgr, err := fastconf.New[MyApp](ctx,
     fastconf.WithDir("/etc/myapp/conf.d"),
     fastconf.WithProvider(k8s.NewDefault()),
-    fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
+    fastconf.WithWatch(fastconf.Watch{}),
 )
 ```
 
 Downward API volume refreshes use the same projected-volume `..data`
 atomic-swap pattern as ConfigMaps. FastConf automatically adds the provider's
 mounted files to the shared watcher, so metadata changes can enter the normal
-reload loop when `WithWatch(WatchOptions{Enabled: true})` is enabled. Mount the volume normally;
+reload loop when `WithWatch(Watch{})` is enabled. Mount the volume normally;
 do **not** use `subPath`, which bypasses projected-volume refreshes.
 
 `k8s.NewDefault()` preserves raw metadata keys under `k8s.metadata.*` by
@@ -78,6 +84,6 @@ Run `fastconfd` next to your app container; the app polls
 
 ## Runnable example
 
-[`examples/basic/example_test.go`](../../examples/basic/example_test.go) —
-profile-aware overlay loading with `fastconf.WithProfile`. Run it with
-`go test ./examples/basic/...`.
+[`ExampleLoad_profiles`](../../example_api_test.go) demonstrates profile-aware
+overlay loading with `fastconf.WithProfile`. Run it with
+`go test . -run '^ExampleLoad_profiles$' -v`.

@@ -1,43 +1,62 @@
-name: release
+name: Release
 
 on:
   push:
-    tags:
-      - 'v*'   # root module tag (e.g. v0.9.0); sub-module path-prefixed
-               # tags such as `cmd/fastconfctl/v0.9.0` do NOT match this
-               # pattern, so this workflow runs exactly once per release.
+    tags: ['v*']
 
 permissions:
-  contents: write   # required for GitHub Release asset upload
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GOWORK: "off"
+  GOFLAGS: "-mod=readonly"
+  VERSION: ${{ github.ref_name }}
 
 jobs:
-  build-dist:
-    name: cross-compile + publish
+  release:
+    name: Validate, build and publish
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # for `git describe` inside Makefile
-
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Install zip (for windows zip artefacts)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends zip
-
-      - name: Cross-compile dist matrix
-        run: make dist VERSION=${{ github.ref_name }}
-
-      - name: Verify SHA256SUMS
+          go-version: "1.26.x"
+          cache-dependency-path: "**/go.sum"
+      - name: Validate coordinated module tags
+        run: |
+          bash tools/tag-release.sh "$VERSION" --dry-run > "$RUNNER_TEMP/release-tags"
+          while IFS= read -r tag; do
+            test "$(git rev-parse "$tag^{commit}")" = "$(git rev-parse HEAD)"
+          done < "$RUNNER_TEMP/release-tags"
+      - name: Repository checks
+        run: make check
+      - name: Test candidate modules
+        run: make test-candidate
+      - name: Build release archives
+        run: make dist
+      - name: Verify release checksums
         run: make dist-verify
-
-      - name: Upload to GitHub Release
+      - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.tar.gz
             dist/*.zip
             dist/SHA256SUMS
+          fail_on_unmatched_files: true
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}

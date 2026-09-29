@@ -102,41 +102,15 @@ func buildJSONChanges(prefix string, a, b map[string]any) []map[string]any {
 // diffMaps returns a stable, line-oriented diff of two maps. "+" is
 // added in b, "-" only in a, "~" changed.
 func diffMaps(prefix string, a, b map[string]any) []string {
-	keys := map[string]struct{}{}
-	for k := range a {
-		keys[k] = struct{}{}
-	}
-	for k := range b {
-		keys[k] = struct{}{}
-	}
-	ordered := make([]string, 0, len(keys))
-	for k := range keys {
-		ordered = append(ordered, k)
-	}
-	sort.Strings(ordered)
 	var out []string
-	for _, k := range ordered {
-		full := k
-		if prefix != "" {
-			full = prefix + "." + k
-		}
-		va, oka := a[k]
-		vb, okb := b[k]
-		switch {
-		case oka && !okb:
-			out = append(out, fmt.Sprintf("- %s = %v", full, va))
-		case !oka && okb:
-			out = append(out, fmt.Sprintf("+ %s = %v", full, vb))
-		default:
-			ma, _ := va.(map[string]any)
-			mb, _ := vb.(map[string]any)
-			if ma != nil && mb != nil {
-				out = append(out, diffMaps(full, ma, mb)...)
-				continue
-			}
-			if !valueEqual(va, vb) {
-				out = append(out, fmt.Sprintf("~ %s : %v -> %v", full, va, vb))
-			}
+	for _, change := range buildJSONChanges(prefix, a, b) {
+		switch change["op"] {
+		case "-":
+			out = append(out, fmt.Sprintf("- %s = %v", change["path"], change["from"]))
+		case "+":
+			out = append(out, fmt.Sprintf("+ %s = %v", change["path"], change["to"]))
+		case "~":
+			out = append(out, fmt.Sprintf("~ %s : %v -> %v", change["path"], change["from"], change["to"]))
 		}
 	}
 	return out

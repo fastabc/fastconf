@@ -1,0 +1,8 @@
+server:
+  addr: ":8081"
+database:
+  # Demonstration credentials only. Production credentials come from your secret source.
+  dsn: "postgres://demo:demo@localhost/tenant_a"
+  pool: 10
+limits:
+  rps: 100

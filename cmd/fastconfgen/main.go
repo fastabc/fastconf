@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"go/format"
 	"io"
+	"maps"
 	"os"
 	"sort"
 	"strings"
@@ -175,11 +176,24 @@ func (e *emitter) sliceElemType(typeHint string, s []any, nests *[]nested) strin
 }
 
 func (e *emitter) uniqueTypeName(base string) string {
-	e.usedTypes[base]++
-	if e.usedTypes[base] == 1 {
-		return base
+	return uniqueName(base, e.usedTypes)
+}
+
+// uniqueName returns base, or base followed by the smallest counter ≥ 2 that no earlier name
+// took, and records the result. Every returned name is recorded, so a suffixed candidate such as
+// "AB2" also blocks a later literal "AB2".
+func uniqueName(base string, used map[string]int) string {
+	name := base
+	for n := used[base] + 1; ; n++ {
+		if n > 1 {
+			name = fmt.Sprintf("%s%d", base, n)
+		}
+		if _, taken := used[name]; !taken {
+			used[base] = n
+			used[name] = max(used[name], 1)
+			return name
+		}
 	}
-	return fmt.Sprintf("%s%d", base, e.usedTypes[base])
 }
 
 func mergeSampleMap(dst, src map[string]any) {
@@ -205,7 +219,7 @@ func mergeSampleValue(a, b any) any {
 	am, aok := a.(map[string]any)
 	bm, bok := b.(map[string]any)
 	if aok && bok {
-		out := cloneSampleMap(am)
+		out := maps.Clone(am)
 		mergeSampleMap(out, bm)
 		return out
 	}
@@ -233,14 +247,6 @@ func mergeSampleValue(a, b any) any {
 	default:
 		return anySample
 	}
-}
-
-func cloneSampleMap(in map[string]any) map[string]any {
-	out := make(map[string]any, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
 }
 
 func scalarType(v any) string {
@@ -274,12 +280,7 @@ func mergeScalarType(a, b string) string {
 }
 
 func uniqueExportName(k string, used map[string]int) string {
-	base := exportName(k)
-	used[base]++
-	if used[base] == 1 {
-		return base
-	}
-	return fmt.Sprintf("%s%d", base, used[base])
+	return uniqueName(exportName(k), used)
 }
 
 func exportName(k string) string {

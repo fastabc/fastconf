@@ -1,21 +1,21 @@
 // Package fastconf provides a strongly typed, lock-free, Kustomize-style
-// configuration loader built for Go 1.22+.
+// configuration loader built for Go 1.24+.
 //
 // # Start here
 //
 // A typical application reads FastConf in this order:
 //
-//   - Build a Manager[T] with New (or MustNew for one-line main / init).
+//   - Build a Manager[T] with New.
 //   - Read the live typed snapshot with Manager.Get.
 //   - React to successful commits with Subscribe and failed reloads with
 //     Manager.Errors.
 //   - Preview a future commit with Manager.Plan before calling Manager.Reload.
 //   - Inspect provenance through Manager.Snapshot and recover retained states
-//     through Manager.Replay when WithHistory was enabled.
+//     through Manager.History when WithHistory was enabled.
 //
-// The package examples mirror that path: ExampleNew, ExampleMustNew,
+// The package examples mirror that path: ExampleNew,
 // ExampleSubscribe, ExampleManager_Errors, ExampleManager_Plan, and
-// ExampleReplay_Rollback.
+// ExampleHistory_Rollback.
 //
 // # Core ideas
 //
@@ -24,23 +24,25 @@
 //   - State[T] is published through atomic.Pointer: one serialized writer,
 //     many lock-free readers.
 //   - A reload first assembles file, generator, and provider layers, then runs
-//     the canonical stages Merge → Migration → Transform → Secret →
-//     TypedHooks → Decode → FieldMeta → Validate → Policy before atomically
-//     publishing. Any failure preserves the previous *State[T].
+//     the canonical stages Merge → Transform → Secret → TypedHooks → Decode
+//     → FieldMeta → Validate → Policy before atomically publishing. Any
+//     failure preserves the previous *State[T] and wraps one of eight
+//     sentinels (ErrNoSources, ErrDecode, ErrMerge, ErrTransform,
+//     ErrProvider, ErrInvalid, ErrClosed, ErrTooLarge).
+//   - Every map or text view of a State (Map, Dump, Diff, Explain) masks
+//     secrets; State.Unredacted is the explicit plaintext path.
 //
 // # Reading by need
 //
-//   - Constructors: New, MustNew.
-//   - Preset bundles: PresetK8s, PresetSidecar, PresetTesting,
-//     PresetHierarchical.
+//   - Constructors: New, Load.
 //   - Loading and overlays: Option, WithProvider, WithProfile, WithWatch,
-//     WithCoalesce, WithMultiAxisOverlays, WithDir, WithFS.
+//     WithAxes, WithDir, WithFS.
 //   - Runtime reaction: Subscribe, WithEqual, Manager.Errors,
-//     Manager.Watcher, DiffReporter.
-//   - Inspection and recovery: Manager.Snapshot, State.Introspect,
-//     State.Explain, State.Dump, Manager.Plan, Manager.Replay.
-//   - Extension points: Transformer, WithTypedHook, WithSecretResolver,
-//     WithValidator, WithPolicy, AuditSink, MetricsSink, Tracer.
+//     Manager.Pause, WithObserver.
+//   - Inspection and recovery: Manager.Snapshot, State.Map,
+//     State.Explain, State.Dump, Manager.Plan, Manager.History.
+//   - Extension points: WithTransform, WithTypedHook, WithSecretResolver,
+//     WithValidate, WithPolicy, Observer, Tracer.
 //
 // # Module layout
 //
@@ -48,30 +50,18 @@
 // (github.com/fastabc/fastconf). Independent modules with their own go.mod
 // files are:
 //
-//	cmd/fastconfctl, cmd/fastconfgen
 //	cue (unified: cue/cuelang + cue/policy)
-//	integrations/cli/pflag, integrations/log/phuslu, integrations/log/zerolog
+//	integrations/cli/pflag
+//	integrations/log/phuslu, integrations/log/zerolog
 //	observability/metrics/prometheus, observability/otel
 //	policy/opa
 //	providers/s3
 //	validate/playground
 //
-// Subpackages that share the root module version include: contracts,
-// integrations/{bus,openfeature,render}, providers/{consul,http,nats,redisstream,vault,k8s},
-// providers/s3/s3events, pkg/*, policy/ (root), cmd/fastconfd, and cmd/internal/cli.
-//
-// # Key files
-//
-//	manager.go   — Manager[T] facade + New + Subscribe + Eval
-//	state.go     — State[T], ReloadCause, Origins/Explain/Lookup facades
-//	options.go   — WithXxx option builders
-//	aliases.go   — codec, secret, field-meta, and replay public facades
-//	errors.go    — public sentinel errors and ReloadError stream
-//	obs.go       — metrics, tracer, audit-sink facades
-//	defaults.go  — WithStructDefaults + Defaulter + WithDefaults
-//	feature.go   — FeatureRule extraction + Eval[T,V]
-//	presets.go   — PresetK8s, PresetSidecar, PresetTesting
-//	registry.go  — RegisterProviderFactory + WithProviderByName
-//	bind.go      — WithSource content-type helpers
-//	doc.go       — package-level godoc
+// Subpackages that share the root module version include: contracts, codec,
+// confmap, transform, feature, observe, policy, integrations/render, integrations/log/internal,
+// providers/{env,dotenv,cliflag,labels,source,k8s,consul,http,vault},
+// cmd/fastconfctl, cmd/fastconfd and cmd/internal/cli.
+// providers/s3/s3events belongs to the providers/s3 module.
+// cmd/fastconfgen is its own module.
 package fastconf

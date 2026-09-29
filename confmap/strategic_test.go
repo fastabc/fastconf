@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	merger "github.com/fastabc/fastconf/confmap"
+	"github.com/fastabc/fastconf/confmap"
 )
 
 func TestStrategicMerge_ContainersByName(t *testing.T) {
@@ -24,10 +24,10 @@ func TestStrategicMerge_ContainersByName(t *testing.T) {
 			},
 		},
 	}
-	opt := merger.Options{
+	opt := confmap.Options{
 		MergeKeys: map[string]string{"spec.containers": "name"},
 	}
-	if err := merger.Deep(dst, src, opt); err != nil {
+	if err := confmap.Deep(dst, src, opt); err != nil {
 		t.Fatal(err)
 	}
 	containers := dst["spec"].(map[string]any)["containers"].([]any)
@@ -72,7 +72,7 @@ func TestStrategicMerge_NoConfigFallsBackToReplace(t *testing.T) {
 			map[string]any{"id": "b", "v": 2},
 		},
 	}
-	if err := merger.Deep(dst, src, merger.Options{}); err != nil {
+	if err := confmap.Deep(dst, src, confmap.Options{}); err != nil {
 		t.Fatal(err)
 	}
 	items := dst["items"].([]any)
@@ -84,8 +84,8 @@ func TestStrategicMerge_NoConfigFallsBackToReplace(t *testing.T) {
 func TestStrategicMerge_NonMapEntriesPassThrough(t *testing.T) {
 	dst := map[string]any{"items": []any{"x", "y"}}
 	src := map[string]any{"items": []any{"z"}}
-	opt := merger.Options{MergeKeys: map[string]string{"items": "name"}}
-	if err := merger.Deep(dst, src, opt); err != nil {
+	opt := confmap.Options{MergeKeys: map[string]string{"items": "name"}}
+	if err := confmap.Deep(dst, src, opt); err != nil {
 		t.Fatal(err)
 	}
 	got := dst["items"].([]any)

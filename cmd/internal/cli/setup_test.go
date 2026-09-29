@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fastabc/fastconf"
@@ -32,6 +33,23 @@ func TestRegisterFlags_Defaults(t *testing.T) {
 	}
 	if len(f.Providers) != 0 {
 		t.Errorf("Providers default: want empty, got %v", f.Providers)
+	}
+}
+
+// TestRegisterFlags_StrictUsageMatchesSemantics verifies that -strict governs
+// overlay/merge strictness only; it must not promise unknown-key rejection.
+func TestRegisterFlags_StrictUsageMatchesSemantics(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	var f cli.Flags
+	cli.RegisterFlags(fs, &f)
+	usage := fs.Lookup("strict").Usage
+	if strings.Contains(usage, "unknown key") {
+		t.Fatalf("-strict usage promises unknown-key detection it does not perform: %q", usage)
+	}
+	for _, want := range []string{"extension", "merge"} {
+		if !strings.Contains(usage, want) {
+			t.Errorf("-strict usage %q should mention %q", usage, want)
+		}
 	}
 }
 
@@ -119,7 +137,7 @@ func TestLoadConfig_WithDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 	got := mgr.Get()
 	if got == nil {
 		t.Fatal("Get: nil")
@@ -138,13 +156,23 @@ func TestLoadConfig_NotADir(t *testing.T) {
 }
 
 func TestProviderFlags_Apply_EnvAndJSON(t *testing.T) {
-	pf := cli.ProviderFlags{"env=APP_", `mock={"x":1}`}
+	pf := cli.ProviderFlags{"env=APP_", `dotenv={"prefix":"APP_"}`}
 	var opts []fastconf.Option
 	if err := pf.Apply(&opts); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	if len(opts) != 2 {
 		t.Fatalf("opts: want 2, got %d", len(opts))
+	}
+}
+
+// the CLI resolves provider names from its own map; unknown
+// names fail at parse time and list the known ones.
+func TestProviderFlags_Apply_UnknownName(t *testing.T) {
+	var opts []fastconf.Option
+	err := cli.ProviderFlags{"nope=x"}.Apply(&opts)
+	if err == nil || !strings.Contains(err.Error(), "env") {
+		t.Fatalf("Apply(nope) = %v; want an error listing known providers", err)
 	}
 }
 

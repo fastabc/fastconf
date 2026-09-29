@@ -3,41 +3,37 @@ package main
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/fastabc/fastconf"
 )
 
-// eventBus is a tiny pub/sub fed by the AuditSink contract; SSE
+// eventBus is a tiny pub/sub fed by the manager's Committed events; SSE
 // subscribers read from a buffered channel each.
 type eventBus struct {
-	mu       sync.Mutex
-	subs     map[chan fastconf.ReloadCause]struct{}
-	lastOK   bool
-	lastTime time.Time
+	mu   sync.Mutex
+	subs map[chan fastconf.ReloadCause]struct{}
 }
 
 func newEventBus() *eventBus {
 	return &eventBus{subs: make(map[chan fastconf.ReloadCause]struct{})}
 }
 
-// Audit implements fastconf.AuditSink.
-func (b *eventBus) Audit(_ context.Context, cause fastconf.ReloadCause) error {
-	b.mu.Lock()
-	b.lastOK = true
-	b.lastTime = time.Now()
-	subs := make([]chan fastconf.ReloadCause, 0, len(b.subs))
-	for c := range b.subs {
-		subs = append(subs, c)
+// Observe implements fastconf.Observer.
+func (b *eventBus) Observe(_ context.Context, e fastconf.Event) {
+	if c, ok := e.(fastconf.Committed); ok {
+		b.publish(c.Cause)
 	}
-	b.mu.Unlock()
-	for _, c := range subs {
+}
+
+func (b *eventBus) publish(cause fastconf.ReloadCause) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for c := range b.subs {
 		select {
 		case c <- cause:
 		default:
 		}
 	}
-	return nil
 }
 
 func (b *eventBus) subscribe() chan fastconf.ReloadCause {
@@ -50,7 +46,7 @@ func (b *eventBus) subscribe() chan fastconf.ReloadCause {
 
 func (b *eventBus) unsubscribe(c chan fastconf.ReloadCause) {
 	b.mu.Lock()
+	defer b.mu.Unlock()
 	delete(b.subs, c)
-	b.mu.Unlock()
 	close(c)
 }

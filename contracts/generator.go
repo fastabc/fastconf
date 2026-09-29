@@ -2,23 +2,24 @@ package contracts
 
 import "context"
 
-// Generator dynamically synthesises one or more RawLayer carriers
-// during the assemble stage of a reload. Unlike a Provider, which
-// returns a single map[string]any, a Generator can produce multiple
-// layers with distinct codecs and priorities — useful for injecting
-// build-info / shell-out / K8s downward-api / sealed-secret style
-// data.
-//
-// Generators run on the single reload goroutine, so implementations
-// must respect ctx cancellation and bound their own runtime
-// (e.g. timeouts for shell-out generators). Returning an error aborts
-// the reload (failure-safe — previous *State[T] is preserved).
+// Generator produces encoded layers during assembly. It runs on the reload goroutine:
+// implementations must honor cancellation and bound their runtime. Errors abort the reload and
+// preserve the previous snapshot.
 type Generator interface {
-	// Name is used for diagnostics and RawLayer.Name when the generator
-	// does not stamp its own.
+	// Name identifies the generator in diagnostics. Each source path is
+	// gen://<Name>/<RawLayer.Name>; an empty layer name is not replaced.
 	Name() string
 	// Generate returns the synthetic layers contributed for this reload.
 	// Returning a nil slice and a nil error is a valid "nothing to add"
 	// outcome.
 	Generate(ctx context.Context) ([]RawLayer, error)
+}
+
+// RawLayer is a named encoded document contributed by a Generator. Priority orders generator
+// layers (higher wins); declaration order breaks ties.
+type RawLayer struct {
+	Name     string
+	Codec    string
+	Data     []byte
+	Priority int
 }

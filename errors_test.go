@@ -4,42 +4,55 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"testing/fstest"
 
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/providers/source"
 )
 
 func TestErrFastConfHierarchy(t *testing.T) {
 	pe := &PolicyError{}
-	if !errors.Is(pe, ErrPolicyDenied) {
-		t.Fatal("PolicyError must satisfy Is(ErrPolicyDenied)")
+	if !errors.Is(pe, ErrInvalid) {
+		t.Fatal("PolicyError must satisfy Is(ErrInvalid)")
 	}
 	if !errors.Is(pe, ErrFastConf) {
 		t.Fatal("PolicyError must satisfy Is(ErrFastConf)")
 	}
 }
 
-func TestAllSentinelsChainToErrFastConf(t *testing.T) {
+// TestCoreSentinelsChainToErrFastConf verifies the error table: eight
+// reload sentinels plus the two History misuse errors, all under the
+// umbrella.
+func TestCoreSentinelsChainToErrFastConf(t *testing.T) {
 	sentinels := map[string]error{
-		"ErrNoSources":  ErrNoSources,
-		"ErrValidation": ErrValidation,
-		"ErrDecode":     ErrDecode,
-		"ErrMerge":      ErrMerge,
-		"ErrPatch":      ErrPatch,
-		"ErrClosed":     ErrClosed,
-		"ErrValidator":  ErrValidator,
-		"ErrTransform":  ErrTransform,
-		"ErrProvider":   ErrProvider,
-		"ErrGenerator":  ErrGenerator,
-		"ErrNoOrigin":   ErrNoOrigin,
+		"ErrNoSources": ErrNoSources,
+		"ErrDecode":    ErrDecode,
+		"ErrMerge":     ErrMerge,
+		"ErrTransform": ErrTransform,
+		"ErrProvider":  ErrProvider,
+		"ErrInvalid":   ErrInvalid,
+		"ErrClosed":    ErrClosed,
+		"ErrTooLarge":  ErrTooLarge,
+		// History errors use the same umbrella sentinel.
+		"ErrHistoryDisabled":   ErrHistoryDisabled,
+		"ErrUnknownGeneration": ErrUnknownGeneration,
 	}
 	for name, e := range sentinels {
 		if !errors.Is(e, ErrFastConf) {
 			t.Errorf("%s does not satisfy Is(ErrFastConf)", name)
 		}
-		if !errors.Is(e, e) {
-			t.Errorf("%s does not satisfy Is(self)", name)
-		}
+	}
+	if contracts.ErrTooLarge != ErrTooLarge {
+		t.Error("contracts.ErrTooLarge must be ErrTooLarge")
+	}
+}
+
+func TestErrMergeCoversPatchFailure(t *testing.T) {
+	_, err := New[map[string]any](context.Background(), WithFS(fstest.MapFS{
+		"conf.d/base/00.yaml":       &fstest.MapFile{Data: []byte("a: 1\n")},
+		"conf.d/base/10.patch.json": &fstest.MapFile{Data: []byte(`[{"op":"remove","path":"/missing"}]`)},
+	}))
+	if !errors.Is(err, ErrMerge) {
+		t.Fatalf("want ErrMerge for a failing patch, got %v", err)
 	}
 }
 
@@ -47,13 +60,10 @@ var errFailingProvider = errors.New("provider boom")
 
 type failingProvider struct{}
 
-func (failingProvider) Name() string  { return "failing" }
-func (failingProvider) Priority() int { return 10 }
-func (failingProvider) Load(context.Context) (map[string]any, error) {
-	return nil, errFailingProvider
-}
-func (failingProvider) Watch(context.Context) (<-chan contracts.Event, error) {
-	return nil, nil
+func (failingProvider) Name() string { return "failing" }
+
+func (failingProvider) Load(context.Context) (contracts.Snapshot, error) {
+	return contracts.Snapshot{}, errFailingProvider
 }
 
 func TestErrProviderClassification(t *testing.T) {
@@ -74,35 +84,20 @@ var errFailingGenerator = errors.New("generator boom")
 type failingGenerator struct{}
 
 func (failingGenerator) Name() string { return "failing" }
+
 func (failingGenerator) Generate(context.Context) ([]contracts.RawLayer, error) {
 	return nil, errFailingGenerator
 }
 
-func TestErrGeneratorClassification(t *testing.T) {
+func TestGeneratorFailureIsErrProvider(t *testing.T) {
 	_, err := New[map[string]any](context.Background(),
 		WithFS(emptyFS()),
 		WithGenerator(failingGenerator{}),
 	)
-	if !errors.Is(err, ErrGenerator) {
-		t.Fatalf("want ErrGenerator, got %v", err)
+	if !errors.Is(err, ErrProvider) {
+		t.Fatalf("want ErrProvider for a generator failure, got %v", err)
 	}
 	if errors.Is(err, ErrDecode) {
 		t.Fatalf("generator failure must not classify as ErrDecode: %v", err)
-	}
-}
-
-func TestOrigin_LookupStrictNoOrigin(t *testing.T) {
-	type cfg struct{}
-	mgr, err := New[cfg](context.Background(),
-		WithFS(emptyFS()),
-		WithSource(source.NewBytes("inline", "yaml", []byte("{}")), nil),
-	)
-	if err != nil {
-		t.Fatalf("new: %v", err)
-	}
-	defer mgr.Close()
-	_, err = mgr.Snapshot().LookupStrict("does.not.exist")
-	if !errors.Is(err, ErrNoOrigin) {
-		t.Fatalf("expected ErrNoOrigin, got %v", err)
 	}
 }

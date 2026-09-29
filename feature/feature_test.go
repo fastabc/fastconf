@@ -41,6 +41,29 @@ func TestRule_TargetOrderFirstMatchWins(t *testing.T) {
 	}
 }
 
+func TestRule_TargetRequiresPresentAttribute(t *testing.T) {
+	r := feature.Rule{
+		Default: false,
+		Targets: []feature.Target{{When: feature.EvalContext{"tier": ""}, Value: true}},
+	}
+	for _, tc := range []struct {
+		name string
+		ctx  feature.EvalContext
+		want bool
+	}{
+		{"nil context", nil, false},
+		{"missing attribute", feature.EvalContext{"region": "eu"}, false},
+		{"present empty attribute", feature.EvalContext{"tier": ""}, true},
+		{"different attribute", feature.EvalContext{"tier": "gold"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := r.Evaluate(tc.ctx); got != tc.want {
+				t.Fatalf("Evaluate(%v) = %v; want %v", tc.ctx, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRule_RolloutBucket(t *testing.T) {
 	r := feature.Rule{
 		Default:  false,

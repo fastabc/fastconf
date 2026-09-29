@@ -1,0 +1,6 @@
+server:
+  addr: ":8082"
+database:
+  dsn: "postgres://demo:demo@localhost/tenant_b"
+limits:
+  rps: 200

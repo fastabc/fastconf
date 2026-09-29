@@ -1,181 +1,116 @@
-.PHONY: all build test test-all race lint tidy bench cover example graph versions module-matrix api-check \
-        dist dist-clean dist-verify dist-fastconfd dist-fastconfctl dist-fastconfgen
+.DEFAULT_GOAL := all
+SHELL := /bin/bash
+.DELETE_ON_ERROR:
+.PRECIOUS: build/%
 
-# ---------------------------------------------------------------------------
-# Version (overridable: make dist VERSION=v0.9.0)
-# Default reads the most recent tag; "dev" when no tag exists.
-# ---------------------------------------------------------------------------
-VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo dev)
-
-# ---------------------------------------------------------------------------
-# Cross-compile target matrix (v0.9.0 SPEC-95)
-# ---------------------------------------------------------------------------
-TARGETS := \
-    linux/amd64  \
-    linux/arm64  \
-    darwin/amd64 \
-    darwin/arm64 \
-    windows/amd64
-
-BINS := fastconfd fastconfctl fastconfgen
-
-# Allow callers to extend the matrix without editing this file:
-#   make dist EXTRA_TARGETS="freebsd/amd64 linux/386"
+# Ignore personal workspaces and never update dependencies during checks.
+export GOWORK := off
+export GOFLAGS := $(GOFLAGS) -mod=readonly
+VERSION ?= v1.0.0
+BASE ?= latest
+MODULES ?=
+TARGETS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 EXTRA_TARGETS ?=
-ALL_TARGETS := $(TARGETS) $(EXTRA_TARGETS)
+BINS := fastconfd fastconfctl fastconfgen
+ALL_TARGETS := $(sort $(TARGETS) $(EXTRA_TARGETS))
 
-# Package path for each binary. CLI packages are root-versioned.
-fastconfd_DIR   := cmd/fastconfd
-fastconfctl_DIR := cmd/fastconfctl
-fastconfgen_DIR := cmd/fastconfgen
+.PHONY: all help build test race test-all test-workspace test-candidate \
+        vulnerabilities api-check lint fmt-check deps-check tools-check check tidy \
+        bench bench-guard cover example module-matrix versions soak \
+        dist dist-clean dist-verify $(addprefix dist-,$(BINS)) FORCE
 
-# Common Go build flags for release binaries:
-#   -trimpath        — strip $GOPATH from file paths (reproducible builds)
-#   -s -w            — strip debug info and symbol table (smaller bin)
-#   -X main.version  — inject the release tag at link time
-DIST_LDFLAGS := -s -w -X main.version=$(VERSION)
-DIST_GOFLAGS := -trimpath
-
-# ---------------------------------------------------------------------------
-# Default targets
-# ---------------------------------------------------------------------------
 all: build test
+
+help:
+	@cat tools/README.md
 
 build:
 	go build ./...
+	(cd cmd/fastconfgen && go build .)
 
 test:
-	go test -race -count=1 ./...
-
-# test-all exercises every independent sub-module from its own go.mod.
-test-all: test
-	cd cue                    && go test -race -count=1 ./...
-	cd integrations/cli/pflag && go test -race -count=1 ./...
-	cd integrations/log/phuslu && go test -race -count=1 ./...
-	cd integrations/log/zerolog && go test -race -count=1 ./...
-	cd observability/metrics/prometheus && go test -race -count=1 ./...
-	cd observability/otel              && go test -race -count=1 ./...
-	cd policy/opa            && go test -race -count=1 ./...
-	cd providers/s3          && go test -race -count=1 ./...
-	cd validate/playground   && go test -race -count=1 ./...
+	go test -mod=readonly -race -count=1 -timeout=5m ./...
 
 race: test
 
-bench:
-	go test -bench=. -benchmem -run=^$$ ./...
+test-all:
+	bash tools/modules.sh test $(MODULES)
 
-cover:
-	go test -coverprofile=coverage.out ./...
-	go tool cover -func=coverage.out | tail -n 1
+test-workspace:
+	bash tools/modules.sh workspace $(MODULES)
+
+test-candidate:
+	VERSION=$(VERSION) bash tools/check-candidate.sh bash tools/modules.sh test $(MODULES)
+
+vulnerabilities:
+	bash tools/check-vulnerabilities.sh
+
+api-check:
+	VERSION=$(VERSION) BASE=$(BASE) bash tools/check-candidate.sh bash tools/check-api.sh
 
 lint:
-	@command -v golangci-lint >/dev/null || { echo "install golangci-lint first"; exit 1; }
-	golangci-lint run ./...
+	golangci-lint run --timeout=5m ./...
+
+fmt-check:
+	bash tools/check-repo.sh fmt
+
+deps-check:
+	bash tools/check-repo.sh deps
+
+tools-check:
+	shellcheck tools/*.sh
+	actionlint
+
+check: fmt-check deps-check
+	bash tools/check-repo-test.sh
+	bash tools/tag-release-test.sh
+	bash tools/bench-guard-test.sh
 
 tidy:
 	go mod tidy
 
-example:
-	go test ./... -run Example -v
+bench:
+	go test -run '^$$' -bench . -benchmem ./...
 
-graph:
-	bash tools/code-review-graph.sh
+bench-guard:
+	bash tools/bench-guard.sh
+
+cover:
+	go test -race -count=1 -timeout=5m -coverpkg=./... -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
+
+example:
+	go test -count=1 -run '^Example' ./...
+	go test -count=1 ./examples/...
+	bash tools/modules.sh exec go -C integrations/cli/pflag run ../../../examples/pflag/main.go
+	bash tools/modules.sh exec go -C providers/s3 run ../../examples/s3/main.go
+
+soak:
+	go test -race -count=1 -timeout=10m -run '^TestResourceSoak$$' -v ./tests/soak
 
 module-matrix:
-	bash tools/check-module-matrix.sh
+	@bash tools/modules.sh matrix
 
-api-check:
-	bash tools/check-api-snapshot.sh
-
-# List released root-module versions (filters out sub-module path-prefixed tags
-# like cue/v0.18.0; those are required by Go's module system but add
-# noise to `git tag -l`). Newest first.
 versions:
-	@git tag -l 'v[0-9]*' --sort=-v:refname
+	@git -c versionsort.suffix=- tag -l 'v[0-9]*' --sort=-v:refname
 
-# ---------------------------------------------------------------------------
-# Cross-compile dist pipeline (v0.9.0 SPEC-95)
-#
-# Targets:
-#   make build/<bin>-<os>-<arch>     — cross-compile a single bin/os/arch tuple
-#   make dist/<bin>-<os>-<arch>      — bundle that tuple into a release archive
-#   make dist-<bin>                  — archive one bin across every ALL_TARGETS
-#   make dist                        — full matrix (BINS × ALL_TARGETS) + SHA256SUMS
-#   make dist-clean                  — rm -rf build dist
-#   make dist-verify                 — verify dist/SHA256SUMS
-# ---------------------------------------------------------------------------
+# FORCE prevents a source or VERSION change from reusing stale binaries.
+build/%: FORCE
+	VERSION=$(VERSION) bash tools/dist.sh build $*
 
-# Cross-compile a single bin/os/arch tuple into build/.
-# Pattern stem $* looks like "fastconfd-linux-amd64".
-build/%:
-	@mkdir -p build
-	@bin=$$(echo $* | awk -F- '{print $$1}'); \
-	 os=$$(echo $*  | awk -F- '{print $$2}'); \
-	 arch=$$(echo $* | awk -F- '{print $$3}'); \
-	 case "$$bin" in \
-	   fastconfd)   dir=cmd/fastconfd   ;; \
-	   fastconfctl) dir=cmd/fastconfctl ;; \
-	   fastconfgen) dir=cmd/fastconfgen ;; \
-	   *) echo "unknown bin: $$bin" >&2; exit 1 ;; \
-	 esac; \
-	 ext=""; \
-	 if [ "$$os" = "windows" ]; then ext=".exe"; fi; \
-	 echo "  CROSS  $$bin ($$os/$$arch)"; \
-	 cd "$$dir" && \
-	   CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
-	     go build $(DIST_GOFLAGS) -ldflags "$(DIST_LDFLAGS)" \
-	              -o "$(CURDIR)/build/$$bin-$$os-$$arch$$ext" \
-	              .
-
-# Bundle one tuple into a tar.gz (POSIX) or zip (Windows).
 dist/%: build/%
-	@mkdir -p dist
-	@bin=$$(echo $* | awk -F- '{print $$1}'); \
-	 os=$$(echo $*  | awk -F- '{print $$2}'); \
-	 arch=$$(echo $* | awk -F- '{print $$3}'); \
-	 ext=""; \
-	 if [ "$$os" = "windows" ]; then ext=".exe"; fi; \
-	 stage=$$(mktemp -d); \
-	 mkdir -p "$$stage/$${bin}_$(VERSION)_$${os}_$${arch}"; \
-	 cp build/$$bin-$$os-$$arch$$ext \
-	    "$$stage/$${bin}_$(VERSION)_$${os}_$${arch}/$$bin$$ext"; \
-	 cp LICENSE README.md \
-	    "$$stage/$${bin}_$(VERSION)_$${os}_$${arch}/"; \
-	 if [ "$$os" = "windows" ]; then \
-	     (cd "$$stage" && zip -qr "$${bin}_$(VERSION)_$${os}_$${arch}.zip" \
-	        "$${bin}_$(VERSION)_$${os}_$${arch}"); \
-	     mv "$$stage/$${bin}_$(VERSION)_$${os}_$${arch}.zip" dist/; \
-	 else \
-	     tar -C "$$stage" -czf "dist/$${bin}_$(VERSION)_$${os}_$${arch}.tar.gz" \
-	        "$${bin}_$(VERSION)_$${os}_$${arch}"; \
-	 fi; \
-	 rm -rf "$$stage"
+	VERSION=$(VERSION) bash tools/dist.sh archive $*
 
-# dist-<bin> convenience targets: archive one bin across every ALL_TARGETS.
 define DIST_BIN_template
 dist-$(1): $$(foreach t,$$(ALL_TARGETS),dist/$(1)-$$(subst /,-,$$(t)))
 endef
 $(foreach b,$(BINS),$(eval $(call DIST_BIN_template,$(b))))
 
-# Main entrypoint: archive every BIN × every ALL_TARGETS, then write SHA256SUMS.
-dist: $(foreach b,$(BINS),dist-$(b))
-	@cd dist && \
-	  if command -v sha256sum >/dev/null 2>&1; then \
-	      sha256sum *.tar.gz *.zip 2>/dev/null | sort > SHA256SUMS; \
-	  else \
-	      shasum -a 256 *.tar.gz *.zip 2>/dev/null | sort > SHA256SUMS; \
-	  fi
-	@echo ""
-	@echo "Dist artifacts ($(VERSION)):"
-	@ls -lh dist/ | sed 's/^/  /'
+dist: $(addprefix dist-,$(BINS))
+	VERSION=$(VERSION) bash tools/dist.sh checksums $(foreach b,$(BINS),$(foreach t,$(ALL_TARGETS),$(b)-$(subst /,-,$(t))))
+
+dist-verify:
+	bash tools/dist.sh verify
 
 dist-clean:
 	rm -rf build dist
-
-dist-verify:
-	@cd dist && \
-	  if command -v sha256sum >/dev/null 2>&1; then \
-	      sha256sum -c SHA256SUMS; \
-	  else \
-	      shasum -a 256 -c SHA256SUMS; \
-	  fi

@@ -1,6 +1,12 @@
 # Encrypted secrets (SOPS / age / KMS / Vault transit)
 
-`fc:"secret"` only masks values on display. To **decrypt** values stored as ciphertext in a YAML file (SOPS / age / AWS KMS / Vault transit / sealed-secrets), install a `SecretResolver`. It runs as a fixed reload pipeline stage between `transform` and `decode`, so plaintext is available to the decoder but never visible to transformers or audit sinks.
+`fc:"secret"` only masks values on display. To decrypt ciphertext stored in
+YAML (SOPS / age / AWS KMS / Vault transit / sealed-secrets), install a
+`SecretResolver`. It runs between `transform` and `decode`, making plaintext
+available to the decoder. Transformers run before resolution;
+diagnostic views and audit diffs mask plaintext only when fields are tagged
+`fc:"secret"` or matched by `WithSecretPaths`. A resolver does not mark paths
+secret automatically.
 
 ## Decryption is failure-safe
 
@@ -11,6 +17,8 @@ If `Resolve` returns an error, the reload aborts and the previous `*State[T]` is
 ```go
 import (
     "context"
+    "fmt"
+
     "github.com/fastabc/fastconf"
 )
 
@@ -52,4 +60,4 @@ database:
 
 ## Provenance and dry-run
 
-`SecretResolver` is invoked by `Manager.Plan()` too — your PR-bot can fail the build if a key is missing in CI before the change reaches production. Resolved leaves are recorded with `LayerKind = LayerSecret`, so `State.Explain(path)` reports the secret scheme rather than the original layer.
+`SecretResolver` is invoked by `Manager.Plan(ctx)` too — your PR-bot can fail the build if a key is missing in CI before the change reaches production. Resolved leaves are recorded with `SourceRef.Kind = LayerSecret`, so `State.Explain(path)` reports the secret scheme rather than the original layer.

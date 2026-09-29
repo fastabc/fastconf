@@ -14,29 +14,21 @@ and the contract the built-in Providers honour.
 
 ## The model in one sentence
 
-**Per-call lifetime is governed by `ctx` (P1.1).** Set a `Reload(ctx)`
+**Per-call lifetime is governed by `ctx`.** Set a `Reload(ctx)`
 deadline and the cancellation flows into every `Provider.Load(ctx)`,
-`SecretResolver`, and `Transformer` running inside that pipeline.
+`SecretResolver` calls running inside that pipeline. Transformers are
+synchronous callbacks without a context parameter; stage boundaries still
+check cancellation before continuing.
 
 This means HTTP-client `Timeout` is a *safety net*, not the primary knob.
 You set it conservatively so a rogue Provider can't pin a goroutine
 forever; you set the meaningful deadlines on the call ctx.
 
-## Timeout Behavior Matrix
-
-| Aspect | Current behavior |
-|---|---|
-| `Reload(ctx)` ctx | Threads through the pipeline; `provider.Load(ctx)` honours cancellation and deadlines. |
-| Provider Load cancellation | `context.Canceled` / `context.DeadlineExceeded` are returned raw so `errors.Is` works. |
-| Consul default client | Isolated `&http.Client{}` with no `Timeout`; blocking queries are governed by ctx. |
-| Vault `AppRoleAuth` fallback | Isolated `&http.Client{Timeout: 10s}`. |
-| HTTP provider | Isolated `&http.Client{Timeout: 10s}`. |
-
 ## Per-provider defaults
 
 | Provider | Default `http.Client.Timeout` | Why |
 |---|---|---|
-| `providers/vault` (`vault.New`) | **10s** | Vault calls are short-lived `GET /v1/kv/...` requests; Watch polls every `Interval` (default 60s) and does not hold connections. A 10s wall-clock cap is a reasonable safety net. |
+| `providers/vault` (`vault.New`) | **10s** | Vault calls are short-lived `GET /v1/kv/...` requests; Watch polls every `Interval` (default 30s) and does not hold connections. A 10s wall-clock cap is a reasonable safety net. |
 | `providers/vault` (`vault.AppRoleAuth` fallback) | **10s** | Same shape — single POST to `/v1/auth/approle/login`. |
 | `providers/consul` (`consul.New`) | **none** (zero) | Consul uses blocking queries: each `fetch(ctx, index)` sets `?index=X&wait=5m`, asking Consul to hold the connection open until the next change or the wait window elapses. A 10s `Timeout` would tear the connection down before the server responds. Lifetime is therefore governed entirely by `ctx`. |
 | `providers/http` (`httpprovider.New`) | **10s** | Single-shot `GET <url>`. |
@@ -61,10 +53,10 @@ import (
 // Consul: tune transport, NOT response-Timeout. Lifetime stays ctx-driven.
 client := &http.Client{
     Transport: &http.Transport{
-        TLSHandshakeTimeout:   5 * time.Second,
-        ResponseHeaderTimeout: 30 * time.Second, // allow blocking-query wait
-        MaxIdleConnsPerHost:   2,
-        IdleConnTimeout:       2 * time.Minute,
+        TLSHandshakeTimeout:    5 * time.Second,
+        ResponseHeaderTimeout: 150 * time.Second, // longer than the 2-minute wait below
+        MaxIdleConnsPerHost:    2,
+        IdleConnTimeout:        2 * time.Minute,
     },
 }
 cp, _ := consulprov.New("http://consul.svc:8500", "config/myapp",
@@ -80,7 +72,8 @@ For Vault / HTTP, setting `Timeout` is fine — they don't block:
 ```go
 import vaultprov "github.com/fastabc/fastconf/providers/vault"
 
-vp, _ := vaultprov.New("https://vault.svc", "kv/data/myapp", token,
+vp, _ := vaultprov.New("https://vault.svc", "myapp", token,
+    vaultprov.WithMount("kv"),
     vaultprov.WithClient(&http.Client{Timeout: 5 * time.Second}),
 )
 ```
@@ -104,21 +97,21 @@ if err := mgr.Reload(ctx); err != nil {
 }
 ```
 
-The pipeline aborts as soon as the deadline trips; the live state is
-preserved (failure-safe contract holds).
+Cooperative I/O returns when the deadline trips; synchronous hooks that ignore
+cancellation must return before the writer can finish. Cancellation checks at
+stage boundaries prevent publication, preserving the live state.
 
 ### Long-running service
 
-For services that drive Reload from events and don't want a global
-deadline, pass `context.Background()` — internal triggers (fsnotify,
-provider watchers) already do this automatically. The Provider's
-HTTP client Timeout (or `Transport.ResponseHeaderTimeout`) is then your
-only safety net; size it for the worst-case healthy latency you accept.
+Manual reloads can use a per-call deadline. File/provider triggers use the
+manager's background context, which is canceled at shutdown, without a per-call
+deadline. Bound network operations with client/transport timeouts sized for the
+upstream API. Shutdown cannot interrupt a provider that ignores cancellation.
 
 ### Errors() consumer
 
-The error event published on `m.Errors()` carries the same `ctx.Err()`
-sentinel, so a single switch can centralise the response:
+Cancellation remains recognizable through `errors.Is`, including through
+provider/framework wrappers and errors delivered on `m.Errors()`:
 
 ```go
 for re := range mgr.Errors() {
@@ -140,8 +133,9 @@ When implementing `contracts.Provider`, the cancellation contract is:
 1. **`Load(ctx)` MUST honour `ctx.Done()`** — return `ctx.Err()` promptly.
    If you call out to a custom client, use `http.NewRequestWithContext`
    (or the equivalent), never the deprecated context-less constructor.
-2. **`Watch(ctx)` MUST close the returned channel when `ctx.Done()`
-   fires** so the framework's provider watcher loop can exit cleanly.
+2. **If you implement `contracts.Watcher`, `Watch(ctx, from)` must honor
+   `ctx.Done()`** and should close its channel on cancellation. Load-only providers
+   need only Name and Load; they do not need an empty Watch method.
 3. **Do not use `http.DefaultClient`.** Build your own (`&http.Client{...}`)
    so you can be torn down without affecting unrelated callers.
 4. **Pick a Timeout that matches your call shape.** Short single-shot

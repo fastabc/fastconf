@@ -1,162 +1,110 @@
 # Releasing FastConf
 
-FastConf publishes Go modules from a single repository:
+FastConf v1.0.0 defines the stable API. Optional integrations live in separate
+Go modules; all modules use the same release version. Discover modules and
+minimum Go versions directly from their manifests:
 
-| Module path | Releases independently? | Tag prefix |
-|---|:--:|---|
-| `github.com/fastabc/fastconf` | yes (root) | `vX.Y.Z` |
-| `github.com/fastabc/fastconf/cue` | yes | `cue/vX.Y.Z` |
-| `github.com/fastabc/fastconf/integrations/cli/pflag` | yes | `integrations/cli/pflag/vX.Y.Z` |
-| `github.com/fastabc/fastconf/integrations/log/phuslu` | yes | `integrations/log/phuslu/vX.Y.Z` |
-| `github.com/fastabc/fastconf/integrations/log/zerolog` | yes | `integrations/log/zerolog/vX.Y.Z` |
-| `github.com/fastabc/fastconf/observability/metrics/prometheus` | yes | `observability/metrics/prometheus/vX.Y.Z` |
-| `github.com/fastabc/fastconf/observability/otel` | yes | `observability/otel/vX.Y.Z` |
-| `github.com/fastabc/fastconf/policy/opa` | yes | `policy/opa/vX.Y.Z` |
-| `github.com/fastabc/fastconf/providers/s3` | yes | `providers/s3/vX.Y.Z` |
-| `github.com/fastabc/fastconf/validate/playground` | yes (v0.9.0+) | `validate/playground/vX.Y.Z` |
-
-Subpackages without their own `go.mod` inherit the nearest module's version.
-The following packages are root-versioned (no independent `go.mod` under the
-repository root module):
-`cmd/fastconfctl`, `cmd/fastconfgen`, `cmd/fastconfd`,
-`integrations/bus`, `integrations/openfeature`, `integrations/render`,
-`contracts`, `providers/http`, `providers/nats`, `providers/redisstream`,
-`providers/vault`, `providers/consul`, `providers/k8s`,
-`policy/` (root).
-
-`providers/s3/s3events` is a subpackage of the `providers/s3` module and is
-therefore released by `providers/s3/vX.Y.Z`.
-
-> **Note on legacy tags (v0.9 and earlier)**: Prior to v0.10.0 the observability
-> sub-modules lived directly under `metrics/prometheus/` and `otel/`.
-> v0.10.0 moves them under `observability/metrics/prometheus/` and
-> `observability/otel/` and uses new tag prefixes accordingly. Old tags remain
-> in the repository for historical reference and can be safely ignored.
-
-## Semantic versioning
-
-- **Patch** (`v0.x.y` → `v0.x.(y+1)`): bug fixes, doc updates, internal
-  refactors that do not change the public surface.
-- **Minor** (`v0.x.0` → `v0.(x+1).0`): backwards-compatible additions to the
-  public packages listed in `CHANGELOG.md`.
-- **Major** (`vX.0.0` → `v(X+1).0.0`): breaking changes to anything in the
-  public surface. Every breaking change MUST appear in `CHANGELOG.md` with a
-  migration note.
-
-`internal/...` is exempt — it may change in a patch release.
-
-## Branching & PR rules
-
-1. All work lands on `main` via reviewed PRs (CODEOWNERS auto-assigns).
-2. CI must be green: `go test -race ./...` for the root module **and**
-   each independent subpackage module, plus `golangci-lint run`,
-   `tools/check-module-matrix.sh`, and `tools/check-api-snapshot.sh`.
-3. Documentation changes that ship with code go in the same PR.
-4. Release PRs only update `CHANGELOG.md` (move `[Unreleased]` to a dated
-   version) and bump example go.mod requires when needed.
-
-## Satellite `require` policy
-
-Satellite modules pin `github.com/fastabc/fastconf` to a **real released
-version** (never a `v0.0.0` placeholder, never a `replace` directive —
-`replace` is ignored by downstream consumers). Development resolution is
-handled by the repository's `go.work`. Bump a satellite's require only
-when the satellite starts depending on newer root APIs; Go's MVS picks
-the maximum of the consumer's and the satellite's requirement, so an
-older pin keeps working across root releases.
-
-## Tagging procedure
-
-**Preferred: use the unified script** — changed-only tagging: the root
-module is always tagged (its tag drives the binary release workflow);
-a satellite module is tagged only when its directory content changed
-since that satellite's own most recent release tag. Pass `--all` to tag
-every module unconditionally (the pre-Wave-J behaviour):
-
-```bash
-git switch main && git pull
-# Update CHANGELOG.md, commit
-./tools/tag-release.sh v0.x.y --push
-
-# To overwrite existing tags (retag):
-./tools/tag-release.sh v0.x.y --force --push
-
-# To remove an accidental release tag set:
-./tools/tag-release.sh v0.x.y --delete --push
+```sh
+bash tools/modules.sh list
+bash tools/modules.sh matrix
 ```
 
-Pushing the root tag (`vX.Y.Z`) triggers
-`.github/workflows/release.yml`, which cross-compiles `fastconfd`,
-`fastconfctl`, and `fastconfgen` across 5 OS+arch targets and uploads
-15 archives + `SHA256SUMS` to the matching GitHub Release. Sub-module
-path-prefixed tags do not match `v*` and therefore do not double-fire
-the release workflow.
+Root tags use `vX.Y.Z`; satellite tags use `<directory>/vX.Y.Z`.
+`providers/s3/s3events` shares the S3 module's version. Logging adapters,
+Prometheus and OpenTelemetry retain separate leaf modules.
 
-**Manual (individual modules)** — for the root module:
+## Prepare and verify
 
-```bash
-git tag -a v0.x.y -m "fastconf v0.x.y"
-git push origin v0.x.y
+For the next patch release, the commands below use `v1.0.1`:
+
+1. Update the changelog and any relevant migration notes.
+2. Align in-repository module requirements to the release version. Do not
+   commit local `replace` directives or synthetic checksums.
+3. Run the checks against the final source, then merge the reviewed release
+   commit before tagging.
+
+```sh
+make check
+make test-workspace
+make test-candidate VERSION=v1.0.1
+make api-check VERSION=v1.0.1 BASE=v1.0.0
+VERSION=v1.0.1 bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
 ```
 
-For a subpackage module (path-prefixed tag is required by the Go toolchain):
+`test-workspace` tests all modules against local source. `test-candidate` serves
+that source through a temporary file proxy with `GOWORK=off`, a fresh module
+cache and no replacements. Candidate archives, checksums and temporary Git
+commits remain in its disposable checkout. This verifies a source combination
+without publishing it. To test one candidate module:
 
-```bash
-git tag -a observability/metrics/prometheus/v0.x.y \
-    -m "observability/metrics/prometheus v0.x.y"
-git push origin observability/metrics/prometheus/v0.x.y
+```sh
+VERSION=v1.0.1 bash tools/check-candidate.sh bash tools/modules.sh test providers/s3
 ```
 
-The same pattern applies to every independent module listed in the table.
+After publication, `make test-all` checks independent resolution of the published
+module requirements. Commit downloaded checksums as normal maintenance. Personal
+`go.work` files do not affect these independent tests.
 
-## Pre-built binaries (v0.9.0+)
+## API compatibility
 
-Every root-module release (`v*` tag) auto-publishes 15 archives + a
-SHA256SUMS file to the matching GitHub Release via
-`.github/workflows/release.yml`. The matrix is:
+`api-check` uses pinned upstream
+[gorelease](https://pkg.go.dev/golang.org/x/exp/cmd/gorelease) for every discovered
+module and its subpackages. Patch releases preserve the public API; compatible
+additions require a minor release. Breaking changes require a new major module
+path and migration notes. Tests and review must also cover behavioral changes.
+`BASE=none` is only for deliberately establishing a new baseline; it skips
+compatibility comparison and is not the normal check after v1.0.0.
 
-| Binary | linux/amd64 | linux/arm64 | darwin/amd64 | darwin/arm64 | windows/amd64 |
-|---|:--:|:--:|:--:|:--:|:--:|
-| `fastconfd` | tar.gz | tar.gz | tar.gz | tar.gz | zip |
-| `fastconfctl` | tar.gz | tar.gz | tar.gz | tar.gz | zip |
-| `fastconfgen` | tar.gz | tar.gz | tar.gz | tar.gz | zip |
+## Go versions and vulnerabilities
 
-Each archive contains the binary + LICENSE + README.md. The binaries are
-pure-Go (CGO_ENABLED=0) and built with `-trimpath -ldflags "-s -w -X
-main.version=<tag>"`; running `<bin> version` (or `<bin> -version` for
-fastconfgen) prints the embedded tag.
+The root module requires Go 1.24. Satellite modules declare their own minimums;
+CI tests each at that floor. Use `tools/modules.sh matrix` rather than maintaining
+a separate version table.
 
-To reproduce locally:
+Run the vulnerability check before every release and record the toolchain,
+database date and target platform. Require no reachable vulnerabilities in any
+module; distinguish module/package-only findings from reachable calls. After
+publication, `make vulnerabilities` scans independently resolved dependencies.
+Historical scans do not validate a later source or dependency set.
 
-```bash
-make dist VERSION=v0.x.y       # produce dist/*.tar.gz + dist/*.zip + dist/SHA256SUMS
-make dist-verify               # verify checksums
-make dist-clean                # rm -rf build dist
+## Tagging
+
+Preview and publish the complete module tag set from a clean release commit:
+
+```sh
+bash tools/tag-release.sh v1.0.1 --dry-run
+bash tools/tag-release.sh v1.0.1 --push
 ```
 
-To extend the matrix without editing the Makefile:
+The script validates all version pins before creating tags at one commit. It
+first pushes the satellite tags atomically, then pushes the root tag alone.
+This ensures the release workflow starts only after satellite tags exist;
+[GitHub suppresses tag push events when more than three tags are pushed at once](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push).
+If the root push fails, rerun the same command to finish; satellite tags may
+already exist, and the two pushes are not one atomic transaction. Tags at the same commit are idempotent; an existing
+tag at another commit is rejected, including in dry-run mode. There are no
+force-retag or deletion modes. Go module versions are immutable: deleting a Git
+release or tag does not erase cached archives or checksum records. Publish a
+new version for changed content; see the official
+[Go module publishing guidance](https://go.dev/blog/publishing-go-modules).
 
-```bash
-make dist EXTRA_TARGETS="freebsd/amd64 linux/386"
+Only the root tag triggers `.github/workflows/release.yml`; satellite tags do
+not create duplicate binary releases. Test and API checks never create tags.
+
+## Binary distribution
+
+Each root release builds `fastconfd`, `fastconfctl` and `fastconfgen` for
+linux/amd64, linux/arm64, darwin/amd64, darwin/arm64 and windows/amd64: 15 archives
+plus `SHA256SUMS`. Windows uses ZIP; other targets use tar.gz. Archives contain
+the binary, LICENSE and README.md. Builds disable CGO, use `-trimpath`, and embed
+the tag through `-X main.version=<tag>`.
+
+```sh
+make dist VERSION=v1.0.0
+make dist-verify
 ```
 
-## Public-API compatibility check
-
-CI snapshots the root package's exported surface in `tools/api/fastconf.txt`.
-Any top-level public API change makes `tools/check-api-snapshot.sh` fail.
-If the change is intentional:
-
-```bash
-UPDATE_API_SNAPSHOT=1 bash tools/check-api-snapshot.sh
-```
-
-Then include the matching `CHANGELOG.md` entry and migration note. Until
-`v1.0.0` we still do not run `golang.org/x/exp/cmd/apidiff` automatically, so
-reviewers MUST also eyeball every change to:
-
-- `contracts/*.go`
-- exported identifiers in top-level `*.go` (the main `package fastconf`)
-- exported identifiers in any subpackage with its own `go.mod`
-
-Any signature change requires either a `CHANGELOG.md` migration note or a
-deprecation in place of the breaking change.
+Use `fastconfctl version` or `fastconfgen -version` to inspect those binaries.
+The running daemon reports its version at `GET /version`; `fastconfd` has no
+version subcommand. `make dist-clean` removes build artifacts.
+Extend the matrix with `make dist EXTRA_TARGETS="freebsd/amd64 linux/386"`.

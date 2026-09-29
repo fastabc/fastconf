@@ -22,15 +22,17 @@ import (
 )
 
 // Watcher fans fsnotify events out to a Coalescer keyed by parent
-// directory. It survives best-effort recovery: when a watched directory
-// is deleted (e.g. a pod's volume re-mount), the Watcher attempts to
-// re-Add it on the next event.
+// directory. It recovers from directory replacement: when a watched
+// directory is removed or renamed its registration is dropped, the nearest
+// existing ancestor is watched instead, and the directory is re-added once
+// it is created again (e.g. a pod's volume re-mount).
 type Watcher struct {
-	fsw  *fsnotify.Watcher
-	co   *coalesce.Coalescer
-	dirs map[string]struct{}
+	fsw *fsnotify.Watcher
+	co  *coalesce.Coalescer
 
 	mu     sync.Mutex
+	want   map[string]struct{} // every path requested through AddPath
+	dirs   map[string]struct{} // directories currently registered with fsw
 	closed bool
 }
 
@@ -44,6 +46,7 @@ func New(paths []string, co *coalesce.Coalescer) (*Watcher, error) {
 	w := &Watcher{
 		fsw:  fsw,
 		co:   co,
+		want: map[string]struct{}{},
 		dirs: map[string]struct{}{},
 	}
 	for _, p := range paths {
@@ -56,27 +59,84 @@ func New(paths []string, co *coalesce.Coalescer) (*Watcher, error) {
 }
 
 // AddPath registers a path. If path is an existing directory, the directory
-// itself is watched (non-recursively). Otherwise, the parent directory is
-// watched — the K8s ConfigMap pattern, since the inode of the leaf file
-// changes during atomic swap. Idempotent.
+// itself is watched (non-recursively). Otherwise the nearest existing
+// ancestor is watched — for a file that is its parent, the K8s ConfigMap
+// pattern, since the inode of the leaf file changes during atomic swap.
+// Idempotent; a no-op after Close.
 func (w *Watcher) AddPath(path string) error {
-	dir := path
-	if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
-		dir = filepath.Dir(path)
-	}
-	if dir == "" {
-		dir = "."
-	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if _, ok := w.dirs[dir]; ok {
+	if w.closed {
 		return nil
 	}
+	w.want[path] = struct{}{}
+	_, err := w.register(path)
+	return err
+}
+
+// register watches path's directory and reports whether a new watch was added.
+func (w *Watcher) register(path string) (bool, error) {
+	dir := watchDir(path)
+	if _, ok := w.dirs[dir]; ok {
+		return false, nil
+	}
 	if err := w.fsw.Add(dir); err != nil {
-		return err
+		return false, err
 	}
 	w.dirs[dir] = struct{}{}
-	return nil
+	return true, nil
+}
+
+// watchDir returns path when it is a directory, otherwise its nearest
+// existing ancestor.
+func watchDir(path string) string {
+	dir := path
+	for {
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return dir
+		}
+		dir = parent
+	}
+}
+
+// track keeps registrations in step with directory lifecycle events: a
+// removed or renamed directory loses its (now dead) watch, and every
+// requested path is re-resolved so it is watched directly again once it
+// exists, or through its nearest ancestor until then.
+func (w *Watcher) track(ev fsnotify.Event) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return
+	}
+	switch {
+	case ev.Op&(fsnotify.Remove|fsnotify.Rename) != 0:
+		if _, ok := w.dirs[ev.Name]; !ok {
+			return
+		}
+		_ = w.fsw.Remove(ev.Name)
+		delete(w.dirs, ev.Name)
+	case ev.Op&fsnotify.Create != 0:
+		if fi, err := os.Stat(ev.Name); err != nil || !fi.IsDir() {
+			return
+		}
+	default:
+		return
+	}
+	// Repeat while watches are added: `mkdir -p` may create nested
+	// directories before the watch on their parent is in place.
+	for added := true; added; {
+		added = false
+		for path := range w.want {
+			if ok, _ := w.register(path); ok {
+				added = true
+			}
+		}
+	}
 }
 
 // Run loops until ctx is canceled or Close is called. It is intended to be
@@ -97,6 +157,8 @@ func (w *Watcher) Run(ctx context.Context) {
 			if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Chmod|fsnotify.Rename|fsnotify.Remove) == 0 {
 				continue
 			}
+			// Re-register before the reload this event triggers.
+			w.track(ev)
 			key := filepath.Dir(ev.Name)
 			base := filepath.Base(ev.Name)
 			swap := isK8sSwapCommit(ev.Op, base)

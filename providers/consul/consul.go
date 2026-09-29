@@ -1,36 +1,6 @@
-//go:build !no_provider_consul
-
-// Package consul is a first-party Consul KV provider for FastConf.
-//
-// It uses Consul's native HTTP API (the /v1/kv endpoint) directly
-// rather than depending on github.com/hashicorp/consul/api, keeping
-// the module free of hashicorp transitive dependencies. Users that
-// prefer the official client can implement contracts.Provider in
-// their own package — this package is the "golden reference" for
-// KV-style remote sources.
-//
-// # Watch model
-//
-// Consul KV exposes blocking queries via the X-Consul-Index response
-// header and the matching ?index=N&wait=… query parameters. The
-// provider issues a long-poll on every Watch tick: the first call
-// records the current index, subsequent calls block on Consul
-// (default 5 minutes) until the index changes or the wait expires.
-// On change the provider emits a contracts.Event and updates the
-// stored index. On any HTTP error, the loop backs off exponentially
-// (250ms..30s) and surfaces a ProviderError metric to the configured
-// MetricsSink.
-//
-// # Decoding
-//
-// Two recursion modes are supported (see Mode):
-//
-//   - ModeKV  : flat KV — each key under the prefix becomes a leaf,
-//     "/" delimited keys produce nested maps. Values are decoded as
-//     UTF-8 strings; numeric / boolean coercion is left to the user
-//     via fastconf transformers.
-//   - ModeBlob: a single key under the prefix holds an encoded
-//     document (yaml/json) — Codec is used to decode it.
+// Package consul loads Consul KV through its HTTP API. Watch uses blocking queries with
+// X-Consul-Index, backing off from 250ms to 30s on errors. ModeKV expands slash-delimited keys
+// with string values; ModeBlob decodes a single document with the supplied Codec.
 package consul
 
 import (
@@ -46,8 +16,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/contracts"
-	mappath "github.com/fastabc/fastconf/confmap"
+	"github.com/fastabc/fastconf/internal/providerutil"
 )
 
 // Mode selects how the values returned by Consul are interpreted.
@@ -58,29 +29,27 @@ const (
 	// a nested map by splitting on "/". Empty trailing keys (folder
 	// markers) are skipped.
 	ModeKV Mode = iota
-	// ModeBlob expects a single key holding an encoded document
-	// (yaml/json) and decodes it via the supplied Codec.
+	// ModeBlob decodes the first non-empty document at the exact prefix key
+	// or below its directory via the supplied Codec.
 	ModeBlob
 )
 
-// Doer matches *nethttp.Client; injected for tests / instrumented
-// transports.
-type Doer interface {
-	Do(req *nethttp.Request) (*nethttp.Response, error)
-}
+// Doer matches *nethttp.Client; injected for tests / instrumented transports.
+type Doer = providerutil.Doer
 
 // Provider is a contracts.Provider backed by the Consul HTTP API.
 type Provider struct {
-	name     string
-	addr     string
-	prefix   string
-	priority int
-	mode     Mode
-	codec    contracts.Codec
-	token    string
-	dc       string
-	wait     time.Duration
-	client   Doer
+	name         string
+	addr         string
+	prefix       string
+	priority     int
+	mode         Mode
+	codec        contracts.Decoder
+	token        string
+	dc           string
+	wait         time.Duration
+	maxBodyBytes int64
+	client       Doer
 
 	mu    sync.Mutex
 	index uint64
@@ -92,15 +61,14 @@ type Option func(*Provider)
 // WithPriority overrides the default priority (PriorityKV).
 func WithPriority(p int) Option { return func(pr *Provider) { pr.priority = p } }
 
-// WithName overrides the default Provider.Name() (defaults to
-// "consul://<addr>/<prefix>").
+// WithName overrides the default Provider.Name() (defaults to "consul://<addr>/<prefix>").
 func WithName(n string) Option { return func(pr *Provider) { pr.name = n } }
 
 // WithMode selects KV vs Blob decoding.
 func WithMode(m Mode) Option { return func(pr *Provider) { pr.mode = m } }
 
 // WithCodec installs a Codec for ModeBlob; ignored in ModeKV.
-func WithCodec(c contracts.Codec) Option { return func(pr *Provider) { pr.codec = c } }
+func WithCodec(c contracts.Decoder) Option { return func(pr *Provider) { pr.codec = c } }
 
 // WithToken sets the X-Consul-Token header for ACL-protected agents.
 func WithToken(t string) Option { return func(pr *Provider) { pr.token = t } }
@@ -108,16 +76,21 @@ func WithToken(t string) Option { return func(pr *Provider) { pr.token = t } }
 // WithDatacenter sets the ?dc= query parameter.
 func WithDatacenter(dc string) Option { return func(pr *Provider) { pr.dc = dc } }
 
-// WithWait overrides the blocking-query wait window (default 5m).
-// Consul caps wait at 10m server-side.
+// WithWait overrides the blocking-query wait window (default 5m). Consul caps wait at 10m
+// server-side.
 func WithWait(d time.Duration) Option { return func(pr *Provider) { pr.wait = d } }
 
-// WithClient injects an alternate HTTP client.
+// WithMaxBodyBytes limits the successful KV response body. Zero restores the 4 MiB default; an
+// oversized response is rejected before JSON decoding.
+func WithMaxBodyBytes(n int64) Option { return func(pr *Provider) { pr.maxBodyBytes = n } }
+
+// WithClient injects an alternate HTTP client. The caller must enforce redirect and credential
+// isolation; the supplied client is never modified.
 func WithClient(c Doer) Option { return func(pr *Provider) { pr.client = c } }
 
-// New constructs a Consul KV provider rooted at addr+prefix. addr is a
-// full URL such as "http://127.0.0.1:8500"; prefix is a slash-rooted
-// path such as "/myapp/" (leading and trailing slashes are normalised).
+// New constructs a Consul KV provider rooted at addr+prefix. addr is a full URL such as
+// "http://127.0.0.1:8500"; prefix is a slash-rooted path such as "/myapp/" (leading and trailing
+// slashes are normalised).
 func New(addr, prefix string, opts ...Option) (*Provider, error) {
 	if addr == "" {
 		return nil, errors.New("consul: addr is empty")
@@ -127,17 +100,18 @@ func New(addr, prefix string, opts ...Option) (*Provider, error) {
 	}
 	prefix = strings.Trim(prefix, "/")
 	p := &Provider{
-		addr:     strings.TrimRight(addr, "/"),
-		prefix:   prefix,
-		priority: contracts.PriorityKV,
-		wait:     5 * time.Minute,
+		addr:         strings.TrimRight(addr, "/"),
+		prefix:       prefix,
+		priority:     contracts.PriorityKV,
+		wait:         5 * time.Minute,
+		maxBodyBytes: contracts.DefaultMaxBodyBytes,
 		// Default to an isolated *http.Client — never net/http.DefaultClient.
 		// We intentionally do NOT set Timeout: Watch() uses blocking
 		// queries that legitimately wait up to p.wait (default 5m), and a
 		// fixed Timeout would tear those down prematurely. Cancellation
-		// now flows through ctx (P1.1) so per-request lifetimes remain
+		// now flows through ctx so per-request lifetimes remain
 		// under caller control.
-		client: &nethttp.Client{},
+		client: providerutil.HTTPClient(0),
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -154,13 +128,21 @@ func New(addr, prefix string, opts ...Option) (*Provider, error) {
 // Name implements contracts.Provider.
 func (p *Provider) Name() string { return p.name }
 
-// Priority implements contracts.Provider.
-func (p *Provider) Priority() int { return p.priority }
+// Describe implements contracts.Describer.
+func (p *Provider) Describe() contracts.ProviderInfo {
+	return contracts.ProviderInfo{Priority: p.priority}
+}
 
-// Load implements contracts.Provider. A single recursive GET against
-// /v1/kv/<prefix>?recurse populates the entire subtree and updates the
-// stored Consul index for subsequent blocking-query Watch calls.
-func (p *Provider) Load(ctx context.Context) (map[string]any, error) {
+// Load implements contracts.Provider.
+func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
+	m, err := p.loadMap(ctx)
+	return contracts.Snapshot{Map: m}, err
+}
+
+// A single recursive GET against the prefix (with a trailing slash in ModeKV)
+// populates the entire subtree and updates the stored Consul index for subsequent blocking-query
+// Watch calls.
+func (p *Provider) loadMap(ctx context.Context) (map[string]any, error) {
 	pairs, idx, err := p.fetch(ctx, 0)
 	if err != nil {
 		return nil, err
@@ -171,10 +153,9 @@ func (p *Provider) Load(ctx context.Context) (map[string]any, error) {
 	return p.decode(pairs)
 }
 
-// Watch implements contracts.Provider with a blocking-query loop.
-// Returning a closed channel is reserved for ctx-cancelled shutdown;
-// the loop keeps running until ctx.Done().
-func (p *Provider) Watch(ctx context.Context) (<-chan contracts.Event, error) {
+// Watch implements contracts.Watcher with a blocking-query loop. Returning a closed channel is
+// reserved for ctx-cancelled shutdown; the loop keeps running until ctx.Done().
+func (p *Provider) Watch(ctx context.Context, _ string) (<-chan contracts.Event, error) {
 	out := make(chan contracts.Event, 1)
 	go p.watchLoop(ctx, out)
 	return out, nil
@@ -210,7 +191,26 @@ func (p *Provider) watchLoop(ctx context.Context, out chan<- contracts.Event) {
 			continue
 		}
 		backoff = 250 * time.Millisecond
-		if newIdx == 0 || newIdx == idx {
+		if newIdx == 0 {
+			// Older Consul servers can return a zero X-Consul-Index. Keep
+			// the next request in blocking-query mode instead of spinning
+			// on a cold, non-blocking read.
+			p.mu.Lock()
+			if p.index == 0 || p.index > 1 {
+				p.index = 1
+			}
+			p.mu.Unlock()
+			continue
+		}
+		if idx > 0 && newIdx < idx {
+			// A server restart can move the index backwards. Reset the
+			// wait cursor and let the next full read establish a baseline.
+			p.mu.Lock()
+			p.index = 1
+			p.mu.Unlock()
+			continue
+		}
+		if newIdx == idx {
 			continue
 		}
 		p.mu.Lock()
@@ -235,7 +235,13 @@ type kvPair struct {
 }
 
 func (p *Provider) fetch(ctx context.Context, index uint64) ([]kvPair, uint64, error) {
-	u := fmt.Sprintf("%s/v1/kv/%s?recurse=true", p.addr, p.prefix)
+	prefix := p.prefix
+	if prefix != "" && p.mode == ModeKV {
+		prefix += "/"
+	}
+	// Blob queries retain the exact key as well as child documents. decode
+	// filters sibling prefixes in either mode, even if a server returns them.
+	u := fmt.Sprintf("%s/v1/kv/%s?recurse=true", p.addr, prefix)
 	if index > 0 {
 		u += fmt.Sprintf("&index=%d&wait=%s", index, p.wait.String())
 	}
@@ -253,7 +259,7 @@ func (p *Provider) fetch(ctx context.Context, index uint64) ([]kvPair, uint64, e
 	if err != nil {
 		return nil, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	switch resp.StatusCode {
 	case nethttp.StatusOK:
 	case nethttp.StatusNotFound:
@@ -263,8 +269,12 @@ func (p *Provider) fetch(ctx context.Context, index uint64) ([]kvPair, uint64, e
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, 0, fmt.Errorf("consul: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
+	body, err := providerutil.ReadAllMax(resp.Body, p.maxBodyBytes)
+	if err != nil {
+		return nil, 0, fmt.Errorf("consul: read body: %w", err)
+	}
 	var pairs []kvPair
-	if err := json.NewDecoder(resp.Body).Decode(&pairs); err != nil {
+	if err := json.Unmarshal(body, &pairs); err != nil {
 		return nil, 0, fmt.Errorf("consul: decode: %w", err)
 	}
 	return pairs, parseIndex(resp.Header.Get("X-Consul-Index")), nil
@@ -288,6 +298,9 @@ func (p *Provider) decode(pairs []kvPair) (map[string]any, error) {
 	if p.mode == ModeBlob {
 		// Find the single non-folder pair with non-empty value.
 		for _, kv := range pairs {
+			if !p.contains(kv.Key) {
+				continue
+			}
 			if strings.HasSuffix(kv.Key, "/") || kv.Value == "" {
 				continue
 			}
@@ -301,6 +314,9 @@ func (p *Provider) decode(pairs []kvPair) (map[string]any, error) {
 	}
 	out := map[string]any{}
 	for _, kv := range pairs {
+		if !p.contains(kv.Key) {
+			continue
+		}
 		key := strings.TrimPrefix(kv.Key, p.prefix)
 		key = strings.TrimPrefix(key, "/")
 		if key == "" || strings.HasSuffix(key, "/") {
@@ -310,7 +326,11 @@ func (p *Provider) decode(pairs []kvPair) (map[string]any, error) {
 		if err != nil {
 			return nil, fmt.Errorf("consul: base64 %s: %w", kv.Key, err)
 		}
-		mappath.Set(out, strings.Split(key, "/"), string(val))
+		confmap.Set(out, strings.Split(key, "/"), string(val))
 	}
 	return out, nil
+}
+
+func (p *Provider) contains(key string) bool {
+	return p.prefix == "" || key == p.prefix || strings.HasPrefix(key, p.prefix+"/")
 }

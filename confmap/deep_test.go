@@ -1,79 +1,55 @@
-package confmap
+package confmap_test
 
 import (
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fastabc/fastconf/confmap"
 )
 
-func TestDeep_AddNewKey(t *testing.T) {
-	dst := map[string]any{"a": 1}
-	src := map[string]any{"b": 2}
-	if err := Deep(dst, src, Options{}); err != nil {
-		t.Fatal(err)
-	}
-	if dst["a"] != 1 || dst["b"] != 2 {
-		t.Errorf("got %v", dst)
-	}
-}
-
-func TestDeep_OverwriteScalar(t *testing.T) {
-	dst := map[string]any{"a": 1}
-	src := map[string]any{"a": 2}
-	_ = Deep(dst, src, Options{})
-	if dst["a"] != 2 {
-		t.Errorf("want 2, got %v", dst["a"])
-	}
-}
-
-func TestDeep_RecursiveMap(t *testing.T) {
-	dst := map[string]any{"db": map[string]any{"host": "x", "port": 1}}
-	src := map[string]any{"db": map[string]any{"port": 2}}
-	_ = Deep(dst, src, Options{})
-	got := dst["db"].(map[string]any)
-	if got["host"] != "x" || got["port"] != 2 {
-		t.Errorf("merged wrong: %v", got)
-	}
-}
-
-func TestDeep_SliceReplaceByDefault(t *testing.T) {
-	dst := map[string]any{"l": []any{1, 2}}
-	src := map[string]any{"l": []any{3}}
-	_ = Deep(dst, src, Options{})
-	got := dst["l"].([]any)
-	if len(got) != 1 || got[0] != 3 {
-		t.Errorf("slice should be replaced: %v", got)
-	}
-}
-
-func TestDeep_SliceAppend(t *testing.T) {
-	dst := map[string]any{"l": []any{1, 2}}
-	src := map[string]any{"l": []any{3}}
-	_ = Deep(dst, src, Options{AppendSlices: true})
-	got := dst["l"].([]any)
-	if len(got) != 3 {
-		t.Errorf("slice should append: %v", got)
-	}
-}
-
-func TestDeep_StrictTypeMismatch(t *testing.T) {
-	dst := map[string]any{"a": map[string]any{"x": 1}}
-	src := map[string]any{"a": "not-a-map"}
-	if err := Deep(dst, src, Options{Strict: true}); err == nil {
-		t.Error("expected strict error")
-	}
-}
-
-// TestDeep_StrictRejectsStringerVsInt locks in that a fmt.Stringer such as
-// time.Time is NOT silently treated as a number under strict merge.
-func TestDeep_StrictRejectsStringerVsInt(t *testing.T) {
-	dst := map[string]any{"at": time.Unix(0, 0)}
-	src := map[string]any{"at": 42}
-	err := Deep(dst, src, Options{Strict: true})
-	if err == nil {
-		t.Fatal("expected strict type-mismatch error between time.Time and int")
-	}
-	if !strings.Contains(err.Error(), "type mismatch") {
-		t.Fatalf("error %q should mention type mismatch", err)
+func TestDeep(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		dst, src  map[string]any
+		options   confmap.Options
+		want      map[string]any
+		errorPath string
+	}{
+		{name: "empty into nil"},
+		{name: "nonempty into nil", src: map[string]any{"port": 80}, errorPath: "nil destination"},
+		{name: "add key", dst: map[string]any{"a": 1}, src: map[string]any{"b": 2}, want: map[string]any{"a": 1, "b": 2}},
+		{name: "overwrite scalar", dst: map[string]any{"a": 1}, src: map[string]any{"a": 2}, want: map[string]any{"a": 2}},
+		{name: "nested merge", dst: map[string]any{"db": map[string]any{"host": "local", "port": 1}}, src: map[string]any{"db": map[string]any{"port": 2}}, want: map[string]any{"db": map[string]any{"host": "local", "port": 2}}},
+		{name: "nested nil destination", dst: map[string]any{"db": map[string]any(nil)}, src: map[string]any{"db": map[string]any{"port": 80}}, want: map[string]any{"db": map[string]any{"port": 80}}},
+		{name: "replace slice", dst: map[string]any{"items": []any{1, 2}}, src: map[string]any{"items": []any{3}}, want: map[string]any{"items": []any{3}}},
+		{name: "append slice", dst: map[string]any{"items": []any{1, 2}}, src: map[string]any{"items": []any{3}}, options: confmap.Options{AppendSlices: true}, want: map[string]any{"items": []any{1, 2, 3}}},
+		{name: "lenient map to scalar", dst: map[string]any{"a": map[string]any{"b": 1}}, src: map[string]any{"a": "leaf"}, want: map[string]any{"a": "leaf"}},
+		{name: "strict map to scalar", dst: map[string]any{"a": map[string]any{"b": 1}}, src: map[string]any{"a": "leaf"}, options: confmap.Options{Strict: true}, errorPath: "a"},
+		{name: "strict slice to scalar", dst: map[string]any{"a": []any{1}}, src: map[string]any{"a": 1}, options: confmap.Options{Strict: true}, errorPath: "a"},
+		{name: "strict compatible numbers", dst: map[string]any{"a": 1}, src: map[string]any{"a": json.Number("2.5")}, options: confmap.Options{Strict: true}, want: map[string]any{"a": json.Number("2.5")}},
+		{name: "strict stringer is not numeric", dst: map[string]any{"at": time.Unix(0, 0)}, src: map[string]any{"at": 42}, options: confmap.Options{Strict: true}, errorPath: "at"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			original := confmap.DeepClone(tc.src)
+			err := confmap.Deep(tc.dst, tc.src, tc.options)
+			if tc.errorPath != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.errorPath) {
+					t.Fatalf("Deep = %v; want error naming %q", err, tc.errorPath)
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(tc.dst, tc.want) {
+					t.Fatalf("merged = %#v; want %#v", tc.dst, tc.want)
+				}
+			}
+			if !reflect.DeepEqual(tc.src, original) {
+				t.Fatal("merge mutated the source")
+			}
+		})
 	}
 }

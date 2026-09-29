@@ -3,60 +3,35 @@ package dotenv
 import (
 	"context"
 	"os"
+	"reflect"
 	"testing"
+
+	envprovider "github.com/fastabc/fastconf/providers/env"
 )
 
-func TestDotEnvProvider_BasicParsing(t *testing.T) {
-	env := `
-# comment
-APP_PORT=8080
-APP_DATABASE__HOST=localhost
-APP_DATABASE__PASS='secret'
-APP_DEBUG="true"
-export APP_RATE=1.5
-`
-	var loaded map[string]any
-	p := NewDotEnv("APP_", "_test_.env").
-		WithLookup(func(string) (string, bool) { return "", false })
-
-	// Bypass file IO: use parseDotEnv directly, then simulate Load via fake FS.
-	pairs, err := parseDotEnv([]byte(env))
+func TestProvider_LoadParsesDotEnv(t *testing.T) {
+	path := writeTempDotEnv(t, "# comment\nAPP_PORT=8080\nAPP_DATABASE__HOST=localhost\nAPP_DATABASE__PASS='secret'\nAPP_DEBUG=\"true\"\nexport APP_RATE=1.5\n")
+	p := New("APP_", path).WithLookup(func(string) (string, bool) { return "", false })
+	snap, err := p.Load(context.Background())
 	if err != nil {
-		t.Fatalf("parseDotEnv: %v", err)
+		t.Fatal(err)
 	}
-
-	want := map[string]string{
-		"APP_PORT":           "8080",
-		"APP_DATABASE__HOST": "localhost",
-		"APP_DATABASE__PASS": "secret",
-		"APP_DEBUG":          "true",
-		"APP_RATE":           "1.5",
+	want := map[string]any{"port": "8080", "database": map[string]any{"host": "localhost", "pass": "secret"}, "debug": "true", "rate": "1.5"}
+	if !reflect.DeepEqual(snap.Map, want) {
+		t.Fatalf("Load=%#v; want %#v", snap.Map, want)
 	}
-	for k, wantV := range want {
-		gotV, ok := pairs[k]
-		if !ok {
-			t.Errorf("missing key %q", k)
-			continue
-		}
-		if gotV != wantV {
-			t.Errorf("key %q: got %q want %q", k, gotV, wantV)
-		}
-	}
-
-	// parseDotEnv should not have found comment or blank lines as keys.
-	_ = loaded
-	_ = p
 }
 
-func TestDotEnvProvider_EnvPresenceWinsEvenWhenEmpty(t *testing.T) {
+func TestProvider_EnvPresenceWinsEvenWhenEmpty(t *testing.T) {
 	path := writeTempDotEnv(t, "APP_PORT=9999\nAPP_HOST=localhost\n")
-	p := NewDotEnv("APP_", path).WithLookup(func(k string) (string, bool) {
+	p := New("APP_", path).WithLookup(func(k string) (string, bool) {
 		if k == "APP_PORT" {
 			return "", true
 		}
 		return "", false
 	})
-	got, err := p.Load(context.Background())
+	gotSnapshot, err := p.Load(context.Background())
+	got := gotSnapshot.Map
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,12 +43,13 @@ func TestDotEnvProvider_EnvPresenceWinsEvenWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestDotEnvProvider_EnvAbsenceFallsBackToDotEnv(t *testing.T) {
+func TestProvider_EnvAbsenceFallsBackToDotEnv(t *testing.T) {
 	path := writeTempDotEnv(t, "APP_PORT=9999\n")
-	p := NewDotEnv("APP_", path).WithLookup(func(string) (string, bool) {
+	p := New("APP_", path).WithLookup(func(string) (string, bool) {
 		return "", false
 	})
-	got, err := p.Load(context.Background())
+	gotSnapshot, err := p.Load(context.Background())
+	got := gotSnapshot.Map
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,13 +58,14 @@ func TestDotEnvProvider_EnvAbsenceFallsBackToDotEnv(t *testing.T) {
 	}
 }
 
-func TestDotEnvProvider_WithLookupNilRestoresDefault(t *testing.T) {
+func TestProvider_WithLookupNilRestoresDefault(t *testing.T) {
 	t.Setenv("APP_PORT", "")
 	path := writeTempDotEnv(t, "APP_PORT=9999\n")
-	p := NewDotEnv("APP_", path).
+	p := New("APP_", path).
 		WithLookup(func(string) (string, bool) { return "", false }).
 		WithLookup(nil)
-	got, err := p.Load(context.Background())
+	gotSnapshot, err := p.Load(context.Background())
+	got := gotSnapshot.Map
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,17 +74,23 @@ func TestDotEnvProvider_WithLookupNilRestoresDefault(t *testing.T) {
 	}
 }
 
-func TestDotEnvProvider_NoPrefixFilter(t *testing.T) {
-	// When no prefix is set, all keys are accepted.
-	p := NewDotEnv("").
-		WithLookup(func(string) (string, bool) { return "", false })
-	_ = p
+func TestProvider_NoPrefixFilter(t *testing.T) {
+	p := New("", writeTempDotEnv(t, "PORT=8080\nDATABASE_HOST=local\n")).WithLookup(func(string) (string, bool) { return "", false })
+	snap, err := p.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"port": "8080", "database": map[string]any{"host": "local"}}
+	if !reflect.DeepEqual(snap.Map, want) {
+		t.Fatalf("Load=%#v; want %#v", snap.Map, want)
+	}
 }
 
-func TestDotEnvProvider_MissingFile(t *testing.T) {
-	p := NewDotEnv("APP_", "/nonexistent/.env").
+func TestProvider_MissingFile(t *testing.T) {
+	p := New("APP_", "/nonexistent/.env").
 		WithLookup(func(string) (string, bool) { return "", false })
-	got, err := p.Load(context.Background())
+	gotSnapshot, err := p.Load(context.Background())
+	got := gotSnapshot.Map
 	if err != nil {
 		t.Fatalf("Load with missing file: %v", err)
 	}
@@ -117,10 +100,11 @@ func TestDotEnvProvider_MissingFile(t *testing.T) {
 }
 
 // Default DotReplacer end-to-end: APP_DATABASE_DSN nests under "database".
-func TestDotEnvProvider_DotReplacerLoad(t *testing.T) {
+func TestProvider_DotReplacerLoad(t *testing.T) {
 	path := writeTempDotEnv(t, "APP_DATABASE_DSN=postgres://x\nAPP_PORT=8080\n")
-	p := NewDotEnv("APP_", path).WithLookup(func(string) (string, bool) { return "", false })
-	got, err := p.Load(context.Background())
+	p := New("APP_", path).WithLookup(func(string) (string, bool) { return "", false })
+	gotSnapshot, err := p.Load(context.Background())
+	got := gotSnapshot.Map
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,12 +118,13 @@ func TestDotEnvProvider_DotReplacerLoad(t *testing.T) {
 }
 
 // DoubleUnderscoreReplacer keeps single "_" inside keys.
-func TestDotEnvProvider_DoubleUnderscoreReplacer(t *testing.T) {
+func TestProvider_DoubleUnderscoreReplacer(t *testing.T) {
 	path := writeTempDotEnv(t, "APP_DATABASE__POOL=20\nAPP_FEATURE_FLAGS=on\n")
-	p := NewDotEnv("APP_", path).
-		WithReplacer(DoubleUnderscoreReplacer).
+	p := New("APP_", path).
+		WithReplacer(envprovider.DoubleUnderscoreReplacer).
 		WithLookup(func(string) (string, bool) { return "", false })
-	got, err := p.Load(context.Background())
+	gotSnapshot, err := p.Load(context.Background())
+	got := gotSnapshot.Map
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,12 +138,13 @@ func TestDotEnvProvider_DoubleUnderscoreReplacer(t *testing.T) {
 }
 
 // At() grafts the dotenv tree under a dotted path.
-func TestDotEnvProvider_AtNamespaces(t *testing.T) {
+func TestProvider_AtNamespaces(t *testing.T) {
 	path := writeTempDotEnv(t, "APP_DATABASE_DSN=postgres://x\n")
-	p := NewDotEnv("APP_", path).
+	p := New("APP_", path).
 		At("config.runtime").
 		WithLookup(func(string) (string, bool) { return "", false })
-	got, err := p.Load(context.Background())
+	gotSnapshot, err := p.Load(context.Background())
+	got := gotSnapshot.Map
 	if err != nil {
 		t.Fatal(err)
 	}

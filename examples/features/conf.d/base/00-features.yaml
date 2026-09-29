@@ -1,0 +1,10 @@
+features:
+  newCheckout:
+    default: false
+    targets:
+      - when: {tier: enterprise}
+        value: true
+    rollouts:
+      - percent: 30
+        hashKey: user.id
+        value: true

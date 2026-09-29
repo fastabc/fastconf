@@ -1,2 +1,3 @@
+github.com/fastabc/fastconf v1.0.0/go.mod h1:YWoM9KN6F4ptijmboGkHxwk18C8r2Ne/iboXuiRfVrg=
 github.com/spf13/pflag v1.0.10 h1:4EBh2KAYBwaONj6b2Ye1GiHfwjqyROoF4RwYO+vPwFk=
 github.com/spf13/pflag v1.0.10/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=

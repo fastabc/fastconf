@@ -1,0 +1,4 @@
+server:
+  timeout: 30s
+database:
+  pool: 20

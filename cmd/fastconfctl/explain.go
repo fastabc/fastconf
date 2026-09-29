@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,7 +8,7 @@ import (
 
 	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/cmd/internal/cli"
-	mappath "github.com/fastabc/fastconf/confmap"
+	"github.com/fastabc/fastconf/confmap"
 )
 
 func runExplain(args []string) error {
@@ -22,19 +21,16 @@ func runExplain(args []string) error {
 		return fmt.Errorf("explain takes exactly one dotted path argument")
 	}
 	path := rest[0]
-	mgr, err := cli.LoadConfig[map[string]any](context.Background(), f,
+	snap, err := loadSnapshot(f,
 		fastconf.WithProvenance(fastconf.ProvenanceFull),
 	)
 	if err != nil {
 		return err
 	}
-	defer mgr.Close()
-
-	snap := mgr.Snapshot()
 	if snap.Value() == nil {
 		return fmt.Errorf("snapshot value is nil")
 	}
-	v, ok := mappath.GetDotted(*snap.Value(), path)
+	v, ok := confmap.GetDotted(*snap.Value(), path)
 	if !ok {
 		return fmt.Errorf("path %q not found", path)
 	}

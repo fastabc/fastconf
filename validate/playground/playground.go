@@ -6,7 +6,7 @@
 //
 //	mgr, err := fastconf.New[appCfg](ctx,
 //	    fastconf.WithDir("conf.d"),
-//	    fastconf.WithValidator(playground.New[appCfg]()),
+//	    fastconf.WithValidate(playground.New[appCfg]()),
 //	)
 package playground
 

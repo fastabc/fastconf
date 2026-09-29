@@ -1,5 +1,3 @@
-//go:build !no_provider_s3
-
 // Package s3 is a first-party AWS S3 provider for FastConf.
 //
 // The provider performs a single S3 GetObject on Load and decodes the
@@ -7,8 +5,8 @@
 // extension (or the explicit Config.Codec when supplied). It is
 // intentionally load-only: S3 has no native push notification model,
 // and FastConf's pattern for change-driven reloads is to compose a
-// dedicated watch provider (see providers/s3events) rather than hide
-// polling inside this module. Watch returns (nil, nil).
+// dedicated watch provider (see providers/s3/s3events) rather than hide
+// polling inside this module. Provider does not implement contracts.Watcher.
 //
 // # ETag short-circuit
 //
@@ -32,7 +30,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -46,15 +43,12 @@ import (
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 
 	"github.com/fastabc/fastconf/codec"
+	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/internal/providerutil"
 )
 
-// maxBodyBytes is the hard upper bound on an S3 object size accepted
-// by Load. Configuration files larger than 10 MB almost certainly mean
-// the wrong key was supplied; refusing them avoids OOM surprises on
-// small Manager hosts.
-const maxBodyBytes = 10 * 1024 * 1024
+const defaultMaxBodyBytes = 10 * 1024 * 1024
 
 // Config holds all S3 provider settings. All required fields are
 // validated at construction time by New; misconfiguration becomes a
@@ -89,23 +83,40 @@ type API interface {
 	GetObject(ctx context.Context, in *awss3.GetObjectInput, opts ...func(*awss3.Options)) (*awss3.GetObjectOutput, error)
 }
 
-// Provider implements contracts.Provider. It is load-only (Watch
-// returns (nil, nil)) but caches the last ETag and decoded body so
+// Provider implements contracts.Provider without contracts.Watcher.
+// It caches the last ETag and decoded body so
 // repeated Load() calls only pay one HEAD-equivalent round-trip when
 // the object has not changed.
+// For native change notifications, use
+// providers/s3/s3events, which translates S3 events into contracts.Event values.
 type Provider struct {
-	name      string
-	bucket    string
-	key       string
-	versionID string
-	priority  int
-	codec     contracts.Codec
-	client    API
+	name         string
+	bucket       string
+	key          string
+	versionID    string
+	priority     int
+	codec        contracts.Decoder
+	client       API
+	maxBodyBytes int64
 
 	mu       sync.Mutex
 	etag     string
 	lastBody map[string]any
 	loaded   bool
+}
+
+// Option configures an S3 provider during construction.
+type Option func(*Provider)
+
+// WithMaxBodyBytes limits the object body accepted by Load. Non-positive values
+// restore the 10 MiB default. Oversized bodies return contracts.ErrTooLarge.
+func WithMaxBodyBytes(n int64) Option {
+	return func(p *Provider) {
+		p.maxBodyBytes = n
+		if n <= 0 {
+			p.maxBodyBytes = defaultMaxBodyBytes
+		}
+	}
 }
 
 // New constructs an S3-backed provider. It validates Config, builds
@@ -114,7 +125,7 @@ type Provider struct {
 //
 // Returns an error if a required field is missing or the codec cannot
 // be determined.
-func New(cfg Config) (*Provider, error) {
+func New(cfg Config, opts ...Option) (*Provider, error) {
 	if cfg.Region == "" {
 		return nil, errors.New("fastconf/s3: region is required")
 	}
@@ -136,24 +147,24 @@ func New(cfg Config) (*Provider, error) {
 		}
 		o.UsePathStyle = cfg.PathStyle
 	})
-	return newProvider(cfg, client)
+	return newProvider(cfg, client, opts...)
 }
 
 // NewWithClient is the test-friendly constructor: it accepts a
 // pre-built API implementation instead of constructing a real AWS
 // client. Production callers should use New.
-func NewWithClient(cfg Config, client API) (*Provider, error) {
+func NewWithClient(cfg Config, client API, opts ...Option) (*Provider, error) {
 	if client == nil {
 		return nil, errors.New("fastconf/s3: client is required")
 	}
-	return newProvider(cfg, client)
+	return newProvider(cfg, client, opts...)
 }
 
 // newProvider validates the bucket/key/codec invariants shared by New
 // and NewWithClient and assembles the Provider value. Credential
 // validation is left to the public constructors because NewWithClient
 // callers may legitimately supply an unauthenticated test client.
-func newProvider(cfg Config, client API) (*Provider, error) {
+func newProvider(cfg Config, client API, opts ...Option) (*Provider, error) {
 	if cfg.Bucket == "" {
 		return nil, errors.New("fastconf/s3: bucket is required")
 	}
@@ -175,30 +186,37 @@ func newProvider(cfg Config, client API) (*Provider, error) {
 	if priority == 0 {
 		priority = contracts.PriorityKV
 	}
-	return &Provider{
-		name:      fmt.Sprintf("s3://%s/%s", cfg.Bucket, cfg.Key),
-		bucket:    cfg.Bucket,
-		key:       cfg.Key,
-		versionID: cfg.VersionID,
-		priority:  priority,
-		codec:     dec,
-		client:    client,
-	}, nil
+	p := &Provider{
+		name:         fmt.Sprintf("s3://%s/%s", cfg.Bucket, cfg.Key),
+		bucket:       cfg.Bucket,
+		key:          cfg.Key,
+		versionID:    cfg.VersionID,
+		priority:     priority,
+		codec:        dec,
+		client:       client,
+		maxBodyBytes: defaultMaxBodyBytes,
+	}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p, nil
 }
 
 // Name implements contracts.Provider. The returned identifier
 // (s3://bucket/key) is stable across runs and unique within a Manager.
 func (p *Provider) Name() string { return p.name }
 
-// Priority implements contracts.Provider.
-func (p *Provider) Priority() int { return p.priority }
+// Describe implements contracts.Describer.
+func (p *Provider) Describe() contracts.ProviderInfo {
+	return contracts.ProviderInfo{Priority: p.priority}
+}
 
 // Load fetches the object and decodes the body. On the second and
 // subsequent calls it sends If-None-Match with the cached ETag; a 304
 // response short-circuits the decode and returns the cached map. The
-// returned map is always a fresh shallow copy so the caller can mutate
+// returned map is always a deep copy so the caller can mutate
 // it without poisoning the cache.
-func (p *Provider) Load(ctx context.Context) (map[string]any, error) {
+func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 	p.mu.Lock()
 	in := &awss3.GetObjectInput{
 		Bucket: aws.String(p.bucket),
@@ -217,36 +235,25 @@ func (p *Provider) Load(ctx context.Context) (map[string]any, error) {
 		if isNotModified(err) {
 			p.mu.Lock()
 			defer p.mu.Unlock()
-			return providerutil.CloneMap(p.lastBody), nil
+			return contracts.Snapshot{Map: confmap.DeepClone(p.lastBody), Revision: p.etag}, nil
 		}
-		return nil, fmt.Errorf("fastconf/s3: get %s: %w", p.name, err)
+		return contracts.Snapshot{}, fmt.Errorf("fastconf/s3: get %s: %w", p.name, err)
 	}
 	defer out.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(out.Body, maxBodyBytes+1))
+	body, err := providerutil.ReadAllMax(out.Body, p.maxBodyBytes)
 	if err != nil {
-		return nil, fmt.Errorf("fastconf/s3: read %s: %w", p.name, err)
-	}
-	if int64(len(body)) > maxBodyBytes {
-		return nil, fmt.Errorf("fastconf/s3: object %s exceeds %d byte limit", p.name, maxBodyBytes)
+		return contracts.Snapshot{}, fmt.Errorf("fastconf/s3: read %s: %w", p.name, err)
 	}
 	m, derr := p.codec.Decode(body)
 	if derr != nil {
-		return nil, fmt.Errorf("fastconf/s3: decode %s: %w", p.name, derr)
+		return contracts.Snapshot{}, fmt.Errorf("fastconf/s3: decode %s: %w", p.name, derr)
 	}
 	p.mu.Lock()
 	p.etag = aws.ToString(out.ETag)
 	p.lastBody = m
 	p.loaded = true
 	p.mu.Unlock()
-	return providerutil.CloneMap(m), nil
-}
-
-// Watch implements contracts.Provider. The S3 provider is load-only;
-// for change-driven reloads, pair with providers/s3events (S3 →
-// EventBridge → SQS) which translates object-mutation events into
-// contracts.Event values that trigger Manager.Reload.
-func (p *Provider) Watch(_ context.Context) (<-chan contracts.Event, error) {
-	return nil, nil
+	return contracts.Snapshot{Map: confmap.DeepClone(m), Revision: aws.ToString(out.ETag)}, nil
 }
 
 // isNotModified detects the 304 response the AWS SDK returns when an
@@ -327,3 +334,4 @@ func FromURL(rawurl string, creds Credentials) (Config, error) {
 
 // Compile-time interface assertion.
 var _ contracts.Provider = (*Provider)(nil)
+var _ contracts.Describer = (*Provider)(nil)

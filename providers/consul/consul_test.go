@@ -1,5 +1,3 @@
-//go:build !no_provider_consul
-
 package consul
 
 import (
@@ -7,13 +5,19 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	nethttp "net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+type consulDoerFunc func(*nethttp.Request) (*nethttp.Response, error)
+
+func (f consulDoerFunc) Do(r *nethttp.Request) (*nethttp.Response, error) { return f(r) }
 
 type yamlCodec struct{}
 
@@ -53,7 +57,8 @@ func TestProvider_LoadKVTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := p.Load(context.Background())
+	gotSnapshot, err := p.Load(context.Background())
+	got := gotSnapshot.Map
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,12 +83,58 @@ func TestProvider_LoadBlob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := p.Load(context.Background())
+	gotSnapshot, err := p.Load(context.Background())
+	got := gotSnapshot.Map
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got["name"] != "alpha" || got["port"] != "8080" {
 		t.Fatalf("blob decode: %+v", got)
+	}
+}
+
+func TestProvider_PrefixBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name, prefix, path string
+		mode               Mode
+		pairs              []kvPair
+		want               map[string]any
+	}{
+		{"kv", "/myapp/", "/v1/kv/myapp/", ModeKV,
+			[]kvPair{{Key: "myapp/db", Value: b64("own")}}, map[string]any{"db": "own"}},
+		{"blob child", "/myapp/", "/v1/kv/myapp", ModeBlob,
+			[]kvPair{{Key: "myapp/config", Value: b64("db: own")}}, map[string]any{"db": "own"}},
+		{"blob exact", "myapp", "/v1/kv/myapp", ModeBlob,
+			[]kvPair{{Key: "myapp", Value: b64("db: own")}}, map[string]any{"db": "own"}},
+		{"kv siblings only", "myapp", "/v1/kv/myapp/", ModeKV, nil, map[string]any{}},
+		{"blob siblings only", "myapp", "/v1/kv/myapp", ModeBlob, nil, map[string]any{}},
+		{"root", "/", "/v1/kv/", ModeKV, nil,
+			map[string]any{"myapp2": map[string]any{"db": "db: other"}, "myapp-staging": map[string]any{"db": "db: other"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+				if r.URL.Path != tc.path || r.URL.Query().Get("recurse") != "true" {
+					t.Errorf("request = %s, want %s?recurse=true", r.URL, tc.path)
+				}
+				pairs := []kvPair{
+					{Key: "myapp2/db", Value: b64("db: other")},
+					{Key: "myapp-staging/db", Value: b64("db: other")},
+				}
+				writePairs(w, 7, append(pairs, tc.pairs...))
+			}))
+			defer srv.Close()
+			p, err := New(srv.URL, tc.prefix, WithMode(tc.mode), WithCodec(yamlCodec{}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			snapshot, err := p.Load(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(snapshot.Map, tc.want) {
+				t.Fatalf("map = %#v, want %#v", snapshot.Map, tc.want)
+			}
+		})
 	}
 }
 
@@ -112,7 +163,7 @@ func TestProvider_WatchEmitsOnIndexChange(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	ch, err := p.Watch(ctx)
+	ch, err := p.Watch(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,11 +193,46 @@ func TestProvider_404IsEmpty(t *testing.T) {
 	}))
 	defer srv.Close()
 	p, _ := New(srv.URL, "missing")
-	got, err := p.Load(context.Background())
+	gotSnapshot, err := p.Load(context.Background())
+	got := gotSnapshot.Map
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 0 {
 		t.Fatalf("want empty, got %+v", got)
+	}
+}
+
+func TestProvider_WatchNormalizesZeroIndex(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	requests := make(chan string, 2)
+	var calls atomic.Int64
+	p, err := New("http://consul.invalid", "app", WithClient(consulDoerFunc(func(r *nethttp.Request) (*nethttp.Response, error) {
+		requests <- r.URL.Query().Get("index")
+		if calls.Add(1) == 2 {
+			cancel()
+		}
+		return &nethttp.Response{
+			StatusCode: nethttp.StatusOK,
+			Header:     nethttp.Header{"X-Consul-Index": []string{"0"}},
+			Body:       io.NopCloser(strings.NewReader("[]")),
+		}, nil
+	})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Watch(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case index := <-requests:
+			if i == 1 && index != "1" {
+				t.Fatalf("zero index was not normalized: next index=%q", index)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("missing watch request")
+		}
 	}
 }

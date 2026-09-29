@@ -1,6 +1,6 @@
 # Env key replacer & namespacing
 
-`providers/env.NewEnv("APP_")` defaults to the Viper / Spring Boot relaxed-binding convention: every `_` after the prefix becomes a `.` level. Runs of underscores collapse to a single separator, so neither single- nor double-underscore keys produce empty path segments.
+`providers/env.New("APP_")` defaults to the Viper / Spring Boot relaxed-binding convention: every `_` after the prefix becomes a `.` level. Runs of underscores collapse to a single separator, so neither single- nor double-underscore keys produce empty path segments.
 
 | Input env var | With prefix `APP_` | Resulting dotted path |
 |---|---|---|
@@ -13,14 +13,13 @@
 ```go
 import (
     "github.com/fastabc/fastconf"
-    "github.com/fastabc/fastconf/providers/dotenv"
     "github.com/fastabc/fastconf/providers/env"
 )
 
 mgr, _ := fastconf.New[Cfg](ctx,
     fastconf.WithDir("conf.d"),
     // APP_DATABASE_DSN → database.dsn
-    fastconf.WithProvider(env.NewEnv("APP_")),
+    fastconf.WithProvider(env.New("APP_")),
 )
 ```
 
@@ -33,7 +32,7 @@ mgr, _ := fastconf.New[Cfg](ctx,
     fastconf.WithDir("conf.d"),
     // APP_FEATURE_FLAGS → feature_flags  (single "_" preserved)
     // APP_DATABASE__POOL → database.pool (only "__" introduces a level)
-    fastconf.WithProvider(env.NewEnv("APP_").
+    fastconf.WithProvider(env.New("APP_").
         WithReplacer(env.DoubleUnderscoreReplacer)),
 )
 ```
@@ -44,46 +43,48 @@ Any `env.EnvKeyReplacer` works — useful for bespoke conventions:
 
 ```go
 custom := env.EnvKeyReplacerFunc(func(s string) string {
-    // FOO-Xbar → foo.bar
+    // FOOXbar → foo.bar
     return strings.ToLower(strings.ReplaceAll(s, "X", "."))
 })
-fastconf.WithProvider(env.NewEnv("APP_").WithReplacer(custom))
+fastconf.WithProvider(env.New("APP_").WithReplacer(custom))
 ```
-
-`env.NewEnvReplacer(prefix, replacer)` is a thin shortcut for `env.NewEnv(prefix).WithReplacer(replacer)`.
 
 ## Namespacing env values under a sub-tree (`At`)
 
 By default env values land at the root of the merged config. Use `At` to graft the whole env-loaded tree under a dotted path — useful when you want to keep operator-injected runtime values out of the main schema:
 
 ```go
-fastconf.WithProvider(env.NewEnv("APP_").At("config.runtime"))
+fastconf.WithProvider(env.New("APP_").At("config.runtime"))
 // APP_DATABASE_DSN → config.runtime.database.dsn
 ```
 
-`At` is available on both `EnvProvider` and `DotEnvProvider`.
+`At` is available on both `env.Provider` and `dotenv.Provider`.
 
 ## `.env` is a fallback layer
 
-`DotEnvProvider` is intentionally lower priority than process env. Presence
+`dotenv.Provider` is intentionally lower priority than process env. Presence
 wins, not non-emptiness: if the deployment environment explicitly sets
 `APP_PORT=""`, FastConf keeps that empty override and does **not** refill it
 from `.env`.
 
 ```go
-fastconf.WithProvider(dotenv.NewDotEnv("APP_", ".env"))
+fastconf.WithProvider(
+    dotenv.New("APP_", ".env"),
+    env.New("APP_"),
+)
 // APP_PORT="" in the real process env suppresses APP_PORT=8080 from .env
 ```
 
-That keeps `.env` aligned with the usual "local fallback" role while process
-env remains the deploy-time override surface.
+The dotenv provider only suppresses keys already present in the process
+environment; the env provider loads those process values. Register both to
+combine the fallback with deployment overrides.
 
 ## Coercion (off by default)
 
 Values are kept verbatim as strings; the typed-decode chain (`codec.StringPrimitiveHook` in `DefaultTypedHooks`) converts them to the destination field type at `*T` decode time. If you consume the merged map directly (without the typed-decode hook chain) and want eager bool/int/float coercion at Load time, opt in:
 
 ```go
-fastconf.WithProvider(env.NewEnv("APP_").WithCoerce(true))
+fastconf.WithProvider(env.New("APP_").WithCoerce(true))
 ```
 
 ## Mixing providers

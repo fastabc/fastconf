@@ -89,18 +89,3 @@ func TestTOMLDecoder_RegistryWired(t *testing.T) {
 		t.Errorf("LookupExt(.toml) = %q, want toml", ext)
 	}
 }
-
-// FuzzCodecTOML ensures the TOML decoder never panics on arbitrary input
-// and either returns a normalised map or a clean error.
-func FuzzCodecTOML(f *testing.F) {
-	f.Add([]byte(`name = "x"`))
-	f.Add([]byte(`[s]` + "\n" + `k = 1`))
-	f.Add([]byte(`[[items]]` + "\n" + `id = 1`))
-	f.Add([]byte(``))
-	f.Add([]byte(`= not valid`))
-
-	dec := tomlDecoder{}
-	f.Fuzz(func(t *testing.T, raw []byte) {
-		_, _ = dec.Decode(raw)
-	})
-}

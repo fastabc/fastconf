@@ -1,81 +1,107 @@
-// Package transform provides composable, post-merge / pre-decode
-// transformations on the merged configuration tree.
-//
-// FastConf's reload pipeline is conceptually:
-//
-//	discover → decode → merge/patch → [TRANSFORMERS] → decodeInto(*T)
-//	                                                  → validate → publish
-//
-// A Transformer is a pure function `func(map[string]any) error` that may
-// mutate the in-place merged map before it is decoded into the user's
-// strongly-typed struct. Built-in transformers cover the most common
-// cases (defaults, env interpolation, key aliasing, deletion). Users
-// can also write their own.
-//
-// Transformers run in declaration order and are wired via
-// `fastconf.WithTransformers(...)`. Failures abort the reload and the
-// previously committed state is preserved (same guarantee as every
-// other stage).
-//
-// Design notes:
-//   - Transformers operate on `map[string]any` rather than `*T` so
-//     they remain decoupled from the user type and can be reused across
-//     multiple Manager[T] instances.
-//   - Path syntax used by helpers below is dotted: "a.b.c". Numeric
-//     indices into slices are NOT supported (config trees are usually
-//     small maps; complex array surgery belongs in RFC 6902 patches).
-//   - All helpers tolerate a nil root map (treated as empty); they
-//     never panic on missing intermediate nodes.
+// Package transform provides post-merge, pre-decode map transformations. Functions run in
+// registration order; errors abort publication. Dotted paths address maps, not slice indices; use
+// RFC 6902 patches for indexed edits. Defaults belong in struct tags or Defaulter, and labels in
+// providers/labels.
 package transform
 
 import (
-	"errors"
+	"encoding/json"
 	"fmt"
+	"sync"
 
-	mappath "github.com/fastabc/fastconf/confmap"
+	"github.com/fastabc/fastconf/confmap"
 )
 
-// Transformer mutates the merged configuration tree. Returning an
-// error aborts the reload. Implementations MUST be safe to call
-// concurrently with reads of unrelated Manager instances but are
-// guaranteed to be invoked serially within a single reload.
-type Transformer interface {
-	Transform(root map[string]any) error
-	Name() string
-}
+// Func mutates the merged configuration tree; returning an error aborts the reload. It is the
+// function type fastconf.WithTransform accepts. Funcs run serially within one reload.
+type Func = func(root map[string]any) error
 
-// TransformerFunc adapts a plain function to the Transformer interface.
-type TransformerFunc struct {
-	NameStr string
-	Fn      func(map[string]any) error
-}
-
-func (t TransformerFunc) Transform(root map[string]any) error { return t.Fn(root) }
-func (t TransformerFunc) Name() string                        { return t.NameStr }
-
-// ErrTransform is returned wrapped by built-in transformers on failure.
-var ErrTransform = errors.New("fastconf/internal/transform")
-
-// Wrap turns a built-in error into a wrapped ErrTransform with the
-// transformer name attached.
-func Wrap(name string, err error) error {
-	if err == nil {
+// Aliases returns a transform that rewrites old keys to their new home. If the target path already
+// has a value the new world wins and the alias is dropped.
+func Aliases(mapping map[string]string) Func {
+	return func(root map[string]any) error {
+		for from, to := range mapping {
+			v, ok := confmap.GetDotted(root, from)
+			if !ok {
+				continue
+			}
+			if _, exists := confmap.GetDotted(root, to); !exists {
+				confmap.SetDotted(root, to, v)
+			}
+			confmap.DeleteDotted(root, from)
+		}
 		return nil
 	}
-	return fmt.Errorf("%w: %s: %v", ErrTransform, name, err)
 }
 
-// getPath and setPath are thin wrappers over mappath used by multiple
-// built-in transformers (SetIfAbsent, Aliases, MergeByKey, RawCapture).
-func getPath(root map[string]any, path string) (any, bool) {
-	return mappath.GetDotted(root, path)
+// DeletePaths returns a transform that removes the specified dotted-path keys from the tree.
+// Missing paths are silently ignored.
+func DeletePaths(paths ...string) Func {
+	return func(root map[string]any) error {
+		for _, p := range paths {
+			confmap.DeleteDotted(root, p)
+		}
+		return nil
+	}
 }
 
-func setPath(root map[string]any, path string, value any) {
-	mappath.SetDotted(root, path, value)
+// RawCapture captures selected paths as JSON before typed decoding. Register its Transform method
+// with WithTransform. Get and All are safe for concurrent reads after reload; treat returned bytes
+// as read-only.
+type RawCapture struct {
+	paths  []string
+	mu     sync.RWMutex
+	values map[string]json.RawMessage
 }
 
-// deletePath is used by DeletePaths and Aliases.
-func deletePath(root map[string]any, path string) {
-	mappath.DeleteDotted(root, path)
+// CaptureRaw returns a new RawCapture transformer that will snapshot the values at the given
+// dotted paths on every reload.
+func CaptureRaw(paths ...string) *RawCapture {
+	return &RawCapture{
+		paths:  paths,
+		values: make(map[string]json.RawMessage),
+	}
+}
+
+// Transform is the transform to pass to fastconf.WithTransform. It snapshots the current value at
+// each registered path as JSON bytes. Missing paths are silently skipped and their previous
+// captured value is cleared.
+func (r *RawCapture) Transform(root map[string]any) error {
+	newValues := make(map[string]json.RawMessage, len(r.paths))
+	for _, p := range r.paths {
+		v, ok := confmap.GetDotted(root, p)
+		if !ok {
+			continue
+		}
+		b, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Errorf("CaptureRaw path %q: %w", p, err)
+		}
+		newValues[p] = b
+	}
+	r.mu.Lock()
+	r.values = newValues
+	r.mu.Unlock()
+	return nil
+}
+
+// Get returns the most recently captured JSON bytes for the given path. Returns false if the path
+// was not registered or was missing at last reload.
+func (r *RawCapture) Get(path string) (json.RawMessage, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	v, ok := r.values[path]
+	return v, ok
+}
+
+// All returns a snapshot of all captured path → JSON bytes. The returned map is a copy and is safe
+// for the caller to retain.
+func (r *RawCapture) All() map[string]json.RawMessage {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make(map[string]json.RawMessage, len(r.values))
+	for k, v := range r.values {
+		out[k] = v
+	}
+	return out
 }

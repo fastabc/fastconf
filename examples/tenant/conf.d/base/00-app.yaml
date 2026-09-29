@@ -1,0 +1,7 @@
+server:
+  addr: ":8080"
+  timeout: 5s
+database:
+  pool: 5
+limits:
+  rps: 50
