@@ -1,26 +1,7 @@
-//go:build !no_provider_vault
-
-// Package vault is a first-party HashiCorp Vault KV v2 provider for
-// FastConf.
-//
-// It uses Vault's HTTP API directly (no hashicorp/vault/api dependency),
-// keeping the module free of large transitive trees.
-// The implementation targets the most common operator pattern:
-//
-//   - KV v2 secret engine mounted at a known path (default "secret").
-//   - A single secret holding a flat string→string map. Nested
-//     structure is reconstructed by splitting keys on a configurable
-//     separator (default ".") so that operators can store
-//     "database.dsn" = "postgres://…" and FastConf will produce
-//     {database: {dsn: "..."}} for the merge stage.
-//   - Token auth via the X-Vault-Token header. Lease renewal /
-//     AppRole / Kubernetes auth are deliberately out of scope for
-//     this reference module — wrap a custom Doer for those flows.
-//
-// Watch polls the secret metadata endpoint every Interval and emits
-// a contracts.Event whenever current_version changes. This costs one
-// tiny HTTP request per Interval and keeps the implementation
-// dependency-free; for sub-second freshness use the official client.
+// Package vault loads Vault KV v2 through its HTTP API. Flat keys expand using a configurable
+// separator (default dot). X-Vault-Token authenticates requests; optional Auth supports re-login
+// before expiry. Watch polls secret metadata for version changes and can also report token renewal
+// events.
 package vault
 
 import (
@@ -37,33 +18,36 @@ import (
 	"time"
 
 	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/internal/providerutil"
 )
 
-// Doer matches *nethttp.Client; injected for tests / instrumented
-// transports / Vault Agent sidecars.
-type Doer interface {
-	Do(req *nethttp.Request) (*nethttp.Response, error)
-}
+// Doer matches *nethttp.Client; injected for tests / instrumented transports / Vault Agent
+// sidecars.
+type Doer = providerutil.Doer
 
 // Provider implements contracts.Provider for KV v2 secrets.
 type Provider struct {
-	name      string
-	addr      string
-	mount     string
-	path      string
-	token     string
-	priority  int
-	separator string
-	interval  time.Duration
-	client    Doer
+	name         string
+	addr         string
+	mount        string
+	path         string
+	token        string
+	priority     int
+	separator    string
+	interval     time.Duration
+	maxBodyBytes int64
+	client       Doer
 
-	mu      sync.Mutex
-	version int
+	// version is the last version Load read successfully; notified is the
+	// version Watch last announced and is cleared by every Load attempt, so
+	// a failed or stale read is announced again on the next poll.
+	mu       sync.Mutex
+	version  int
+	notified int
 
 	// Pluggable auth + lease renewal: see Auth interface + renewer goroutine.
 	auth        Auth
 	renewBefore time.Duration
-	renewOnce   sync.Once
 	tokenTTL    atomic.Int64
 }
 
@@ -81,20 +65,24 @@ func WithMount(m string) Option {
 	return func(p *Provider) { p.mount = strings.Trim(m, "/") }
 }
 
-// WithSeparator changes the key splitter used to reconstruct nested
-// maps from flat KV string keys (default ".").
+// WithSeparator changes the key splitter used to reconstruct nested maps from flat KV string keys
+// (default ".").
 func WithSeparator(s string) Option { return func(p *Provider) { p.separator = s } }
 
-// WithInterval sets the metadata-poll interval used by Watch
-// (default 30s). Set to 0 to disable Watch (Watch returns nil channel).
+// WithInterval sets the metadata-poll interval used by Watch (default 30s). Set to 0 to disable
+// metadata polling. Auth renewal may still emit events unless WithRenewBefore(0) also disables it.
 func WithInterval(d time.Duration) Option { return func(p *Provider) { p.interval = d } }
 
-// WithClient injects an alternate HTTP client.
+// WithMaxBodyBytes limits successful KV and metadata response bodies. Zero restores the 4 MiB
+// default and rejects oversized documents before decode.
+func WithMaxBodyBytes(n int64) Option { return func(p *Provider) { p.maxBodyBytes = n } }
+
+// WithClient injects an alternate HTTP client. The caller must enforce redirect and credential
+// isolation; the supplied client is never modified.
 func WithClient(c Doer) Option { return func(p *Provider) { p.client = c } }
 
-// New constructs a Vault KV v2 provider rooted at addr+mount+path.
-// addr is a full URL such as "https://vault.example.com:8200"; path
-// is the secret path under data/, e.g. "myapp/config".
+// New constructs a Vault KV v2 provider rooted at addr+mount+path. addr is a full URL such as
+// "https://vault.example.com:8200"; path is the secret path under data/, e.g. "myapp/config".
 func New(addr, path, token string, opts ...Option) (*Provider, error) {
 	if addr == "" {
 		return nil, errors.New("vault: addr is empty")
@@ -102,21 +90,23 @@ func New(addr, path, token string, opts ...Option) (*Provider, error) {
 	if path == "" {
 		return nil, errors.New("vault: path is empty")
 	}
-	if token == "" && len(opts) == 0 {
-		return nil, errors.New("vault: token is empty (use WithAuth for dynamic tokens)")
-	}
 	p := &Provider{
-		addr:      strings.TrimRight(addr, "/"),
-		mount:     "secret",
-		path:      strings.Trim(path, "/"),
-		token:     token,
-		priority:  contracts.PriorityKV,
-		separator: ".",
-		interval:  30 * time.Second,
-		client:    &nethttp.Client{Timeout: 10 * time.Second},
+		addr:         strings.TrimRight(addr, "/"),
+		mount:        "secret",
+		path:         strings.Trim(path, "/"),
+		token:        token,
+		priority:     contracts.PriorityKV,
+		separator:    ".",
+		interval:     30 * time.Second,
+		maxBodyBytes: contracts.DefaultMaxBodyBytes,
+		renewBefore:  30 * time.Second,
+		client:       providerutil.HTTPClient(10 * time.Second),
 	}
 	for _, opt := range opts {
 		opt(p)
+	}
+	if p.token == "" && p.auth == nil {
+		return nil, errors.New("vault: token is empty (use WithAuth for dynamic tokens)")
 	}
 	if p.name == "" {
 		p.name = fmt.Sprintf("vault://%s/%s", p.mount, p.path)
@@ -127,13 +117,24 @@ func New(addr, path, token string, opts ...Option) (*Provider, error) {
 // Name implements contracts.Provider.
 func (p *Provider) Name() string { return p.name }
 
-// Priority implements contracts.Provider.
-func (p *Provider) Priority() int { return p.priority }
+// Describe implements contracts.Describer.
+func (p *Provider) Describe() contracts.ProviderInfo {
+	return contracts.ProviderInfo{Priority: p.priority}
+}
 
-// Load implements contracts.Provider. A single GET against the KV v2
-// data endpoint returns the secret payload and current version; the
-// version is recorded so Watch can detect future rotations.
-func (p *Provider) Load(ctx context.Context) (map[string]any, error) {
+// Load implements contracts.Provider.
+func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
+	m, err := p.loadMap(ctx)
+	return contracts.Snapshot{Map: m}, err
+}
+
+// Load implements contracts.Provider. A single GET against the KV v2 data endpoint returns the
+// secret payload and current version; the version is recorded so Watch can detect future
+// rotations.
+func (p *Provider) loadMap(ctx context.Context) (map[string]any, error) {
+	p.mu.Lock()
+	p.notified = 0
+	p.mu.Unlock()
 	if err := p.ensureToken(ctx); err != nil {
 		return nil, err
 	}
@@ -147,42 +148,35 @@ func (p *Provider) Load(ctx context.Context) (map[string]any, error) {
 	return p.expand(data), nil
 }
 
-// Watch implements contracts.Provider via metadata polling. Returns a
-// nil channel when WithInterval(0) was used.
-func (p *Provider) Watch(ctx context.Context) (<-chan contracts.Event, error) {
+// Watch starts an independent polling/renewal session and closes its event channel after
+// cancellation and all session publishers have stopped. It returns nil when both metadata polling
+// and auth renewal are disabled.
+func (p *Provider) Watch(ctx context.Context, _ string) (<-chan contracts.Event, error) {
 	if err := p.ensureToken(ctx); err != nil {
 		return nil, err
 	}
-	if p.interval == 0 && p.auth == nil {
+	if p.interval == 0 && (p.auth == nil || p.renewBefore <= 0) {
 		return nil, nil
 	}
 	out := make(chan contracts.Event, 4)
-	if p.auth != nil {
-		p.startAuthRenewer(ctx, out)
-	}
-	if p.interval > 0 {
-		go p.watchLoop(ctx, out)
-	} else {
-		// Interval=0 + auth: only the renewer keeps the channel alive.
-		// Why: explicitly close `out` when ctx ends so the subscribe()
-		// drain goroutine in fastconf observes clean termination instead
-		// of leaking. The renewer goroutine handles its own exit
-		// independently.
-		go p.keepaliveLoop(ctx, out)
-	}
+	go func() {
+		defer close(out)
+		var publishers sync.WaitGroup
+		if p.auth != nil && p.renewBefore > 0 {
+			publishers.Add(1)
+			go func() {
+				defer publishers.Done()
+				p.renewLoop(ctx, out)
+			}()
+		}
+		if p.interval > 0 {
+			p.watchLoop(ctx, out)
+		} else {
+			<-ctx.Done()
+		}
+		publishers.Wait()
+	}()
 	return out, nil
-}
-
-// keepaliveLoop holds the Watch channel reference alive for interval=0
-// + auth deployments. The channel is intentionally NOT closed on exit:
-// the renewer goroutine may still write to it, and closing here would
-// race with that send. The framework's consumeProviderEvents drains the
-// channel under its own ctx select, so the abandoned-channel pattern is
-// safe — the receive side unblocks via ctx.Done() rather than via a
-// close signal.
-func (p *Provider) keepaliveLoop(ctx context.Context, out chan<- contracts.Event) {
-	<-ctx.Done()
-	_ = out
 }
 
 func (p *Provider) watchLoop(ctx context.Context, out chan<- contracts.Event) {
@@ -198,31 +192,34 @@ func (p *Provider) watchLoop(ctx context.Context, out chan<- contracts.Event) {
 		if err != nil || v == 0 {
 			continue
 		}
+		// Delivering the event does not mean the version was accepted:
+		// only a successful Load advances p.version. notified merely
+		// suppresses duplicates until the triggered Load runs. It is set
+		// before the send so that Load, which may run before the send
+		// returns, always clears it afterwards.
 		p.mu.Lock()
-		old := p.version
+		skip := v == p.version || v == p.notified
+		if !skip {
+			p.notified = v
+		}
 		p.mu.Unlock()
-		if v == old {
+		if skip {
 			continue
 		}
-		// Only commit the new version when the event is actually
-		// delivered. A dropped event without a version rollback would
-		// permanently mask the update: the next tick would see v==old
-		// and skip re-emit until the remote bumped the version again.
 		select {
 		case <-ctx.Done():
 			return
 		case out <- contracts.Event{Source: p.name, Reason: "vault-version", At: time.Now()}:
-			p.mu.Lock()
-			p.version = v
-			p.mu.Unlock()
 		default:
-			// Consumer back-pressure: leave p.version alone so the
-			// next tick retries the send.
+			// Consumer back-pressure: retry the send on the next tick.
+			p.mu.Lock()
+			if p.notified == v {
+				p.notified = 0
+			}
+			p.mu.Unlock()
 		}
 	}
 }
-
-// Remove providerAuth (unused) — fields are now on Provider directly.
 
 // kvData mirrors /v1/<mount>/data/<path> response shape.
 type kvData struct {
@@ -234,9 +231,9 @@ type kvData struct {
 	} `json:"data"`
 }
 
-// loadToken returns the current Vault token under p.mu so concurrent
-// renews in renewLoop / ensureToken cannot race the HTTP request path.
-// Go strings are two words; an unprotected read can tear during rotation.
+// loadToken returns the current Vault token under p.mu so concurrent renews in renewLoop /
+// ensureToken cannot race the HTTP request path. Go strings are two words; an unprotected read can
+// tear during rotation.
 func (p *Provider) loadToken() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -254,13 +251,17 @@ func (p *Provider) readData(ctx context.Context) (map[string]any, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != nethttp.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, 0, fmt.Errorf("vault: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
+	body, err := providerutil.ReadAllMax(resp.Body, p.maxBodyBytes)
+	if err != nil {
+		return nil, 0, fmt.Errorf("vault: read body: %w", err)
+	}
 	var out kvData
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.Unmarshal(body, &out); err != nil {
 		return nil, 0, fmt.Errorf("vault: decode: %w", err)
 	}
 	return out.Data.Data, out.Data.Metadata.Version, nil
@@ -283,23 +284,25 @@ func (p *Provider) readMetadataVersion(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != nethttp.StatusOK {
 		return 0, fmt.Errorf("vault metadata: status %d", resp.StatusCode)
 	}
+	body, err := providerutil.ReadAllMax(resp.Body, p.maxBodyBytes)
+	if err != nil {
+		return 0, fmt.Errorf("vault metadata: read body: %w", err)
+	}
 	var out kvMetadata
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.Unmarshal(body, &out); err != nil {
 		return 0, err
 	}
 	return out.Data.CurrentVersion, nil
 }
 
-// expand reconstructs nested maps from flat keys split on separator.
-// "database.dsn" → {database: {dsn: …}}; collisions are resolved by
-// preferring the deeper write (Vault keys are unique, so this only
-// matters when an operator stores both "a" and "a.b"). Keys are
-// processed in ascending segment-count order so deeper paths always
-// win regardless of map-iteration order.
+// expand reconstructs nested maps from flat keys split on separator. "database.dsn" → {database:
+// {dsn: …}}; collisions are resolved by preferring the deeper write (Vault keys are unique, so
+// this only matters when an operator stores both "a" and "a.b"). Keys are processed in ascending
+// segment-count order so deeper paths always win regardless of map-iteration order.
 func (p *Provider) expand(in map[string]any) map[string]any {
 	if p.separator == "" || len(in) == 0 {
 		out := make(map[string]any, len(in))

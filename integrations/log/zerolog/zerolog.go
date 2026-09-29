@@ -14,15 +14,19 @@
 // as structured fields. Groups (slog.Group / Logger.WithGroup) are encoded
 // as dotted key prefixes — e.g. a group "stage" followed by attr {"name":
 // "decode"} appears as field "stage.name=decode".
+//
+// This package is its own module; it shares the slog handling with the
+// phuslu adapter through the dependency-free integrations/log module, so
+// importing it never pulls in phuslu/log.
 package zerolog
 
 import (
-	"context"
 	"log/slog"
-	"runtime"
-	"strconv"
+	"time"
 
 	zlog "github.com/rs/zerolog"
+
+	"github.com/fastabc/fastconf/integrations/log/internal/fclog"
 )
 
 // Options configures NewHandler.
@@ -44,134 +48,48 @@ type Options struct {
 // captured by value; subsequent zerolog.Logger.Level / sample / context
 // changes on the original variable do not affect this handler.
 func NewHandler(l zlog.Logger, opts Options) slog.Handler {
-	if opts.GroupSeparator == "" {
-		opts.GroupSeparator = "."
-	}
-	return &handler{l: l, opts: opts}
+	return fclog.NewHandler(&backend{l}, fclog.Options(opts))
 }
 
-type handler struct {
-	l       zlog.Logger
-	opts    Options
-	attrs   []slog.Attr
-	groups  []string
-	groupPrefix string
+type backend struct{ l zlog.Logger }
+
+func (b *backend) Enabled(lvl fclog.Level) bool {
+	return zlevel(lvl) >= b.l.GetLevel()
 }
 
-func (h *handler) Enabled(_ context.Context, lvl slog.Level) bool {
-	if h.opts.Level != nil && lvl < h.opts.Level.Level() {
-		return false
+func (b *backend) Event(lvl fclog.Level) fclog.Event {
+	if e := b.l.WithLevel(zlevel(lvl)); e != nil {
+		return event{e}
 	}
-	return zlevel(lvl) >= h.l.GetLevel()
-}
-
-func (h *handler) Handle(_ context.Context, r slog.Record) error {
-	ev := h.l.WithLevel(zlevel(r.Level))
-	if ev == nil {
-		return nil
-	}
-	if h.opts.AddSource && r.PC != 0 {
-		ev = ev.Str("source", sourceFor(r.PC))
-	}
-	if !r.Time.IsZero() {
-		ev = ev.Time("time", r.Time)
-	}
-	for _, a := range h.attrs {
-		ev = appendAttr(ev, h.groupPrefix, a, h.opts.GroupSeparator)
-	}
-	r.Attrs(func(a slog.Attr) bool {
-		ev = appendAttr(ev, h.groupPrefix, a, h.opts.GroupSeparator)
-		return true
-	})
-	ev.Msg(r.Message)
 	return nil
 }
 
-func (h *handler) WithAttrs(as []slog.Attr) slog.Handler {
-	n := *h
-	n.attrs = append(append([]slog.Attr(nil), h.attrs...), as...)
-	return &n
-}
-
-func (h *handler) WithGroup(name string) slog.Handler {
-	if name == "" {
-		return h
-	}
-	n := *h
-	n.groups = append(append([]string(nil), h.groups...), name)
-	if h.groupPrefix == "" {
-		n.groupPrefix = name + h.opts.GroupSeparator
-	} else {
-		n.groupPrefix = h.groupPrefix + name + h.opts.GroupSeparator
-	}
-	return &n
-}
-
-// zlevel maps slog.Level into the nearest zerolog level.
-func zlevel(l slog.Level) zlog.Level {
-	switch {
-	case l >= slog.LevelError:
+// zlevel maps a fclog level into the matching zerolog level.
+func zlevel(l fclog.Level) zlog.Level {
+	switch l {
+	case fclog.ErrorLevel:
 		return zlog.ErrorLevel
-	case l >= slog.LevelWarn:
+	case fclog.WarnLevel:
 		return zlog.WarnLevel
-	case l >= slog.LevelInfo:
+	case fclog.InfoLevel:
 		return zlog.InfoLevel
-	case l >= slog.LevelDebug:
+	case fclog.DebugLevel:
 		return zlog.DebugLevel
 	default:
 		return zlog.TraceLevel
 	}
 }
 
-// appendAttr emits a single slog.Attr onto the in-flight zerolog event,
-// recursing into groups and joining nested keys with sep.
-func appendAttr(ev *zlog.Event, prefix string, a slog.Attr, sep string) *zlog.Event {
-	if a.Equal(slog.Attr{}) {
-		return ev
-	}
-	v := a.Value.Resolve()
-	key := prefix + a.Key
-	switch v.Kind() {
-	case slog.KindString:
-		return ev.Str(key, v.String())
-	case slog.KindInt64:
-		return ev.Int64(key, v.Int64())
-	case slog.KindUint64:
-		return ev.Uint64(key, v.Uint64())
-	case slog.KindFloat64:
-		return ev.Float64(key, v.Float64())
-	case slog.KindBool:
-		return ev.Bool(key, v.Bool())
-	case slog.KindDuration:
-		return ev.Dur(key, v.Duration())
-	case slog.KindTime:
-		return ev.Time(key, v.Time())
-	case slog.KindGroup:
-		inner := key + sep
-		for _, ga := range v.Group() {
-			ev = appendAttr(ev, inner, ga, sep)
-		}
-		return ev
-	case slog.KindAny:
-		if err, ok := v.Any().(error); ok {
-			return ev.AnErr(key, err)
-		}
-		return ev.Interface(key, v.Any())
-	default:
-		return ev.Interface(key, v.Any())
-	}
-}
+// event forwards fields to the in-flight zerolog Event.
+type event struct{ e *zlog.Event }
 
-// sourceFor renders a "file:line" string for the given program counter,
-// paid only when AddSource is enabled.
-func sourceFor(pc uintptr) string {
-	if pc == 0 {
-		return ""
-	}
-	frames := runtime.CallersFrames([]uintptr{pc})
-	fr, _ := frames.Next()
-	if fr.File == "" {
-		return ""
-	}
-	return fr.File + ":" + strconv.Itoa(fr.Line)
-}
+func (v event) Str(k, s string)               { v.e.Str(k, s) }
+func (v event) Int64(k string, n int64)       { v.e.Int64(k, n) }
+func (v event) Uint64(k string, n uint64)     { v.e.Uint64(k, n) }
+func (v event) Float64(k string, f float64)   { v.e.Float64(k, f) }
+func (v event) Bool(k string, b bool)         { v.e.Bool(k, b) }
+func (v event) Dur(k string, d time.Duration) { v.e.Dur(k, d) }
+func (v event) Time(k string, t time.Time)    { v.e.Time(k, t) }
+func (v event) Err(k string, err error)       { v.e.AnErr(k, err) }
+func (v event) Any(k string, a any)           { v.e.Interface(k, a) }
+func (v event) Msg(msg string)                { v.e.Msg(msg) }

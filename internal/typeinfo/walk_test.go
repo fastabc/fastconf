@@ -32,24 +32,22 @@ type UsesEmbed struct {
 	Embedded
 }
 
-type collectVisitor struct{ paths []string }
+type pathCollector struct{ paths []string }
 
-func (v *collectVisitor) OnField(p string, _ []int, _ reflect.StructField) bool {
+func (v *pathCollector) collect(p string, _ []int, _ reflect.StructField) bool {
 	v.paths = append(v.paths, p)
 	return true
 }
-func (v *collectVisitor) OnStructEnter(_ string, _ reflect.Type) bool { return true }
-func (v *collectVisitor) OnStructLeave(_ string, _ reflect.Type)      {}
 
 func TestWalk_FieldDiscovery(t *testing.T) {
-	var cv collectVisitor
-	typeinfo.Walk(reflect.TypeOf(Outer{}), &cv)
+	var cv pathCollector
+	typeinfo.Walk(reflect.TypeOf(Outer{}), cv.collect)
 	want := []string{
 		"name",
 		"inner", "inner.a", "inner.b",
 		"ptr_in", "ptr_in.a", "ptr_in.b",
-		"slice", "slice.[].a", "slice.[].b",
-		"map", "map.{}.a", "map.{}.b",
+		"slice",
+		"map",
 		"anon", "anon.hidden",
 	}
 	if len(cv.paths) != len(want) {
@@ -118,8 +116,8 @@ func TestResolveField_Candidates(t *testing.T) {
 }
 
 func TestWalk_AnonymousEmbedFlattensChildren(t *testing.T) {
-	var cv collectVisitor
-	typeinfo.Walk(reflect.TypeOf(UsesEmbed{}), &cv)
+	var cv pathCollector
+	typeinfo.Walk(reflect.TypeOf(UsesEmbed{}), cv.collect)
 	want := []string{"", "secret"}
 	if len(cv.paths) != len(want) {
 		t.Fatalf("paths=%v\nwant=%v", cv.paths, want)
@@ -137,8 +135,8 @@ type Recursive struct {
 }
 
 func TestWalk_RecursiveTypeStopsAtCycle(t *testing.T) {
-	var cv collectVisitor
-	typeinfo.Walk(reflect.TypeOf(Recursive{}), &cv)
+	var cv pathCollector
+	typeinfo.Walk(reflect.TypeOf(Recursive{}), cv.collect)
 	want := []string{"name", "next"}
 	if !reflect.DeepEqual(cv.paths, want) {
 		t.Fatalf("paths=%v want=%v", cv.paths, want)
@@ -156,17 +154,29 @@ func TestCache_HitsAfterFirstCompute(t *testing.T) {
 	}
 }
 
-func TestWalkFunc_AdaptsClosure(t *testing.T) {
+func TestWalk_AcceptsClosure(t *testing.T) {
 	type X struct {
 		A int
 		B string
 	}
 	var got []string
-	typeinfo.Walk(reflect.TypeOf(X{}), typeinfo.WalkFunc(func(_ string, _ []int, f reflect.StructField, _ *reflect.Type) bool {
+	typeinfo.Walk(reflect.TypeOf(X{}), func(_ string, _ []int, f reflect.StructField) bool {
 		got = append(got, f.Name)
 		return true
-	}))
+	})
 	if !reflect.DeepEqual(got, []string{"A", "B"}) {
 		t.Errorf("got %v, want [A B]", got)
+	}
+}
+
+func TestWalk_CallbackSkipsDescendants(t *testing.T) {
+	var paths []string
+	typeinfo.Walk(reflect.TypeOf(Outer{}), func(path string, _ []int, _ reflect.StructField) bool {
+		paths = append(paths, path)
+		return false
+	})
+	want := []string{"name", "inner", "ptr_in", "slice", "map", "anon"}
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("paths=%v want=%v", paths, want)
 	}
 }

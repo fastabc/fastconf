@@ -1,14 +1,14 @@
-.PHONY: all build test test-all race lint tidy bench cover example graph versions module-matrix api-check \
+.PHONY: all build test test-all test-workspace test-candidate vulnerabilities race lint check tidy bench cover example versions module-matrix api-check \
         dist dist-clean dist-verify dist-fastconfd dist-fastconfctl dist-fastconfgen
 
 # ---------------------------------------------------------------------------
-# Version (overridable: make dist VERSION=v0.9.0)
-# Default reads the most recent tag; "dev" when no tag exists.
+# Version (overridable: make dist VERSION=v1.0.0)
+# Prepared release version; creating tags is a separate release step.
 # ---------------------------------------------------------------------------
-VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo dev)
+VERSION ?= v1.0.0
 
 # ---------------------------------------------------------------------------
-# Cross-compile target matrix (v0.9.0 SPEC-95)
+# Cross-compile target matrix
 # ---------------------------------------------------------------------------
 TARGETS := \
     linux/amd64  \
@@ -23,11 +23,6 @@ BINS := fastconfd fastconfctl fastconfgen
 #   make dist EXTRA_TARGETS="freebsd/amd64 linux/386"
 EXTRA_TARGETS ?=
 ALL_TARGETS := $(TARGETS) $(EXTRA_TARGETS)
-
-# Package path for each binary. CLI packages are root-versioned.
-fastconfd_DIR   := cmd/fastconfd
-fastconfctl_DIR := cmd/fastconfctl
-fastconfgen_DIR := cmd/fastconfgen
 
 # Common Go build flags for release binaries:
 #   -trimpath        — strip $GOPATH from file paths (reproducible builds)
@@ -45,19 +40,20 @@ build:
 	go build ./...
 
 test:
-	go test -race -count=1 ./...
+	GOWORK=off go test -race -count=1 ./...
 
-# test-all exercises every independent sub-module from its own go.mod.
-test-all: test
-	cd cue                    && go test -race -count=1 ./...
-	cd integrations/cli/pflag && go test -race -count=1 ./...
-	cd integrations/log/phuslu && go test -race -count=1 ./...
-	cd integrations/log/zerolog && go test -race -count=1 ./...
-	cd observability/metrics/prometheus && go test -race -count=1 ./...
-	cd observability/otel              && go test -race -count=1 ./...
-	cd policy/opa            && go test -race -count=1 ./...
-	cd providers/s3          && go test -race -count=1 ./...
-	cd validate/playground   && go test -race -count=1 ./...
+# Module discovery uses go.mod and ignores personal go.work files.
+test-all:
+	bash tools/modules.sh test
+
+test-candidate:
+	VERSION=$(VERSION) bash tools/check-candidate.sh
+
+test-workspace:
+	bash tools/modules.sh workspace
+
+vulnerabilities:
+	bash tools/check-vulnerabilities.sh
 
 race: test
 
@@ -65,12 +61,16 @@ bench:
 	go test -bench=. -benchmem -run=^$$ ./...
 
 cover:
-	go test -coverprofile=coverage.out ./...
+	go test -coverpkg=./... -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -n 1
 
 lint:
 	@command -v golangci-lint >/dev/null || { echo "install golangci-lint first"; exit 1; }
 	golangci-lint run ./...
+
+# Release tooling regression checks; api-check runs gorelease separately.
+check:
+	bash tools/tag-release-test.sh
 
 tidy:
 	go mod tidy
@@ -78,23 +78,20 @@ tidy:
 example:
 	go test ./... -run Example -v
 
-graph:
-	bash tools/code-review-graph.sh
-
 module-matrix:
-	bash tools/check-module-matrix.sh
+	bash tools/modules.sh matrix
 
 api-check:
-	bash tools/check-api-snapshot.sh
+	VERSION=$(VERSION) bash tools/check-candidate.sh bash tools/check-api.sh
 
 # List released root-module versions (filters out sub-module path-prefixed tags
 # like cue/v0.18.0; those are required by Go's module system but add
 # noise to `git tag -l`). Newest first.
 versions:
-	@git tag -l 'v[0-9]*' --sort=-v:refname
+	@git -c versionsort.suffix=- tag -l 'v[0-9]*' --sort=-v:refname
 
 # ---------------------------------------------------------------------------
-# Cross-compile dist pipeline (v0.9.0 SPEC-95)
+# Cross-compile dist pipeline
 #
 # Targets:
 #   make build/<bin>-<os>-<arch>     — cross-compile a single bin/os/arch tuple
@@ -109,19 +106,14 @@ versions:
 # Pattern stem $* looks like "fastconfd-linux-amd64".
 build/%:
 	@mkdir -p build
-	@bin=$$(echo $* | awk -F- '{print $$1}'); \
+	@set -eu; bin=$$(echo $* | awk -F- '{print $$1}'); \
 	 os=$$(echo $*  | awk -F- '{print $$2}'); \
 	 arch=$$(echo $* | awk -F- '{print $$3}'); \
-	 case "$$bin" in \
-	   fastconfd)   dir=cmd/fastconfd   ;; \
-	   fastconfctl) dir=cmd/fastconfctl ;; \
-	   fastconfgen) dir=cmd/fastconfgen ;; \
-	   *) echo "unknown bin: $$bin" >&2; exit 1 ;; \
-	 esac; \
+	 case " $(BINS) " in *" $$bin "*) ;; *) echo "unknown bin: $$bin" >&2; exit 1 ;; esac; \
 	 ext=""; \
 	 if [ "$$os" = "windows" ]; then ext=".exe"; fi; \
 	 echo "  CROSS  $$bin ($$os/$$arch)"; \
-	 cd "$$dir" && \
+	 cd "cmd/$$bin" && \
 	   CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
 	     go build $(DIST_GOFLAGS) -ldflags "$(DIST_LDFLAGS)" \
 	              -o "$(CURDIR)/build/$$bin-$$os-$$arch$$ext" \
@@ -130,12 +122,13 @@ build/%:
 # Bundle one tuple into a tar.gz (POSIX) or zip (Windows).
 dist/%: build/%
 	@mkdir -p dist
-	@bin=$$(echo $* | awk -F- '{print $$1}'); \
+	@set -eu; bin=$$(echo $* | awk -F- '{print $$1}'); \
 	 os=$$(echo $*  | awk -F- '{print $$2}'); \
 	 arch=$$(echo $* | awk -F- '{print $$3}'); \
 	 ext=""; \
 	 if [ "$$os" = "windows" ]; then ext=".exe"; fi; \
 	 stage=$$(mktemp -d); \
+	 trap 'rm -rf "$$stage"' EXIT; \
 	 mkdir -p "$$stage/$${bin}_$(VERSION)_$${os}_$${arch}"; \
 	 cp build/$$bin-$$os-$$arch$$ext \
 	    "$$stage/$${bin}_$(VERSION)_$${os}_$${arch}/$$bin$$ext"; \

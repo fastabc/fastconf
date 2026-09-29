@@ -14,7 +14,7 @@
 //
 //	import (
 //	    flagpkg "github.com/spf13/pflag"
-//	    cliflag "github.com/fastabc/fastconf/integrations/cli/pflag"
+//	    "github.com/fastabc/fastconf/integrations/cli/pflag"
 //	    "github.com/fastabc/fastconf/providers/cliflag"
 //	)
 //
@@ -23,7 +23,7 @@
 //	fs.Int("server.port", 8080, "listen port")
 //	_ = fs.Parse(os.Args[1:])
 //
-//	mgr.Add(cliflag.NewCLI(pflag.FromChanged(fs)))
+//	fastconf.New[AppConfig](context.Background(), fastconf.WithProvider(cliflag.NewCLI(pflag.FromChanged(fs))))
 //
 // When wired through a spf13/cobra command, pass cmd.Flags() (or
 // PersistentFlags()) to FromChanged.

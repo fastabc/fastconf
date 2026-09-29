@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fastabc/fastconf/internal/testutil"
+
 	provider "github.com/fastabc/fastconf/providers/env"
 )
 
@@ -17,7 +19,7 @@ func TestEnvKeyReplacer_DefaultDotToUnderscore(t *testing.T) {
 	t.Setenv("EBT_DATABASE_DSN", "postgres://localhost/db")
 
 	p := provider.NewEnvReplacer("EBT_", provider.DotReplacer)
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +48,7 @@ func TestEnvKeyReplacer_WithCoerceTrue(t *testing.T) {
 	t.Setenv("EBT2_DEBUG", "true")
 
 	p := provider.NewEnvReplacer("EBT2_", provider.DotReplacer).WithCoerce(true)
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +80,7 @@ func TestEnvKeyReplacer_CustomReplacer(t *testing.T) {
 		return string(out)
 	})
 	p := provider.NewEnvReplacer("ZZ_", custom)
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}

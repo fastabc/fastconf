@@ -1,6 +1,6 @@
 # Typed decoder hooks
 
-`encoding/json` cannot natively unmarshal a YAML string like `"30s"` into a `time.Duration` field — it refuses the string→int64 conversion. Typed hooks plug a pre-decode rewrite into the pipeline that converts the string into the wire form the JSON decoder accepts.
+`encoding/json` cannot natively unmarshal a YAML string like `"30s"` into a `time.Duration` field — it refuses the string→int64 conversion. Typed hooks plug a pre-decode rewrite into the pipeline that converts the string into a form the selected decoder (JSON or YAML) accepts.
 
 ## Default
 
@@ -59,9 +59,13 @@ mgr, _ := fastconf.New[Cfg](ctx,
 )
 ```
 
-## Why not URL / IP / Regex by default?
+## Where hooks apply
 
-`url.URL`, `net.IP`, and `*regexp.Regexp` have **no native JSON wire form**, so a pre-decode rewrite cannot land them in the right shape. Future work may add a *post*-decode reflection injector for these; until then, model such fields as `string` and parse on first use, or write a focused `TypedHook` that emits a structured form your custom `UnmarshalJSON` accepts.
+The plan follows the fields the selected decoder actually fills: embedded structs (untagged anonymous structs for the JSON decoder, `yaml:",inline"` for `WithDecoder(YAML)`), pointers, slice/array elements and map values. Recursive types (`type Node struct{ Next *Node }`) are supported; the walk follows the finite input tree.
+
+## URL / IP / Regex
+
+`codec.URLHook` is opt-in and fills `url.URL` / `*url.URL` fields: a hook result whose type is the destination type itself is assigned directly after decoding, because `url.URL` has no JSON/YAML string form. `codec.IPHook` and `codec.RegexHook` only validate the string; `net.IP` decodes it natively, while `*regexp.Regexp` fields are best modelled as `string` and compiled on first use.
 
 ## Cost
 

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	decoder "github.com/fastabc/fastconf/codec"
+	"github.com/fastabc/fastconf/codec"
 )
 
 type cfg struct {
@@ -16,7 +16,7 @@ type cfg struct {
 }
 
 func TestBuildTypedHookPlan_FindsNestedDuration(t *testing.T) {
-	plan := decoder.BuildTypedHookPlan(reflect.TypeOf(cfg{}), decoder.DefaultTypedHooks())
+	plan := codec.BuildTypedHookPlan(reflect.TypeOf(cfg{}), codec.DefaultTypedHooks())
 	merged := map[string]any{
 		"timeout": "30s",
 		"server":  map[string]any{"idle": "5m"},
@@ -24,17 +24,17 @@ func TestBuildTypedHookPlan_FindsNestedDuration(t *testing.T) {
 	if err := plan.Apply(merged); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if got, ok := merged["timeout"].(int64); !ok || got != int64(30*time.Second) {
+	if got, ok := merged["timeout"].(time.Duration); !ok || got != 30*time.Second {
 		t.Errorf("timeout = %v", merged["timeout"])
 	}
 	inner, _ := merged["server"].(map[string]any)
-	if got, ok := inner["idle"].(int64); !ok || got != int64(5*time.Minute) {
+	if got, ok := inner["idle"].(time.Duration); !ok || got != 5*time.Minute {
 		t.Errorf("idle = %v", inner["idle"])
 	}
 }
 
 func TestApply_BadDurationReturnsError(t *testing.T) {
-	plan := decoder.BuildTypedHookPlan(reflect.TypeOf(cfg{}), decoder.DefaultTypedHooks())
+	plan := codec.BuildTypedHookPlan(reflect.TypeOf(cfg{}), codec.DefaultTypedHooks())
 	merged := map[string]any{"timeout": "not-a-duration"}
 	if err := plan.Apply(merged); err == nil {
 		t.Error("expected duration parse error")
@@ -42,14 +42,14 @@ func TestApply_BadDurationReturnsError(t *testing.T) {
 }
 
 func TestApply_NilPlanIsNoop(t *testing.T) {
-	var plan *decoder.TypedHookPlan
+	var plan *codec.TypedHookPlan
 	if err := plan.Apply(map[string]any{"a": "b"}); err != nil {
 		t.Errorf("nil plan should be no-op: %v", err)
 	}
 }
 
 func TestDurationHook_NumericPassthrough(t *testing.T) {
-	got, err := decoder.DurationHook{}.Convert(int64(1000))
+	got, err := codec.DurationHook{}.Convert(int64(1000))
 	if err != nil || got != int64(1000) {
 		t.Errorf("numeric should pass through: got=%v err=%v", got, err)
 	}
@@ -71,7 +71,7 @@ type primCfg struct {
 }
 
 func TestStringPrimitiveHook_ConvertsStringsInto(t *testing.T) {
-	plan := decoder.BuildTypedHookPlan(reflect.TypeOf(primCfg{}), decoder.DefaultTypedHooks())
+	plan := codec.BuildTypedHookPlan(reflect.TypeOf(primCfg{}), codec.DefaultTypedHooks())
 	merged := map[string]any{
 		"port":    "8080",
 		"enabled": "true",
@@ -95,8 +95,8 @@ func TestStringPrimitiveHook_ConvertsStringsInto(t *testing.T) {
 	if got := merged["tag"]; got != "v1" {
 		t.Errorf("tag = %v, want v1 (string passes through untouched)", got)
 	}
-	if got := merged["timeout"]; got != int64(5*time.Second) {
-		t.Errorf("timeout = %v, want 5s as int64 nanos (DurationHook precedence)", got)
+	if got := merged["timeout"]; got != 5*time.Second {
+		t.Errorf("timeout = %v (%T), want time.Duration 5s (DurationHook precedence)", got, got)
 	}
 	inner, _ := merged["nested"].(map[string]any)
 	if got := inner["workers"]; got != uint64(16) {
@@ -108,7 +108,7 @@ func TestStringPrimitiveHook_BadBoolReturnsError(t *testing.T) {
 	type cfgBool struct {
 		On bool `json:"on"`
 	}
-	plan := decoder.BuildTypedHookPlan(reflect.TypeOf(cfgBool{}), decoder.DefaultTypedHooks())
+	plan := codec.BuildTypedHookPlan(reflect.TypeOf(cfgBool{}), codec.DefaultTypedHooks())
 	merged := map[string]any{"on": "maybe"}
 	if err := plan.Apply(merged); err == nil {
 		t.Fatal("expected error for non-boolean string")
@@ -119,7 +119,7 @@ func TestStringPrimitiveHook_NonStringPassthrough(t *testing.T) {
 	type cfgInt struct {
 		N int `json:"n"`
 	}
-	plan := decoder.BuildTypedHookPlan(reflect.TypeOf(cfgInt{}), decoder.DefaultTypedHooks())
+	plan := codec.BuildTypedHookPlan(reflect.TypeOf(cfgInt{}), codec.DefaultTypedHooks())
 	merged := map[string]any{"n": float64(42)}
 	if err := plan.Apply(merged); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -133,12 +133,12 @@ func TestTypedHookPlan_ExactFieldNameCandidate(t *testing.T) {
 	type exactCfg struct {
 		Timeout time.Duration `json:"timeout"`
 	}
-	plan := decoder.BuildTypedHookPlan(reflect.TypeOf(exactCfg{}), decoder.DefaultTypedHooks())
+	plan := codec.BuildTypedHookPlan(reflect.TypeOf(exactCfg{}), codec.DefaultTypedHooks())
 	merged := map[string]any{"Timeout": "2s"}
 	if err := plan.Apply(merged); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if got := merged["Timeout"]; got != int64(2*time.Second) {
-		t.Fatalf("Timeout = %v (%T), want duration nanos", got, got)
+	if got := merged["Timeout"]; got != 2*time.Second {
+		t.Fatalf("Timeout = %v (%T), want time.Duration", got, got)
 	}
 }

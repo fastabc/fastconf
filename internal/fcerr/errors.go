@@ -2,11 +2,7 @@ package fcerr
 
 import (
 	"errors"
-	"fmt"
-	"strings"
 	"time"
-
-	"github.com/fastabc/fastconf/policy"
 )
 
 // ErrFastConf is the umbrella sentinel for every error returned by
@@ -20,18 +16,32 @@ func (e *fcErr) Is(target error) bool { return target == ErrFastConf }
 
 func newFCErr(msg string) *fcErr { return &fcErr{s: msg} }
 
+// New returns a sentinel that satisfies errors.Is(err, ErrFastConf). Every
+// exported FastConf sentinel is built with it.
+func New(msg string) error { return newFCErr(msg) }
+
+// The eight reload sentinels, split by what the caller does next: fix a
+// file (ErrDecode), fix an overlay (ErrMerge), fix code (ErrTransform),
+// retry (ErrProvider), fix a value (ErrInvalid).
 var (
-	ErrNoSources  = newFCErr("fastconf: no configuration sources discovered")
-	ErrValidation = newFCErr("fastconf: validation failed")
-	ErrDecode     = newFCErr("fastconf: decode failed")
-	ErrMerge      = newFCErr("fastconf: merge failed")
-	ErrPatch      = newFCErr("fastconf: patch failed")
-	ErrClosed     = newFCErr("fastconf: manager closed")
-	ErrValidator  = newFCErr("fastconf: validator failed")
-	ErrTransform  = newFCErr("fastconf: transform failed")
-	ErrProvider   = newFCErr("fastconf: provider failed")
-	ErrGenerator  = newFCErr("fastconf: generator failed")
-	ErrNoOrigin   = newFCErr("fastconf: no origin for path")
+	// ErrNoSources: no file, provider or generator produced a layer.
+	ErrNoSources = newFCErr("fastconf: no configuration sources discovered")
+	// ErrDecode: a file or provider payload failed to parse, or an unknown
+	// key was rejected by WithUnknownFields(UnknownError).
+	ErrDecode = newFCErr("fastconf: decode failed")
+	// ErrMerge: a strict merge type conflict or a failing _patch.json.
+	ErrMerge = newFCErr("fastconf: merge failed")
+	// ErrTransform: a transform, typed hook or secret resolver failed.
+	ErrTransform = newFCErr("fastconf: transform failed")
+	// ErrProvider: a provider or generator Load failed.
+	ErrProvider = newFCErr("fastconf: provider failed")
+	// ErrInvalid: a validator, field-meta rule or policy rejected the
+	// decoded value; PolicyError satisfies it too.
+	ErrInvalid = newFCErr("fastconf: invalid configuration")
+	// ErrClosed: the manager was closed.
+	ErrClosed = newFCErr("fastconf: manager closed")
+	// ErrTooLarge: a source body exceeded its size limit.
+	ErrTooLarge = newFCErr("fastconf: configuration body too large")
 )
 
 // ReloadError is one entry on the Manager.Errors() channel.
@@ -42,24 +52,3 @@ type ReloadError struct {
 }
 
 const ErrorChanCap = 16
-
-// ErrPolicyDenied is returned when one or more SeverityError policy
-// violations abort a reload.
-var ErrPolicyDenied = errors.New("fastconf: policy denied")
-
-// PolicyError aggregates the violations that aborted a reload.
-type PolicyError struct {
-	Violations []policy.Violation
-}
-
-func (e *PolicyError) Error() string {
-	parts := make([]string, 0, len(e.Violations))
-	for _, v := range e.Violations {
-		parts = append(parts, fmt.Sprintf("%s@%s: %s", v.Rule, v.Path, v.Message))
-	}
-	return "fastconf: policy denied: " + strings.Join(parts, "; ")
-}
-
-func (e *PolicyError) Is(target error) bool {
-	return target == ErrPolicyDenied || target == ErrFastConf
-}

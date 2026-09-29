@@ -6,6 +6,26 @@ import (
 	"time"
 )
 
+func TestDeep_NilMaps(t *testing.T) {
+	t.Run("nil destination", func(t *testing.T) {
+		if err := Deep(nil, map[string]any{"port": 80}, Options{}); err == nil {
+			t.Fatal("nonempty merge into nil destination must fail")
+		}
+		if err := Deep(nil, nil, Options{}); err != nil {
+			t.Fatalf("empty merge: %v", err)
+		}
+	})
+	t.Run("nested nil destination", func(t *testing.T) {
+		dst := map[string]any{"server": map[string]any(nil)}
+		if err := Deep(dst, map[string]any{"server": map[string]any{"port": 80}}, Options{}); err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := GetDotted(dst, "server.port"); !ok || got != 80 {
+			t.Fatalf("merged port = %v, %v", got, ok)
+		}
+	})
+}
+
 func TestDeep_AddNewKey(t *testing.T) {
 	dst := map[string]any{"a": 1}
 	src := map[string]any{"b": 2}

@@ -25,7 +25,7 @@ func TestOTelAdapter_RecordsStages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	got := map[string]bool{}
 	for _, sp := range exp.GetSpans() {

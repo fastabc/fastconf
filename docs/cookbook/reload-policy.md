@@ -25,7 +25,7 @@ go func() {
 
 ```go
 type ReloadError struct {
-    Err    error      // the wrapped reload error (errors.Is(., ErrFastConf) is true)
+    Err    error      // pipeline, cancellation, or subscriber error; inspect with errors.Is
     Reason string     // "manual" / "watcher" / "provider:vault" / "override" / ...
     When   time.Time  // wall-clock when the reload attempt completed
 }
@@ -35,33 +35,52 @@ Capacity is 16 with **drop-on-full** semantics — if the consumer cannot keep u
 
 ### Consumer pattern: "abort after N consecutive failures"
 
-```go
-go func() {
-    var consec int
-    for re := range mgr.Errors() {
-        consec++
-        if consec >= 3 {
-            slog.Error("3 consecutive reload failures, exiting", "last_err", re.Err)
-            os.Exit(1)
-        }
-    }
-}()
+Use one synchronous observer to count failures and reset on every successful
+pipeline attempt, including unchanged configurations. `Errors()` alone cannot
+report success, and `Subscribe` only runs after a commit.
 
-// A successful reload should reset the streak; cleanest pattern is to also
-// subscribe to commits and reset the counter on success. Since the channel
-// only fires on failure, you can use a Subscribe callback to reset:
-fastconf.Subscribe(mgr, func(c *Cfg) *Cfg { return c }, func(_, _ *Cfg) {
-    // any successful commit -- reset consec via a mutex or atomic
-})
+```go
+import "github.com/fastabc/fastconf/observe"
+
+appCtx, stop := context.WithCancel(context.Background())
+defer stop()
+consecutive := 0
+mgr, err := fastconf.New[Cfg](appCtx,
+    fastconf.WithDir("conf.d"),
+    fastconf.WithObserver(observe.Func(func(_ context.Context, e fastconf.Event) {
+        result, ok := e.(fastconf.ReloadFinished)
+        if !ok {
+            return
+        }
+        if result.Err == nil {
+            consecutive = 0
+            return
+        }
+        consecutive++
+        if consecutive >= 3 {
+            slog.Error("3 consecutive reload failures", "last_err", result.Err)
+            stop() // signal the owner; do not call mgr.Close inside the callback
+        }
+    })),
+)
+if err != nil {
+    log.Fatal(err)
+}
+defer mgr.Close()
+<-appCtx.Done()
 ```
 
-## `Reload(ctx, WithSourceOverride(map))` — one-shot override
+Keep this observer local to one manager. Reload events run serially, so the
+counter needs no lock. The owner closes the manager after receiving the stop
+signal; canceling the initialization context alone does not stop its workers.
+
+## `Reload(ctx, WithOverride(map))` — one-shot override
 
 For "I just want to test this one override" without writing a file or wiring a provider:
 
 ```go
 err := mgr.Reload(ctx,
-    fastconf.WithSourceOverride(map[string]any{
+    fastconf.WithOverride(map[string]any{
         "server": map[string]any{"addr": ":9090"},
     }),
 )
@@ -69,14 +88,14 @@ err := mgr.Reload(ctx,
 
 Behaviour:
 
-- Full reload pipeline runs with an extra in-memory layer at priority `PriorityCLI + 1000`.
+- Full reload pipeline runs with an extra in-memory layer at priority 9000, above all providers.
 - The layer is **one-shot** — the next plain `mgr.Reload(ctx)` reverts to the natural source set.
-- The `override` map is consumed as input and is **not deep-copied**; do not mutate it after calling.
-- Useful for `fastconfctl rehearse` workflows, integration tests, and operator overrides during incident response.
+- Values must be JSON-serializable. `Reload` **deep-copies** the map when applying the option; do not mutate it concurrently with the call. The original can be reused after `Reload` returns.
+- Useful for integration tests and application-level operator overrides without editing source files.
 
 Additional `ReloadOption`:
 
-- `fastconf.WithReloadReason(s string)` — overrides the default `"manual"` reason tag stamped onto audit / metric / log lines.
+- `fastconf.WithReason(s string)` — overrides the default `"manual"` reason tag stamped onto audit / metric / log lines.
 
 ## Why no `mgr.Set(key, value)`?
 
@@ -87,4 +106,4 @@ A partial-mutation API would break:
 - subscriber fan-out (every reload must be atomic),
 - audit (one cause per state change).
 
-`WithSourceOverride` is the sanctioned shape for "apply just this much change" — it produces a real reload with a real audit entry and reverts automatically on the next plain `Reload`.
+`WithOverride` is the sanctioned shape for "apply just this much change" — it produces a real reload with a real audit entry and reverts automatically on the next plain `Reload`.

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -144,5 +147,48 @@ func TestRenderSourceFormatsGo(t *testing.T) {
 	}
 	if !strings.Contains(out, "\tHTTPPort int64") {
 		t.Fatalf("generated source is not gofmt-formatted:\n%s", out)
+	}
+}
+
+func TestUniqueName_SuffixCollisions(t *testing.T) {
+	used := map[string]int{}
+	var got []string
+	for _, base := range []string{"AB", "AB", "AB2", "AB2", "AB"} {
+		got = append(got, uniqueName(base, used))
+	}
+	want := []string{"AB", "AB2", "AB22", "AB23", "AB3"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// The generated source must compile: format.Source alone does not catch duplicate fields/types.
+func TestRenderSource_CompilesWithSuffixCollisions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("invokes the go toolchain")
+	}
+	src, err := renderSource("config", "Config", map[string]any{
+		"a-b":  int64(1),
+		"a_b":  int64(2),
+		"a_b2": int64(3),
+		"x":    map[string]any{"k": int64(1)},
+		"x-":   map[string]any{"k": int64(2)},
+		"x2":   map[string]any{"k": int64(3)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/gen\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.go"), src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("go", "vet", ".")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generated source does not compile: %v\n%s\n---\n%s", err, out, src)
 	}
 }

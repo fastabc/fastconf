@@ -3,20 +3,28 @@ package confmap_test
 import (
 	"testing"
 
-	mappath "github.com/fastabc/fastconf/confmap"
+	"github.com/fastabc/fastconf/confmap"
 )
+
+func TestSet_ReplacesNilIntermediateMap(t *testing.T) {
+	m := map[string]any{"server": map[string]any(nil)}
+	confmap.SetDotted(m, "server.port", 80)
+	if got, ok := confmap.GetDotted(m, "server.port"); !ok || got != 80 {
+		t.Fatalf("port = %v, %v", got, ok)
+	}
+}
 
 func TestSet_CreatesIntermediateMaps(t *testing.T) {
 	root := map[string]any{}
-	mappath.Set(root, []string{"a", "b", "c"}, 42)
-	if got, _ := mappath.Get(root, "a", "b", "c"); got != 42 {
+	confmap.Set(root, []string{"a", "b", "c"}, 42)
+	if got, _ := confmap.Get(root, "a", "b", "c"); got != 42 {
 		t.Fatalf("got %v want 42", got)
 	}
 }
 
 func TestSet_OverwritesNonMapIntermediate(t *testing.T) {
 	root := map[string]any{"a": "leaf"}
-	mappath.Set(root, []string{"a", "b"}, 1)
+	confmap.Set(root, []string{"a", "b"}, 1)
 	if _, ok := root["a"].(map[string]any); !ok {
 		t.Fatalf("expected a to become map, got %T", root["a"])
 	}
@@ -24,30 +32,30 @@ func TestSet_OverwritesNonMapIntermediate(t *testing.T) {
 
 func TestGet_MissingReturnsFalse(t *testing.T) {
 	root := map[string]any{"a": map[string]any{"b": 1}}
-	if _, ok := mappath.Get(root, "a", "x"); ok {
+	if _, ok := confmap.Get(root, "a", "x"); ok {
 		t.Fatal("want missing")
 	}
 }
 
 func TestDelete_RemovesLeaf(t *testing.T) {
 	root := map[string]any{"a": map[string]any{"b": 1}}
-	mappath.Delete(root, []string{"a", "b"})
-	if _, ok := mappath.Get(root, "a", "b"); ok {
+	confmap.Delete(root, []string{"a", "b"})
+	if _, ok := confmap.Get(root, "a", "b"); ok {
 		t.Fatal("want deleted")
 	}
 }
 
 func TestGet_NonMapIntermediateReturnsFalse(t *testing.T) {
 	root := map[string]any{"a": "leaf"}
-	if _, ok := mappath.Get(root, "a", "b"); ok {
+	if _, ok := confmap.Get(root, "a", "b"); ok {
 		t.Fatal("want false for non-map intermediate")
 	}
 }
 
 func TestDelete_IgnoresMissingIntermediate(t *testing.T) {
 	root := map[string]any{"a": map[string]any{"b": 1}}
-	mappath.Delete(root, []string{"x", "y"})
-	if got, ok := mappath.Get(root, "a", "b"); !ok || got != 1 {
+	confmap.Delete(root, []string{"x", "y"})
+	if got, ok := confmap.Get(root, "a", "b"); !ok || got != 1 {
 		t.Fatalf("unexpected value after delete: got %v ok=%v", got, ok)
 	}
 }
@@ -57,12 +65,12 @@ func TestExpandLabels_StringSlice(t *testing.T) {
 		"traefik.http.services.dummy-svc.loadbalancer.server.port=9999",
 		"traefik.enable=true",
 	}
-	out := mappath.ExpandLabels(in, mappath.LabelOptions{})
-	port, ok := mappath.GetDotted(out, "traefik.http.services.dummy-svc.loadbalancer.server.port")
+	out := confmap.ExpandLabels(in, confmap.LabelOptions{})
+	port, ok := confmap.GetDotted(out, "traefik.http.services.dummy-svc.loadbalancer.server.port")
 	if !ok || port != "9999" {
 		t.Fatalf("port got %v ok=%v want \"9999\"", port, ok)
 	}
-	if v, _ := mappath.GetDotted(out, "traefik.enable"); v != "true" {
+	if v, _ := confmap.GetDotted(out, "traefik.enable"); v != "true" {
 		t.Fatalf("enable got %v want \"true\" (no coerce by default)", v)
 	}
 }
@@ -73,11 +81,11 @@ func TestExpandLabels_AnySlice(t *testing.T) {
 		"a.b.d=2",
 		42, // non-string entries silently skipped
 	}
-	out := mappath.ExpandLabels(in, mappath.LabelOptions{})
-	if v, _ := mappath.GetDotted(out, "a.b.c"); v != "1" {
+	out := confmap.ExpandLabels(in, confmap.LabelOptions{})
+	if v, _ := confmap.GetDotted(out, "a.b.c"); v != "1" {
 		t.Fatalf("got %v", v)
 	}
-	if v, _ := mappath.GetDotted(out, "a.b.d"); v != "2" {
+	if v, _ := confmap.GetDotted(out, "a.b.d"); v != "2" {
 		t.Fatalf("got %v", v)
 	}
 }
@@ -87,11 +95,11 @@ func TestExpandLabels_MapStringString(t *testing.T) {
 		"k8s.io/component":    "frontend",
 		"app.kubernetes/name": "web",
 	}
-	out := mappath.ExpandLabels(in, mappath.LabelOptions{Separator: "/"})
-	if v, _ := mappath.Get(out, "k8s.io", "component"); v != "frontend" {
+	out := confmap.ExpandLabels(in, confmap.LabelOptions{Separator: "/"})
+	if v, _ := confmap.Get(out, "k8s.io", "component"); v != "frontend" {
 		t.Fatalf("component got %v", v)
 	}
-	if v, _ := mappath.Get(out, "app.kubernetes", "name"); v != "web" {
+	if v, _ := confmap.Get(out, "app.kubernetes", "name"); v != "web" {
 		t.Fatalf("name got %v", v)
 	}
 }
@@ -102,11 +110,11 @@ func TestExpandLabels_PrefixFilterAndStrip(t *testing.T) {
 		"traefik.http.routers.api=Host(`api`)",
 		"unrelated.foo=bar", // filtered out
 	}
-	out := mappath.ExpandLabels(in, mappath.LabelOptions{
+	out := confmap.ExpandLabels(in, confmap.LabelOptions{
 		Prefix:      "traefik.",
 		StripPrefix: true,
 	})
-	if v, _ := mappath.Get(out, "enable"); v != "true" {
+	if v, _ := confmap.Get(out, "enable"); v != "true" {
 		t.Fatalf("enable got %v", v)
 	}
 	if _, ok := out["unrelated"]; ok {
@@ -121,17 +129,17 @@ func TestExpandLabels_Coerce(t *testing.T) {
 		"a.float=3.14",
 		"a.str=hello",
 	}
-	out := mappath.ExpandLabels(in, mappath.LabelOptions{Coerce: true})
-	if v, _ := mappath.GetDotted(out, "a.bool"); v != true {
+	out := confmap.ExpandLabels(in, confmap.LabelOptions{Coerce: true})
+	if v, _ := confmap.GetDotted(out, "a.bool"); v != true {
 		t.Fatalf("bool got %v (%T)", v, v)
 	}
-	if v, _ := mappath.GetDotted(out, "a.int"); v != int64(42) {
+	if v, _ := confmap.GetDotted(out, "a.int"); v != int64(42) {
 		t.Fatalf("int got %v (%T)", v, v)
 	}
-	if v, _ := mappath.GetDotted(out, "a.float"); v != 3.14 {
+	if v, _ := confmap.GetDotted(out, "a.float"); v != 3.14 {
 		t.Fatalf("float got %v (%T)", v, v)
 	}
-	if v, _ := mappath.GetDotted(out, "a.str"); v != "hello" {
+	if v, _ := confmap.GetDotted(out, "a.str"); v != "hello" {
 		t.Fatalf("str got %v (%T)", v, v)
 	}
 }
@@ -142,19 +150,19 @@ func TestExpandLabels_DropsMalformed(t *testing.T) {
 		"no_equals_sign",
 		"=empty-key",
 	}
-	out := mappath.ExpandLabels(in, mappath.LabelOptions{})
+	out := confmap.ExpandLabels(in, confmap.LabelOptions{})
 	if got := len(out); got != 1 {
 		t.Fatalf("expected only 1 top-level key, got %d (%v)", got, out)
 	}
-	if v, _ := mappath.GetDotted(out, "valid.key"); v != "value" {
+	if v, _ := confmap.GetDotted(out, "valid.key"); v != "value" {
 		t.Fatalf("got %v", v)
 	}
 }
 
 func TestExpandLabels_ValueContainsEquals(t *testing.T) {
 	in := []string{"traefik.http.routers.api.rule=Host(`a.com`)&&PathPrefix(`/x`)"}
-	out := mappath.ExpandLabels(in, mappath.LabelOptions{})
-	rule, _ := mappath.GetDotted(out, "traefik.http.routers.api.rule")
+	out := confmap.ExpandLabels(in, confmap.LabelOptions{})
+	rule, _ := confmap.GetDotted(out, "traefik.http.routers.api.rule")
 	if rule != "Host(`a.com`)&&PathPrefix(`/x`)" {
 		t.Fatalf("rule lost trailing '=' segments: got %q", rule)
 	}
@@ -170,16 +178,16 @@ func TestExpandLabels_MultiSeparator_K8s(t *testing.T) {
 		"app.kubernetes.io/component": "frontend",
 		"app.kubernetes.io/version":   "1.2.3",
 	}
-	out := mappath.ExpandLabels(in, mappath.LabelOptions{
+	out := confmap.ExpandLabels(in, confmap.LabelOptions{
 		Separators: []string{"/", "."},
 	})
-	if v, _ := mappath.GetDotted(out, "app.kubernetes.io.name"); v != "web" {
+	if v, _ := confmap.GetDotted(out, "app.kubernetes.io.name"); v != "web" {
 		t.Fatalf("name got %v", v)
 	}
-	if v, _ := mappath.GetDotted(out, "app.kubernetes.io.component"); v != "frontend" {
+	if v, _ := confmap.GetDotted(out, "app.kubernetes.io.component"); v != "frontend" {
 		t.Fatalf("component got %v", v)
 	}
-	if v, _ := mappath.GetDotted(out, "app.kubernetes.io.version"); v != "1.2.3" {
+	if v, _ := confmap.GetDotted(out, "app.kubernetes.io.version"); v != "1.2.3" {
 		t.Fatalf("version got %v", v)
 	}
 }
@@ -188,11 +196,11 @@ func TestExpandLabels_MultiSeparator_K8s(t *testing.T) {
 // are set.
 func TestExpandLabels_SeparatorsBeatsSeparator(t *testing.T) {
 	in := []string{"a/b.c=v"}
-	out := mappath.ExpandLabels(in, mappath.LabelOptions{
+	out := confmap.ExpandLabels(in, confmap.LabelOptions{
 		Separator:  "X", // ignored
 		Separators: []string{"/", "."},
 	})
-	if v, _ := mappath.Get(out, "a", "b", "c"); v != "v" {
+	if v, _ := confmap.Get(out, "a", "b", "c"); v != "v" {
 		t.Fatalf("got %v", v)
 	}
 }
@@ -205,24 +213,24 @@ func TestExpandLabels_MultiSeparator_PrefixStrip(t *testing.T) {
 		"my.app/config.timeout=30s",
 		"my.app/config.retries=3",
 	}
-	out := mappath.ExpandLabels(in, mappath.LabelOptions{
+	out := confmap.ExpandLabels(in, confmap.LabelOptions{
 		Prefix:      "my.app",
 		StripPrefix: true,
 		Separators:  []string{"/", "."},
 	})
-	if v, _ := mappath.GetDotted(out, "config.timeout"); v != "30s" {
+	if v, _ := confmap.GetDotted(out, "config.timeout"); v != "30s" {
 		t.Fatalf("timeout got %v", v)
 	}
-	if v, _ := mappath.GetDotted(out, "config.retries"); v != "3" {
+	if v, _ := confmap.GetDotted(out, "config.retries"); v != "3" {
 		t.Fatalf("retries got %v", v)
 	}
 }
 
 // Single-separator fallback path still works.
-func TestExpandLabels_LegacySeparatorFallback(t *testing.T) {
+func TestExpandLabels_SeparatorFallback(t *testing.T) {
 	in := []string{"a.b.c=v"}
-	out := mappath.ExpandLabels(in, mappath.LabelOptions{Separator: "."})
-	if v, _ := mappath.Get(out, "a", "b", "c"); v != "v" {
+	out := confmap.ExpandLabels(in, confmap.LabelOptions{Separator: "."})
+	if v, _ := confmap.Get(out, "a", "b", "c"); v != "v" {
 		t.Fatalf("got %v", v)
 	}
 }

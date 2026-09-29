@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/internal/obs"
 )
 
 // RecordingTracer is a test-only Tracer that captures all started spans.
@@ -15,8 +15,8 @@ type RecordingTracer struct {
 }
 
 // Start records a new span with the given name and appends it to the internal
-// list. It satisfies the iobs.Tracer interface (Start returns contracts.Span).
-func (r *RecordingTracer) Start(ctx context.Context, name string) (context.Context, contracts.Span) {
+// list. It satisfies the iobs.Tracer interface (Start returns obs.Span).
+func (r *RecordingTracer) Start(ctx context.Context, name string) (context.Context, obs.Span) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	sp := &RecordingSpan{Name: name, Attrs: map[string]any{}}

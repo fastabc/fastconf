@@ -13,12 +13,18 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/fastabc/fastconf"
+	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/providers/dotenv"
 	"github.com/fastabc/fastconf/providers/env"
+	"github.com/fastabc/fastconf/providers/source"
 )
 
 // Flags is the canonical FastConf CLI flag set shared by fastconfd and
@@ -53,7 +59,7 @@ func (p *ProviderFlags) Set(v string) error {
 func RegisterFlags(fs *flag.FlagSet, f *Flags) {
 	fs.StringVar(&f.Dir, "dir", fastconf.DefaultDir, "configuration root directory")
 	fs.StringVar(&f.Profile, "profile", "", "overlay profile (empty = base only or via $APP_PROFILE)")
-	fs.BoolVar(&f.Strict, "strict", false, "strict mode (unknown keys fail)")
+	fs.BoolVar(&f.Strict, "strict", false, "strict overlay/merge: unknown file extensions and merge type conflicts fail (does not reject misspelled config keys)")
 	fs.BoolVar(&f.Watch, "watch", false, "enable fsnotify file-system watcher")
 	fs.Var(&f.Providers, "provider", "name=value provider spec (repeatable; value may be JSON)")
 }
@@ -88,18 +94,10 @@ func ChangedValues(fs *flag.FlagSet, build func(name, value string, out map[stri
 // constructor for CLI binaries; -dir / -profile / -strict / -watch
 // behaviour stays consistent across fastconfd and fastconfctl.
 func LoadConfig[T any](ctx context.Context, f Flags, extra ...fastconf.Option) (*fastconf.Manager[T], error) {
-	opts := []fastconf.Option{
-		fastconf.WithDir(f.Dir),
-		fastconf.WithStrict(f.Strict),
-		fastconf.WithWatch(fastconf.WatchOptions{Enabled: f.Watch}),
-	}
-	if f.Profile != "" {
-		opts = append(opts, fastconf.WithProfile(fastconf.ProfileOptions{Single: f.Profile}))
-	}
-	if err := f.Providers.Apply(&opts); err != nil {
+	opts, err := f.Options(extra...)
+	if err != nil {
 		return nil, err
 	}
-	opts = append(opts, extra...)
 	mgr, err := fastconf.New[T](ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("cli: load config: %w", err)
@@ -107,24 +105,71 @@ func LoadConfig[T any](ctx context.Context, f Flags, extra ...fastconf.Option) (
 	return mgr, nil
 }
 
-// Apply converts the parsed provider specs into fastconf.Options
-// appended onto opts. Each spec is "name=value"; if value is valid JSON
-// it becomes the provider config map, otherwise it is wrapped as
-// {"value": s}. The "env" name is special-cased to a plain Env provider
-// because it predates the registry-based WithProviderByName.
+// Options assembles the fastconf options selected by f, followed by extra.
+func (f Flags) Options(extra ...fastconf.Option) ([]fastconf.Option, error) {
+	opts := []fastconf.Option{
+		fastconf.WithDir(f.Dir),
+		fastconf.WithStrictMerge(f.Strict),
+	}
+	if f.Watch {
+		opts = append(opts, fastconf.WithWatch(fastconf.Watch{}))
+	}
+	if f.Profile != "" {
+		opts = append(opts, fastconf.WithProfile(fastconf.Profile{Names: strings.Split(f.Profile, ",")}))
+	}
+	if err := f.Providers.Apply(&opts); err != nil {
+		return nil, err
+	}
+	return append(opts, extra...), nil
+}
+
+// ProviderFactory builds a provider from a "-provider name=value" spec.
+// cfg is the decoded JSON value, or {"value": s} for a plain string.
+type ProviderFactory func(cfg map[string]any) (contracts.Provider, error)
+
+// Providers maps "-provider" names to factories. Binaries may add entries
+// before calling LoadConfig.
+var Providers = map[string]ProviderFactory{
+	"env": func(cfg map[string]any) (contracts.Provider, error) {
+		prefix, _ := cfg["value"].(string)
+		return env.NewEnv(prefix), nil
+	},
+	"dotenv": func(cfg map[string]any) (contracts.Provider, error) {
+		prefix, _ := cfg["prefix"].(string)
+		var paths []string
+		if p, ok := cfg["value"].(string); ok && p != "" {
+			paths = append(paths, p)
+		}
+		return dotenv.NewDotEnv(prefix, paths...), nil
+	},
+	"file": func(cfg map[string]any) (contracts.Provider, error) {
+		path, _ := cfg["value"].(string)
+		if path == "" {
+			return nil, errors.New("file provider: path required")
+		}
+		return source.NewFile(path), nil
+	},
+}
+
+// Apply converts the parsed provider specs into fastconf.Options appended
+// onto opts. Each spec is "name=value"; if value is valid JSON it becomes
+// the provider config map, otherwise it is wrapped as {"value": s}. The
+// name selects a factory from Providers.
 func (p ProviderFlags) Apply(opts *[]fastconf.Option) error {
 	for _, spec := range p {
 		name, cfg, err := parseProviderSpec(spec)
 		if err != nil {
 			return err
 		}
-		switch name {
-		case "env":
-			prefix, _ := cfg["value"].(string)
-			*opts = append(*opts, fastconf.WithProvider(env.NewEnv(prefix)))
-		default:
-			*opts = append(*opts, fastconf.WithProviderByName(name, cfg))
+		f, ok := Providers[name]
+		if !ok {
+			return fmt.Errorf("provider %q: unknown (have %s)", name, strings.Join(slices.Sorted(maps.Keys(Providers)), ", "))
 		}
+		pr, err := f(cfg)
+		if err != nil {
+			return fmt.Errorf("provider %q: %w", name, err)
+		}
+		*opts = append(*opts, fastconf.WithProvider(pr))
 	}
 	return nil
 }

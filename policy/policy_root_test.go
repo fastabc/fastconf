@@ -39,8 +39,8 @@ func TestPolicy_Deny_AbortsReload(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected initial reload to fail under policy")
 	}
-	if !errors.Is(err, fastconf.ErrPolicyDenied) {
-		t.Fatalf("want ErrPolicyDenied, got: %v", err)
+	if !errors.Is(err, fastconf.ErrInvalid) {
+		t.Fatalf("want ErrInvalid, got: %v", err)
 	}
 }
 
@@ -79,7 +79,7 @@ func TestPolicy_Plan_CollectsViolations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("base manager: %v", err)
 	}
-	defer mgr2.Close()
+	defer func() { _ = mgr2.Close() }()
 
 	// Build a plan-only manager with the policy but the same config, verifying
 	// Plan collects both warning and error violations without aborting.
@@ -99,9 +99,9 @@ func TestPolicy_Plan_CollectsViolations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan manager: %v", err)
 	}
-	defer mgrPlan.Close()
+	defer func() { _ = mgrPlan.Close() }()
 
-	result, err := mgrPlan.Plan().Run(ctx)
+	result, err := mgrPlan.Plan(ctx)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestPlan_CollectsPolicyErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manager: %v", err)
 	}
-	defer mgrPlan.Close()
+	defer func() { _ = mgrPlan.Close() }()
 
 	// Add error-severity policy to an otherwise-passing manager via Plan
 	// (we can't add policy to an already-created manager, so we test the
@@ -155,10 +155,10 @@ func TestPlan_CollectsPolicyErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manager: %v", err)
 	}
-	defer mgrWithPolicy.Close()
+	defer func() { _ = mgrWithPolicy.Close() }()
 
 	// Plan with same config — policy passes, no violations
-	result, err := mgrWithPolicy.Plan().Run(ctx)
+	result, err := mgrWithPolicy.Plan(ctx)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -181,8 +181,30 @@ func TestPolicy_Allow_Succeeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 	if mgr.Get().Profile != "dev" {
 		t.Fatalf("got %+v", mgr.Get())
+	}
+}
+
+// TestWithPolicy_Variadic pins stage-3 acceptance: WithPolicy takes several
+// policies and evaluates every one.
+func TestWithPolicy_Variadic(t *testing.T) {
+	var ran []string
+	pass := func(name string) policy.Func[policyCfg] {
+		return policy.Func[policyCfg]{N: name, Fn: func(context.Context, policy.Input[policyCfg]) ([]policy.Violation, error) {
+			ran = append(ran, name)
+			return nil, nil
+		}}
+	}
+	mgr, err := fastconf.New[policyCfg](context.Background(),
+		fastconf.WithFS(fstest.MapFS{"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("profile: dev\n")}}),
+		fastconf.WithPolicy(pass("a"), pass("b")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = mgr.Close() }()
+	if len(ran) != 2 || ran[0] != "a" || ran[1] != "b" {
+		t.Fatalf("policies ran = %v; want [a b]", ran)
 	}
 }

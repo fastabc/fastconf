@@ -10,88 +10,6 @@ import (
 	"github.com/fastabc/fastconf/internal/secret"
 )
 
-type embeddedCfg struct {
-	Name string `json:"name"`
-	DB   struct {
-		DSN      string `json:"dsn"`
-		Password string `json:"password" fc:"secret"`
-	} `json:"db"`
-	Token string `json:"token" fc:"secret"`
-}
-
-func TestPaths_FindsSecretFields(t *testing.T) {
-	paths := secret.Paths(reflect.TypeFor[embeddedCfg]())
-	want := map[string]bool{"db.password": true, "token": true}
-	for _, p := range paths {
-		if !want[p] {
-			t.Fatalf("unexpected path %q", p)
-		}
-		delete(want, p)
-	}
-	if len(want) != 0 {
-		t.Fatalf("missing %v", want)
-	}
-}
-
-type sliceCfg struct {
-	Creds []struct {
-		User     string `json:"user"`
-		Password string `json:"password" fc:"secret"`
-	} `json:"creds"`
-	Tokens map[string]struct {
-		Value string `json:"value" fc:"secret"`
-	} `json:"tokens"`
-}
-
-func TestPaths_SliceAndMap(t *testing.T) {
-	paths := secret.Paths(reflect.TypeFor[sliceCfg]())
-	want := map[string]bool{"creds.[].password": true, "tokens.{}.value": true}
-	for _, p := range paths {
-		if !want[p] {
-			t.Fatalf("unexpected path %q", p)
-		}
-		delete(want, p)
-	}
-	if len(want) != 0 {
-		t.Fatalf("missing %v", want)
-	}
-}
-
-func TestApply_RewritesPath(t *testing.T) {
-	m := map[string]any{
-		"db":    map[string]any{"dsn": "real", "password": "hunter2"},
-		"token": "abc",
-	}
-	secret.Apply(m, []string{"db.password", "token"}, nil)
-	db := m["db"].(map[string]any)
-	if db["password"] != "***REDACTED***" {
-		t.Fatalf("password not redacted: %v", db["password"])
-	}
-	if db["dsn"] != "real" {
-		t.Fatalf("dsn changed: %v", db["dsn"])
-	}
-	if m["token"] != "***REDACTED***" {
-		t.Fatalf("token not redacted: %v", m["token"])
-	}
-}
-
-func TestApply_SliceElement(t *testing.T) {
-	m := map[string]any{
-		"creds": []any{
-			map[string]any{"user": "u", "password": "p1"},
-			map[string]any{"user": "v", "password": "p2"},
-		},
-	}
-	secret.Apply(m, []string{"creds.[].password"}, nil)
-	arr := m["creds"].([]any)
-	for _, item := range arr {
-		got := item.(map[string]any)["password"]
-		if got != "***REDACTED***" {
-			t.Fatalf("password not redacted: %v", got)
-		}
-	}
-}
-
 func TestHasTag(t *testing.T) {
 	if !secret.HasTag("secret") {
 		t.Fatal("plain secret should be detected")
@@ -164,5 +82,80 @@ func TestResolverFunc_PassThrough(t *testing.T) {
 	}
 	if _, err := f.Resolve(context.Background(), secret.Ref{Body: "boom"}); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestWalkLeaves_NumericListPaths(t *testing.T) {
+	tree := []any{"first", map[string]any{"nested": []any{"second"}}}
+	var paths []string
+	secret.WalkLeaves(tree, "", func(path, value string) (string, bool) { paths = append(paths, path); return value, false })
+	if want := []string{"0", "1.nested.0"}; !reflect.DeepEqual(paths, want) {
+		t.Fatalf("paths = %v, want %v", paths, want)
+	}
+}
+
+// Historical values must stay masked even when their fields disappeared from
+// the current snapshot, including dotted keys, lists and opaque marshalers.
+func TestProvenanceSecretPaths(t *testing.T) {
+	type credential struct {
+		Token  string `json:"token" fc:"secret"`
+		Public string `json:"public"`
+	}
+	type settings struct {
+		Credentials []credential           `json:"credentials"`
+		ByName      map[string]*credential `json:"by_name"`
+		Plain       string                 `json:"plain"`
+	}
+	typ := reflect.TypeOf((*settings)(nil))
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{"credentials", true}, {"credentials.0.token", true}, {"credentials.0.public", false},
+		{"by_name.a.b.token", true}, {"by_name.a.public", true}, {"plain", false}, {"missing", false}, {"", true},
+	} {
+		if got := secret.PathHasSecrets(typ, tc.path); got != tc.want {
+			t.Errorf("%q: got %v", tc.path, got)
+		}
+	}
+	type recursive struct {
+		Next   *recursive
+		Public string
+	}
+	if secret.PathHasSecrets(reflect.TypeOf(recursive{}), "") {
+		t.Fatal("recursive public type marked secret")
+	}
+	opaque := reflect.TypeOf(secretMarshaler{})
+	if !secret.PathHasSecrets(opaque, "other") {
+		t.Fatal("opaque secret container exposed")
+	}
+	got := secret.ApplyJSON(map[string]any{"other": "plaintext"}, opaque, nil)
+	if got["$redacted"] != "***REDACTED***" {
+		t.Fatalf("opaque output: %v", got)
+	}
+}
+
+type secretMarshaler struct {
+	Token string `fc:"secret"`
+}
+
+func (secretMarshaler) MarshalJSON() ([]byte, error) { return []byte(`{"other":"plaintext"}`), nil }
+
+func TestProvenancePatternsMatchHistoricalContainers(t *testing.T) {
+	value := map[string]any{"items": []any{map[string]any{"token": "old"}}}
+	for _, tc := range []struct {
+		path     string
+		patterns []string
+		want     bool
+	}{
+		{"config", nil, false}, {"config", []string{"config.items.*.token"}, true},
+		{"config.items.0.token", []string{"config"}, true}, {"config", []string{"other.**"}, false},
+	} {
+		if got := secret.PatternsMatchValue(value, tc.path, tc.patterns); got != tc.want {
+			t.Errorf("%s/%v: got %v", tc.path, tc.patterns, got)
+		}
+	}
+	if value["items"].([]any)[0].(map[string]any)["token"] != "old" {
+		t.Fatal("matching mutated historical value")
 	}
 }

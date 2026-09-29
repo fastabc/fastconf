@@ -52,7 +52,7 @@ func TestNew_NilRegistererUsesDefault(t *testing.T) {
 	_ = New(nil) // second registration on the same default registry must panic
 }
 
-func TestSink_StageDuration_Phase28(t *testing.T) {
+func TestSink_StageDuration(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	s := New(reg)
 

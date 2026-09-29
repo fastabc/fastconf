@@ -7,7 +7,7 @@
 #
 # Wired into CI so any change that regresses the lock-free read path
 # fails the build instead of silently shipping. The benchmark lives in
-# bench_test.go and is intentionally minimal: a tiny config so the
+# bench_public_test.go and is intentionally minimal: a tiny config so the
 # measurement reflects only the atomic.Pointer.Load + struct-pointer
 # return cost.
 
@@ -19,8 +19,8 @@ BENCH_TIME=${BENCH_TIME:-1s}
 
 cd "$(dirname "$0")/.."
 
-# -run x  ⇒ skip every Test*; we only want the bench.
-out=$(go test -run x -bench '^BenchmarkGet$' -benchmem -benchtime="$BENCH_TIME" . 2>&1)
+# -run '^$' skips every Test*; we only want the bench.
+out=$(go test -run '^$' -bench '^BenchmarkGet$' -benchmem -benchtime="$BENCH_TIME" . 2>&1)
 echo "$out"
 
 # Pick the LAST line containing "ns/op" — Go's testing package may

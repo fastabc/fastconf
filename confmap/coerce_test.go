@@ -3,7 +3,7 @@ package confmap_test
 import (
 	"testing"
 
-	typed "github.com/fastabc/fastconf/confmap"
+	"github.com/fastabc/fastconf/confmap"
 )
 
 func TestCoerce(t *testing.T) {
@@ -12,7 +12,7 @@ func TestCoerce(t *testing.T) {
 	tests := []struct {
 		name string
 		in   string
-		opts typed.CoerceOptions
+		opts confmap.CoerceOptions
 		want any
 	}{
 		{name: "bool lowercase exact", in: "true", want: true},
@@ -25,13 +25,13 @@ func TestCoerce(t *testing.T) {
 		{
 			name: "uppercase bool with ignore_case parses",
 			in:   "TRUE",
-			opts: typed.CoerceOptions{IgnoreCase: true},
+			opts: confmap.CoerceOptions{IgnoreCase: true},
 			want: true,
 		},
 		{
 			name: "whitespace bool needs trim",
 			in:   " true ",
-			opts: typed.CoerceOptions{TrimSpace: true},
+			opts: confmap.CoerceOptions{TrimSpace: true},
 			want: true,
 		},
 		{
@@ -42,13 +42,13 @@ func TestCoerce(t *testing.T) {
 		{
 			name: "trim returns trimmed string fallback",
 			in:   "  hello  ",
-			opts: typed.CoerceOptions{TrimSpace: true},
+			opts: confmap.CoerceOptions{TrimSpace: true},
 			want: "hello",
 		},
 		{
 			name: "mixed-case bool with both opts",
 			in:   "  True  ",
-			opts: typed.CoerceOptions{TrimSpace: true, IgnoreCase: true},
+			opts: confmap.CoerceOptions{TrimSpace: true, IgnoreCase: true},
 			want: true,
 		},
 		{
@@ -66,7 +66,7 @@ func TestCoerce(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := typed.Coerce(tt.in, tt.opts)
+			got := confmap.Coerce(tt.in, tt.opts)
 			if got != tt.want {
 				t.Fatalf("Coerce(%q, %+v) = %v (%T); want %v (%T)", tt.in, tt.opts, got, got, tt.want, tt.want)
 			}

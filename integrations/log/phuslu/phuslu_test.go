@@ -11,6 +11,7 @@ import (
 
 	plog "github.com/phuslu/log"
 
+	"github.com/fastabc/fastconf/integrations/log/internal/logtest"
 	phusluadapter "github.com/fastabc/fastconf/integrations/log/phuslu"
 )
 
@@ -158,4 +159,11 @@ func TestHandler_LevelGate(t *testing.T) {
 	if buf.Len() == 0 {
 		t.Fatalf("Debug should pass Level gate after lowering")
 	}
+}
+
+func TestHandler_GroupScopes(t *testing.T) {
+	logtest.GroupCases(t, func(buf *bytes.Buffer) slog.Handler {
+		h, _ := newLogger(buf)
+		return h
+	})
 }

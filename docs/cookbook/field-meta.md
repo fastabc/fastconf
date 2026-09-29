@@ -20,13 +20,23 @@ type Config struct {
 | `secret` | mark for `SecretRedactor` | display only — see [secrets.md](secrets.md) for *decryption* |
 | `desc=…` | human-readable description (used by `fastconfgen`) | doc-time |
 
+## Collection elements
+
+Defaults and validation tags (`default`, `required`, `min`, `max`, `oneof`)
+traverse nested structs and pointers, but do not traverse slice, array, or map
+elements. A tag on the collection field itself still applies to that field.
+For example, `Items []Item` does not apply `Item.Port`'s `fc:"default=80"`
+or `fc:"required"` tag to each item. Implement a `Defaulter` for element defaults
+and `WithValidate` for element checks. Secret redaction uses a separate walker
+and is unaffected by this limitation.
+
 ## Plan dry-run collects every violation
 
-In normal reload the `field-meta` stage fails fast on the first violation; in `mgr.Plan()` it collects everything so a PR-bot can show all missing required fields at once.
+In normal reload the `field-meta` stage fails fast on the first violation; in `mgr.Plan(ctx)` it collects everything so a PR-bot can show all missing required fields at once.
 
-## Pairing with WithValidator
+## Pairing with WithValidate
 
-Tag-based checks are best for static constraints (non-empty / range / enum). Use `WithValidator(func(*T) error)` for **cross-field** logic the tag cannot express.
+Tag-based checks are best for static constraints (non-empty / range / enum). Use `WithValidate(func(*T) error)` for **cross-field** logic the tag cannot express.
 
 ## Why not `validate:"…"`?
 

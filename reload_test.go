@@ -33,12 +33,12 @@ database:
 	mgr, err := fastconf.New[appCfg](context.Background(),
 		fastconf.WithFS(mfs),
 		fastconf.WithDir("conf.d"),
-		fastconf.WithProfile(fastconf.ProfileOptions{Single: "prod"}),
+		fastconf.WithProfile(fastconf.Profile{Names: []string{"prod"}}),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 	got := mgr.Get()
 	if got.Database.DSN != "postgres://prod-patched" {
 		t.Errorf("dsn = %q", got.Database.DSN)
@@ -54,7 +54,7 @@ func TestPatchLayer_FailureKeepsOldState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 	gen1 := mgr.Snapshot().Generation()
 
 	mfs["conf.d/overlays/prod/99-bad.patch.yaml"] = &fstest.MapFile{Data: []byte(`
@@ -69,7 +69,7 @@ func TestPatchLayer_FailureKeepsOldState(t *testing.T) {
 		A int `yaml:"a" json:"a"`
 	}
 	_, err = fastconf.New[tinyCfg](context.Background(),
-		fastconf.WithFS(mfs2), fastconf.WithDir("c"), fastconf.WithProfile(fastconf.ProfileOptions{Single: "p"}))
+		fastconf.WithFS(mfs2), fastconf.WithDir("c"), fastconf.WithProfile(fastconf.Profile{Names: []string{"p"}}))
 	if err == nil {
 		t.Fatal("expected patch failure")
 	}
@@ -88,7 +88,7 @@ func TestReloadLoopNoPendingAfterClose(t *testing.T) {
 	mgr, err := fastconf.New[map[string]any](context.Background(),
 		fastconf.WithFS(mfs),
 		fastconf.WithDir("conf.d"),
-		fastconf.WithValidator(func(m *map[string]any) error {
+		fastconf.WithValidate(func(m *map[string]any) error {
 			reloadCount.Add(1)
 			return nil
 		}),
@@ -121,38 +121,38 @@ func TestReloadLoopNoPendingAfterClose(t *testing.T) {
 	}
 }
 
-type rwsCfg struct {
+type overrideConfig struct {
 	Name string `json:"name"`
 	Port int    `json:"port"`
 }
 
-type rwsPointerCfg struct {
-	DB rwsPointerDB `json:"db" yaml:"db"`
+type overridePointerConfig struct {
+	DB overrideDatabase `json:"db" yaml:"db"`
 }
 
-type rwsPointerDB struct {
+type overrideDatabase struct {
 	DSN string `json:"dsn" yaml:"dsn"`
 }
 
-func TestReloadWithSource_Atomic(t *testing.T) {
+func TestReload_WithOverride_Atomic(t *testing.T) {
 	fs := fstest.MapFS{
 		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("name: base\nport: 1\n")},
 	}
-	mgr, err := fastconf.New[rwsCfg](context.Background(),
+	mgr, err := fastconf.New[overrideConfig](context.Background(),
 		fastconf.WithFS(fs),
 		fastconf.WithDir("conf.d"),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	if mgr.Get().Port != 1 {
 		t.Fatalf("initial port = %d", mgr.Get().Port)
 	}
 	gen0 := mgr.Snapshot().Generation()
 
-	if err := mgr.Reload(context.Background(), fastconf.WithSourceOverride(map[string]any{
+	if err := mgr.Reload(context.Background(), fastconf.WithOverride(map[string]any{
 		"port": 9999,
 	})); err != nil {
 		t.Fatalf("ReloadWithSource: %v", err)
@@ -176,18 +176,18 @@ func TestReloadWithSource_Atomic(t *testing.T) {
 	}
 }
 
-func TestReloadWithSource_NilFallsBackToReload(t *testing.T) {
+func TestReload_WithOverride_NilFallsBackToReload(t *testing.T) {
 	fs := fstest.MapFS{
 		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("name: base\nport: 7\n")},
 	}
-	mgr, err := fastconf.New[rwsCfg](context.Background(),
+	mgr, err := fastconf.New[overrideConfig](context.Background(),
 		fastconf.WithFS(fs),
 		fastconf.WithDir("conf.d"),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 	if err := mgr.Reload(context.Background()); err != nil {
 		t.Fatalf("ReloadWithSource(nil): %v", err)
 	}
@@ -200,9 +200,11 @@ func TestReloadWithSource_NilFallsBackToReload(t *testing.T) {
 // so we can prove that caller-side ctx threads into the pipeline.
 type blockingProvider struct{ blocked chan struct{} }
 
-func (p *blockingProvider) Name() string  { return "blocking" }
-func (p *blockingProvider) Priority() int { return 100 }
-func (p *blockingProvider) Load(ctx context.Context) (map[string]any, error) {
+func (p *blockingProvider) Name() string { return "blocking" }
+func (p *blockingProvider) Describe() contracts.ProviderInfo {
+	return contracts.ProviderInfo{Priority: 100}
+}
+func (p *blockingProvider) Load(ctx context.Context) (contracts.Snapshot, error) {
 	if p.blocked != nil {
 		select {
 		case p.blocked <- struct{}{}:
@@ -210,13 +212,13 @@ func (p *blockingProvider) Load(ctx context.Context) (map[string]any, error) {
 		}
 	}
 	<-ctx.Done()
-	return nil, ctx.Err()
+	return contracts.Snapshot{}, ctx.Err()
 }
-func (p *blockingProvider) Watch(_ context.Context) (<-chan contracts.Event, error) {
+func (p *blockingProvider) Watch(_ context.Context, _ string) (<-chan contracts.Event, error) {
 	return nil, nil
 }
 
-// TestReload_CallerCtxCancelsPipeline verifies P1.1: a caller-supplied ctx
+// TestReload_CallerCtxCancelsPipeline verifies that a caller-supplied ctx
 // passed to Reload propagates into the running pipeline so a slow
 // provider Load can be cancelled, not merely waited on.
 func TestReload_CallerCtxCancelsPipeline(t *testing.T) {
@@ -249,19 +251,21 @@ type toggleProvider struct {
 	data atomic.Pointer[map[string]any]
 }
 
-func (p *toggleProvider) Name() string  { return "toggle" }
-func (p *toggleProvider) Priority() int { return 100 }
-func (p *toggleProvider) Load(ctx context.Context) (map[string]any, error) {
+func (p *toggleProvider) Name() string { return "toggle" }
+func (p *toggleProvider) Describe() contracts.ProviderInfo {
+	return contracts.ProviderInfo{Priority: 100}
+}
+func (p *toggleProvider) Load(ctx context.Context) (contracts.Snapshot, error) {
 	if p.slow.Load() {
 		<-ctx.Done()
-		return nil, ctx.Err()
+		return contracts.Snapshot{}, ctx.Err()
 	}
 	if d := p.data.Load(); d != nil {
-		return *d, nil
+		return contracts.Snapshot{Map: *d}, nil
 	}
-	return map[string]any{}, nil
+	return contracts.Snapshot{Map: map[string]any{}}, nil
 }
-func (p *toggleProvider) Watch(_ context.Context) (<-chan contracts.Event, error) {
+func (p *toggleProvider) Watch(_ context.Context, _ string) (<-chan contracts.Event, error) {
 	return nil, nil
 }
 
@@ -271,11 +275,13 @@ type gateProvider struct {
 	release chan struct{}
 }
 
-func (p *gateProvider) Name() string  { return "gate" }
-func (p *gateProvider) Priority() int { return 100 }
-func (p *gateProvider) Load(ctx context.Context) (map[string]any, error) {
+func (p *gateProvider) Name() string { return "gate" }
+func (p *gateProvider) Describe() contracts.ProviderInfo {
+	return contracts.ProviderInfo{Priority: 100}
+}
+func (p *gateProvider) Load(ctx context.Context) (contracts.Snapshot, error) {
 	if !p.block.Load() {
-		return map[string]any{}, nil
+		return contracts.Snapshot{Map: map[string]any{}}, nil
 	}
 	select {
 	case p.entered <- struct{}{}:
@@ -283,13 +289,55 @@ func (p *gateProvider) Load(ctx context.Context) (map[string]any, error) {
 	}
 	select {
 	case <-p.release:
-		return map[string]any{}, nil
+		return contracts.Snapshot{Map: map[string]any{}}, nil
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return contracts.Snapshot{}, ctx.Err()
 	}
 }
-func (p *gateProvider) Watch(_ context.Context) (<-chan contracts.Event, error) {
+func (p *gateProvider) Watch(_ context.Context, _ string) (<-chan contracts.Event, error) {
 	return nil, nil
+}
+
+func TestShutdownCancelsInFlightRequests(t *testing.T) {
+	for _, operation := range []string{"reload", "plan"} {
+		t.Run(operation, func(t *testing.T) {
+			p := &gateProvider{entered: make(chan struct{}, 1), release: make(chan struct{})}
+			m, err := fastconf.New[map[string]any](context.Background(),
+				fastconf.WithFS(fstest.MapFS{}), fastconf.WithProvider(p))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = m.Close() }()
+			defer close(p.release)
+			before := m.Snapshot()
+			p.block.Store(true)
+			done := make(chan error, 1)
+			go func() {
+				if operation == "plan" {
+					_, err := m.Plan(context.Background())
+					done <- err
+				} else {
+					done <- m.Reload(context.Background())
+				}
+			}()
+			select {
+			case <-p.entered:
+			case <-time.After(time.Second):
+				t.Fatal("provider was not called")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			if err := m.Shutdown(ctx); err != nil {
+				t.Fatalf("Shutdown failed to cancel cooperative provider: %v", err)
+			}
+			if err := <-done; !errors.Is(err, fastconf.ErrClosed) && !errors.Is(err, context.Canceled) {
+				t.Fatalf("request error = %v", err)
+			}
+			if m.Snapshot() != before {
+				t.Fatal("canceled request published a snapshot")
+			}
+		})
+	}
 }
 
 // TestReload_PostConstructionCtxCancellation is the E2E counterpart to the
@@ -319,7 +367,7 @@ func TestReload_PostConstructionCtxCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	startGen := mgr.Snapshot().Generation()
 	startVal := (*mgr.Get())["name"]
@@ -381,56 +429,56 @@ func TestReload_PostConstructionCtxCancellation(t *testing.T) {
 	}
 }
 
-func TestReloadWithSource_AfterCloseFails(t *testing.T) {
+func TestReload_WithOverride_AfterCloseFails(t *testing.T) {
 	fs := fstest.MapFS{
 		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("name: x\n")},
 	}
-	mgr, _ := fastconf.New[rwsCfg](context.Background(),
+	mgr, _ := fastconf.New[overrideConfig](context.Background(),
 		fastconf.WithFS(fs),
 		fastconf.WithDir("conf.d"),
 	)
-	mgr.Close()
-	err := mgr.Reload(context.Background(), fastconf.WithSourceOverride(map[string]any{"port": 1}))
+	_ = mgr.Close()
+	err := mgr.Reload(context.Background(), fastconf.WithOverride(map[string]any{"port": 1}))
 	if !errors.Is(err, fastconf.ErrClosed) {
 		t.Errorf("expected ErrClosed, got %v", err)
 	}
 }
 
-// TestReloadWithSource_DeepCopyAtCall verifies that WithSourceOverride
+// TestReload_WithOverride_DeepCopyAtCall verifies that WithOverride
 // captures an independent copy, so callers can freely mutate the source map
 // afterwards without racing the reload pipeline.
-func TestReloadWithSource_DeepCopyAtCall(t *testing.T) {
+func TestReload_WithOverride_DeepCopyAtCall(t *testing.T) {
 	fs := fstest.MapFS{
 		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("name: base\nport: 80\n")},
 	}
-	mgr, err := fastconf.New[rwsCfg](context.Background(),
+	mgr, err := fastconf.New[overrideConfig](context.Background(),
 		fastconf.WithFS(fs),
 		fastconf.WithDir("conf.d"),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	override := map[string]any{"name": "snapshot", "port": 99}
-	if err := mgr.Reload(context.Background(), fastconf.WithSourceOverride(override)); err != nil {
+	if err := mgr.Reload(context.Background(), fastconf.WithOverride(override)); err != nil {
 		t.Fatal(err)
 	}
-	// Mutate the caller's map after WithSourceOverride; the snapshot
+	// Mutate the caller's map after WithOverride; the snapshot
 	// must reflect the value captured at call time.
 	override["name"] = "mutated"
 	override["port"] = 7777
 	delete(override, "name")
 	cfg := mgr.Get()
 	if cfg.Name != "snapshot" {
-		t.Errorf("WithSourceOverride did not deep-copy: got Name=%q, want snapshot", cfg.Name)
+		t.Errorf("WithOverride did not deep-copy: got Name=%q, want snapshot", cfg.Name)
 	}
 	if cfg.Port != 99 {
-		t.Errorf("WithSourceOverride did not deep-copy: got Port=%d, want 99", cfg.Port)
+		t.Errorf("WithOverride did not deep-copy: got Port=%d, want 99", cfg.Port)
 	}
 }
 
-func TestReloadWithSource_DeepCopiesNestedPointerBeforePipeline(t *testing.T) {
+func TestReload_WithOverride_DeepCopiesNestedPointerBeforePipeline(t *testing.T) {
 	fs := fstest.MapFS{
 		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("db:\n  dsn: base\n")},
 	}
@@ -438,7 +486,7 @@ func TestReloadWithSource_DeepCopiesNestedPointerBeforePipeline(t *testing.T) {
 		entered: make(chan struct{}, 1),
 		release: make(chan struct{}),
 	}
-	mgr, err := fastconf.New[rwsPointerCfg](context.Background(),
+	mgr, err := fastconf.New[overridePointerConfig](context.Background(),
 		fastconf.WithFS(fs),
 		fastconf.WithDir("conf.d"),
 		fastconf.WithProvider(gate),
@@ -446,13 +494,13 @@ func TestReloadWithSource_DeepCopiesNestedPointerBeforePipeline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
-	overrideDB := &rwsPointerDB{DSN: "snapshot"}
+	overrideDB := &overrideDatabase{DSN: "snapshot"}
 	gate.block.Store(true)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- mgr.Reload(context.Background(), fastconf.WithSourceOverride(map[string]any{
+		errCh <- mgr.Reload(context.Background(), fastconf.WithOverride(map[string]any{
 			"db": overrideDB,
 		}))
 	}()
@@ -478,21 +526,21 @@ func TestReloadWithSource_DeepCopiesNestedPointerBeforePipeline(t *testing.T) {
 	}
 }
 
-func TestReloadWithSource_InvalidOverrideReturnsDecodeError(t *testing.T) {
+func TestReload_WithOverride_InvalidOverrideReturnsDecodeError(t *testing.T) {
 	fs := fstest.MapFS{
 		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("name: base\nport: 80\n")},
 	}
-	mgr, err := fastconf.New[rwsCfg](context.Background(),
+	mgr, err := fastconf.New[overrideConfig](context.Background(),
 		fastconf.WithFS(fs),
 		fastconf.WithDir("conf.d"),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	gen := mgr.Snapshot().Generation()
-	err = mgr.Reload(context.Background(), fastconf.WithSourceOverride(map[string]any{
+	err = mgr.Reload(context.Background(), fastconf.WithOverride(map[string]any{
 		"bad": func() {},
 	}))
 	if !errors.Is(err, fastconf.ErrDecode) {
@@ -511,5 +559,90 @@ func TestReloadWithSource_InvalidOverrideReturnsDecodeError(t *testing.T) {
 		}
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("invalid override did not publish to Errors")
+	}
+}
+
+// A patch layer must attribute provenance only to the paths it names, not
+// to the entire merged tree. Recording the whole tree (the pre-fix
+// behavior) made Explain report a one-key patch as the
+// "winner" of every untouched key.
+
+func TestPatchProvenanceAttributesOnlyTouchedPaths(t *testing.T) {
+	mfs := fstest.MapFS{
+		"conf.d/base/20-database.yaml": &fstest.MapFile{Data: []byte(`
+database:
+  dsn: postgres://base
+  pool: 10
+`)},
+		"conf.d/overlays/prod/30-database.patch.yaml": &fstest.MapFile{Data: []byte(`
+- op: replace
+  path: /database/dsn
+  value: postgres://prod-patched
+`)},
+	}
+	mgr, err := fastconf.New[appCfg](context.Background(),
+		fastconf.WithFS(mfs),
+		fastconf.WithDir("conf.d"),
+		fastconf.WithProfile(fastconf.Profile{Names: []string{"prod"}}),
+		fastconf.WithProvenance(fastconf.ProvenanceFull),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = mgr.Close() }()
+
+	snap := mgr.Snapshot()
+
+	// The patch only touched database.dsn; database.pool must not list it.
+	for _, o := range snap.Explain("database.pool") {
+		if o.Source.Kind == fastconf.LayerPatch {
+			t.Errorf("untouched database.pool wrongly attributed to patch: %+v", o.Source)
+		}
+	}
+
+	// database.dsn's winner (chain tail) must be the patch.
+	chain := snap.Explain("database.dsn")
+	if len(chain) == 0 {
+		t.Fatal("no origin recorded for database.dsn")
+	}
+	if got := chain[len(chain)-1].Source.Kind; got != fastconf.LayerPatch {
+		t.Errorf("database.dsn winner kind = %v, want LayerPatch", got)
+	}
+}
+
+func TestReload_UnchangedInputKeepsGeneration(t *testing.T) {
+	mfs := newFS(nil)
+	mgr, err := fastconf.New[appCfg](context.Background(), fastconf.WithFS(mfs), fastconf.WithDir("conf.d"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = mgr.Close() }()
+	gen1 := mgr.Snapshot().Generation()
+	if err := mgr.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	gen2 := mgr.Snapshot().Generation()
+	if gen1 != gen2 {
+		t.Errorf("generation should not change on identical reload: %d → %d", gen1, gen2)
+	}
+}
+
+func TestReload_ChangedInputPublishesState(t *testing.T) {
+	mfs := newFS(nil)
+	mgr, err := fastconf.New[appCfg](context.Background(), fastconf.WithFS(mfs), fastconf.WithDir("conf.d"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = mgr.Close() }()
+	gen1 := mgr.Snapshot().Generation()
+	mfs["conf.d/base/20-database.yaml"] = &fstest.MapFile{Data: []byte("database:\n  dsn: changed\n  pool: 99\n")}
+	if err := mgr.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if mgr.Snapshot().Generation() == gen1 {
+		t.Errorf("generation should advance after content change")
+	}
+	if mgr.Get().Database.DSN != "changed" {
+		t.Errorf("did not pick up new content")
 	}
 }

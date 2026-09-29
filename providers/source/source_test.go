@@ -2,25 +2,43 @@ package source_test
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
+	"errors"
 	"os"
 	"path/filepath"
-	"sync/atomic"
+	"strings"
 	"testing"
 
+	"github.com/fastabc/fastconf/codec"
+	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/providers/source"
 )
 
-func TestBytes_RevIsStableAcrossReads(t *testing.T) {
-	b := source.NewBytes("inline", "yaml", []byte("a: 1"))
-	_, _, r1, err := b.Read(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, r2, _ := b.Read(context.Background())
-	if r1 == "" || r1 != r2 {
-		t.Errorf("rev unstable: %q vs %q", r1, r2)
+func TestBytes_OwnsImmutableDocument(t *testing.T) {
+	for _, mutate := range []string{"constructor input", "read result"} {
+		t.Run(mutate, func(t *testing.T) {
+			input := []byte("a: 1")
+			b := source.NewBytes("inline", "yaml", input)
+			data, _, rev, err := b.Read(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mutate == "constructor input" {
+				input[3] = '2'
+			} else {
+				data[3] = '2'
+			}
+			got, ct, nextRev, err := b.Read(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != "a: 1" || ct != "yaml" || rev == "" || nextRev != rev {
+				t.Fatalf("Read = %q, %q, %q; want original document and revision %q", got, ct, nextRev, rev)
+			}
+			snap, err := b.Load(context.Background())
+			if err != nil || snap.Map["a"] != 1 || snap.Revision != rev {
+				t.Fatalf("Load = %#v, %v; want original document and revision %q", snap, err, rev)
+			}
+		})
 	}
 }
 
@@ -31,6 +49,13 @@ func TestBytes_DifferentDataDifferentRev(t *testing.T) {
 	_, _, r2, _ := r2Bytes.Read(context.Background())
 	if r1 == r2 {
 		t.Errorf("expected different revs, got %q == %q", r1, r2)
+	}
+}
+
+func TestBytes_RejectsOversizedResponse(t *testing.T) {
+	b := source.NewBytes("large", "yaml", []byte("abcdef")).WithMaxBodyBytes(4)
+	if _, _, _, err := b.Read(context.Background()); !errors.Is(err, contracts.ErrConfigTooLarge) {
+		t.Fatalf("Read error = %v, want ErrConfigTooLarge", err)
 	}
 }
 
@@ -70,6 +95,16 @@ func TestFile_MissingFileReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestFile_RejectsOversizedResponse(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "large.yaml")
+	if err := os.WriteFile(p, []byte("abcdef"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := source.NewFile(p).WithMaxBodyBytes(4).Read(context.Background()); !errors.Is(err, contracts.ErrConfigTooLarge) {
+		t.Fatalf("Read error = %v, want ErrConfigTooLarge", err)
+	}
+}
+
 func TestFile_RevChangesOnModification(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "x.yaml")
@@ -78,50 +113,62 @@ func TestFile_RevChangesOnModification(t *testing.T) {
 	}
 	f := source.NewFile(p)
 	_, _, r1, _ := f.Read(context.Background())
-	// Force a different mtime + size.
+	// A different size changes the revision even on filesystems with coarse mtimes.
 	if err := os.WriteFile(p, []byte("a: 1\nb: 2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Ensure mtime resolution registers a change.
-	now := os.Getenv("UNUSED") // no-op; just want to flush thoughts
-	_ = now
 	_, _, r2, _ := f.Read(context.Background())
 	if r1 == r2 {
 		t.Errorf("rev did not change after edit: %q", r1)
 	}
 }
 
-func TestHTTP_ETagShortCircuit(t *testing.T) {
-	var hits atomic.Int64
-	body := []byte("a: 1\n")
-	etag := `"v1"`
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits.Add(1)
-		if r.Header.Get("If-None-Match") == etag {
-			w.WriteHeader(http.StatusNotModified)
-			return
-		}
-		w.Header().Set("ETag", etag)
-		w.Header().Set("Content-Type", "application/yaml")
-		_, _ = w.Write(body)
-	}))
-	defer srv.Close()
-	h := source.NewHTTP(srv.URL)
-	data1, ct1, rev1, err := h.Read(context.Background())
+func TestSource_DecodesByContentType(t *testing.T) {
+	snap, err := source.NewBytes("inline", ".yaml", []byte("a: 1\nb: two\n")).Load(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data1) != "a: 1\n" || ct1 != "application/yaml" || rev1 != etag {
-		t.Errorf("first read: data=%q ct=%q rev=%q", data1, ct1, rev1)
+	if snap.Map["a"] != 1 || snap.Map["b"] != "two" {
+		t.Errorf("decoded %v", snap.Map)
 	}
-	data2, ct2, rev2, err := h.Read(context.Background())
-	if err != nil {
+	if snap.Revision == "" {
+		t.Error("bytes source must carry a content revision")
+	}
+}
+
+func TestSource_UnknownContentTypeNamesSource(t *testing.T) {
+	_, err := source.NewBytes("inline", "application/no-such-format", []byte("garbage")).Load(context.Background())
+	if !errors.Is(err, codec.ErrUnknownCodec) {
+		t.Fatalf("want ErrUnknownCodec, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "inline") {
+		t.Errorf("error missing source name: %v", err)
+	}
+}
+
+func TestSource_EmptyPayloadIsEmptyLayer(t *testing.T) {
+	snap, err := source.NewBytes("empty", "", nil).Load(context.Background())
+	if err != nil || len(snap.Map) != 0 {
+		t.Fatalf("Load = %v, %v; want empty map", snap.Map, err)
+	}
+}
+
+func TestSource_DescribeCarriesPriorityAndWatchPaths(t *testing.T) {
+	b := source.NewBytes("seed", ".yaml", []byte("a: 1")).WithPriority(contracts.PriorityKV)
+	if got := contracts.Describe(b).Priority; got != contracts.PriorityKV {
+		t.Errorf("bytes priority = %d", got)
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("a: 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if string(data2) != "a: 1\n" || rev2 != etag || ct2 != "application/yaml" {
-		t.Errorf("304 path should replay cached body+ETag: data=%q ct=%q rev=%q", data2, ct2, rev2)
+	f := source.NewFile(path)
+	info := contracts.Describe(f)
+	if len(info.WatchPaths) != 1 || info.WatchPaths[0] != path {
+		t.Fatalf("file WatchPaths = %v", info.WatchPaths)
 	}
-	if hits.Load() != 2 {
-		t.Errorf("expected 2 server hits, got %d", hits.Load())
+	snap, err := f.Load(context.Background())
+	if err != nil || snap.Revision == "" || snap.Map["a"] != 1 {
+		t.Fatalf("file Load = %#v, %v", snap, err)
 	}
 }

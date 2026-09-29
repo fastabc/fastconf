@@ -15,10 +15,11 @@ import (
 
     fastconf "github.com/fastabc/fastconf"
     fcprom "github.com/fastabc/fastconf/observability/metrics/prometheus"
+    "github.com/fastabc/fastconf/observe"
 )
 
 mgr, err := fastconf.New[Config](ctx,
-    fastconf.WithMetrics(fcprom.New(prometheus.DefaultRegisterer)),
+    fastconf.WithObserver(observe.Metrics(fcprom.New(prometheus.DefaultRegisterer))),
 )
 ```
 
@@ -33,12 +34,45 @@ Ship both rule files from the module:
 
 | Symptom | First checks |
 |---|---|
-| `FastConfReloadFailures` | Inspect `Manager.Errors()`, audit sink output, validation/policy failures, and provider decode errors |
+| `FastConfReloadFailures` | Inspect `Manager.Errors()`, `observe.JSONLines` output, validation/policy failures, and provider decode errors |
 | `FastConfReloadLatencyHigh` | Break down `fastconf_stage_duration_seconds` by `stage`; slow `validate` or `policy` usually means user code is blocking reload |
-| `FastConfProviderWatchErrors` | Check provider credentials, network reachability, revision retention, and whether `WatchFrom` can resume from the stored revision |
+| `FastConfProviderWatchErrors` | Check provider credentials, network reachability, revision retention, and whether `Watch(ctx, from)` can resume from the stored revision |
 | `FastConfProviderEventsDropped` | The reload queue is saturated; reduce upstream event volume, increase coalescing before FastConf, or fix slow reload stages |
 
 ## OpenTelemetry
 
-Use [otel.md](otel.md) for SDK wiring. Trace spans carry the reload `reason`,
-which is the join key to audit logs and `fastconf_reload_total{result=...}`.
+Wire the OTel SDK once, then every reload emits spans:
+
+```
+fastconf.reload
+  └─ fastconf.assemble
+  └─ fastconf.commit
+       ├─ fastconf.merge
+       ├─ fastconf.transform
+       ├─ fastconf.secret
+       ├─ fastconf.typed-hooks
+       ├─ fastconf.decode
+       ├─ fastconf.field-meta
+       ├─ fastconf.validate
+       └─ fastconf.policy
+```
+
+```go
+import (
+    fcotel "github.com/fastabc/fastconf/observability/otel"
+    "go.opentelemetry.io/otel"
+)
+
+tp := newTracerProvider()    // your existing OTel setup
+otel.SetTracerProvider(tp)
+
+mgr, err := fastconf.New[MyApp](ctx,
+    fastconf.WithTracer(fcotel.New(otel.Tracer("fastconf"))),
+)
+```
+
+Each span carries the same `reason` attribute that audit logs use,
+so trace ↔ log correlation is automatic.
+
+The reload `reason` is also the join key to `observe.JSONLines` audit lines
+and `fastconf_reload_total{result=...}`.

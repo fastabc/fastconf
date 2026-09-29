@@ -1,244 +1,230 @@
 package fastconf
 
 import (
-	"fmt"
-	"strings"
+	"crypto/sha256"
+	"encoding/json"
+	"maps"
+	"reflect"
+	"slices"
+	"sync/atomic"
 
-	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/feature"
+	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/internal/provenance"
 	"github.com/fastabc/fastconf/internal/secret"
-	istate "github.com/fastabc/fastconf/internal/state"
 )
 
-type State[T any] istate.State[T]
-type Introspection = istate.Introspection
+// State is an immutable snapshot of the configuration at a point in time.
+type State[T any] struct {
+	value      *T
+	hash       [32]byte
+	sources    []SourceRef
+	generation uint64
+	cause      ReloadCause
 
-// DumpFormat selects the encoding used by [State.Dump]. The zero value
-// is [DumpYAML].
-type DumpFormat = istate.DumpFormat
-
-const (
-	// DumpYAML emits deterministic YAML with map keys sorted
-	// lexicographically. Two snapshots whose merged values are equal
-	// produce byte-identical output, so YAML diffs do not flake.
-	DumpYAML = istate.DumpYAML
-	// DumpJSON emits indented JSON (two-space indent). Use when piping
-	// to jq or another structured-data tool.
-	DumpJSON = istate.DumpJSON
-	// DumpTOML emits canonical TOML via BurntSushi/toml. Top-level
-	// values must be representable as TOML — strings, numbers, bools,
-	// tables, and arrays — or the encoder returns an error.
-	DumpTOML = istate.DumpTOML
-)
-
-// Extract returns the sub-tree of s.Value selected by extract. It is the
-// one-shot, type-safe counterpart to [Subscribe]:
-//
-//   - [Extract] is a synchronous view of the current snapshot.
-//   - [Subscribe] streams (oldView, newView) pairs to a callback after
-//     every commit and returns a cancel func.
-//
-// Extract is nil-safe: when any of s, s.Value, or extract is nil it
-// returns the zero value of *M (nil) without invoking the extractor.
-//
-//	dbView := fastconf.Extract(mgr.Snapshot(), func(c *Cfg) *DBSection {
-//	    return &c.Database
-//	})
-func Extract[T any, M any](s *State[T], extract func(*T) *M) *M {
-	return istate.Extract(unwrapState(s), extract)
+	origins  *provenance.Index
+	redactor secret.Redactor
+	secrets  []string
+	raw      atomic.Pointer[cachedTree]
 }
 
-// Value returns the decoded configuration value. Treat the returned pointer
-// as read-only; mutation is undefined behavior.
+type cachedTree struct{ value map[string]any }
+
+// Value returns the decoded configuration value. Treat the returned
+// pointer as read-only; mutation is undefined behavior.
 func (s *State[T]) Value() *T {
-	return unwrapState(s).Value()
+	if s == nil {
+		return nil
+	}
+	return s.value
 }
 
-// Hash returns the deterministic SHA-256 fingerprint of the merged
-// configuration tree.
+// Hash returns the SHA-256 fingerprint of the final typed value encoded as
+// JSON, after decoding and defaults. Undecoded input fields do not affect it.
 func (s *State[T]) Hash() [32]byte {
-	return unwrapState(s).Hash()
-}
-
-// LoadedAt returns the Unix nanosecond timestamp at which the snapshot
-// was committed.
-func (s *State[T]) LoadedAt() int64 {
-	return unwrapState(s).LoadedAt()
+	if s == nil {
+		return [32]byte{}
+	}
+	return s.hash
 }
 
 // Sources returns the ordered list of source layers that were merged
 // into this snapshot.
 func (s *State[T]) Sources() []SourceRef {
-	return unwrapState(s).Sources()
+	if s == nil {
+		return nil
+	}
+	return slices.Clone(s.sources)
+}
+
+// sourceCount returns the layer count without copying the source list.
+func (s *State[T]) sourceCount() int { return len(s.sourcesRef()) }
+
+// sourcesRef returns the internal source list. Internal callers MUST treat it
+// as read-only; the public Sources accessor continues to return a copy.
+func (s *State[T]) sourcesRef() []SourceRef {
+	if s == nil {
+		return nil
+	}
+	return s.sources
 }
 
 // Generation returns a monotonically increasing counter incremented on
-// every successful reload.
+// every published change or rollback. Identical reloads keep the generation.
 func (s *State[T]) Generation() uint64 {
-	return unwrapState(s).Generation()
+	if s == nil {
+		return 0
+	}
+	return s.generation
 }
 
 // Cause returns the reload trigger metadata recorded when this snapshot
 // was committed.
 func (s *State[T]) Cause() ReloadCause {
-	return unwrapState(s).Cause()
+	if s == nil {
+		return ReloadCause{}
+	}
+	cause := s.cause
+	cause.Revisions = maps.Clone(cause.Revisions)
+	return cause
 }
 
-func (s *State[T]) Introspect() *Introspection {
-	return unwrapState(s).Introspect()
+// newState builds an immutable snapshot from the completed pipeline.
+func (m *Manager[T]) newState(p *pipelineState[T], hash [32]byte, generation uint64, cause ReloadCause) *State[T] {
+	return &State[T]{value: p.target, hash: hash, sources: p.sources, generation: generation,
+		origins: p.origins, cause: cause, redactor: m.opts.SecretRedactor, secrets: m.opts.SecretPaths}
 }
 
-func (s *State[T]) Redacted() map[string]any {
-	return unwrapState(s).Redacted()
+// restampState returns a snapshot with the same immutable payload as s but a new
+// generation and cause. It is used by rollback, where the value/hash are from a
+// retained snapshot but the publication itself is a fresh commit.
+func restampState[T any](s *State[T], generation uint64, cause ReloadCause) *State[T] {
+	if s == nil {
+		return nil
+	}
+	next := &State[T]{
+		value:      s.value,
+		hash:       s.hash,
+		sources:    slices.Clone(s.sources),
+		generation: generation,
+		origins:    s.origins,
+		cause:      cause,
+		redactor:   s.redactor,
+		secrets:    s.secrets,
+	}
+	next.raw.Store(s.raw.Load())
+	return next
 }
 
-func (s *State[T]) FeatureRules() map[string]feature.Rule {
-	return unwrapState(s).FeatureRules()
+// Map returns the snapshot as a JSON-shaped tree (json struct tags govern
+// field names) with secrets masked: fields tagged fc:"secret" and paths
+// matched by WithSecretPaths, displayed through WithRedactor. The tree is a
+// fresh copy the caller may modify. Use Unredacted for plaintext.
+func (s *State[T]) Map() map[string]any {
+	return s.tree(s.displayRedactor())
 }
 
-func (s *State[T]) Origins() *provenance.Index {
-	return unwrapState(s).Origins()
+// Dump serializes the redacted view (see Map) as YAML, JSON or TOML with
+// deterministic key order, so equal snapshots produce byte-identical output.
+func (s *State[T]) Dump(format Format) ([]byte, error) {
+	return dumpState(s, format, s.displayRedactor())
 }
 
-func (s *State[T]) Explain(path string) []provenance.Origin {
-	return unwrapState(s).Explain(path)
-}
-
-func (s *State[T]) LookupStrict(path string) ([]provenance.Origin, error) {
-	return unwrapState(s).LookupStrict(path)
-}
-
+// Diff returns the per-path differences from s to other. Changes are
+// detected on plaintext, so a secret that changed is reported, but the
+// Before/After values shown are the redacted ones. Either snapshot may be
+// nil (treated as empty).
 func (s *State[T]) Diff(other *State[T]) []DiffEntry {
-	return unwrapState(s).Diff(unwrapState(other))
+	return diagnosticDiff(s, other)
 }
 
-func (s *State[T]) Dump(format DumpFormat, redactor SecretRedactor) ([]byte, error) {
-	return unwrapState(s).Dump(format, secret.Redactor(redactor))
-}
-
-func (s *State[T]) Redact(redactor SecretRedactor) map[string]any {
-	return unwrapState(s).Redact(secret.Redactor(redactor))
-}
-
-func wrapState[T any](s *istate.State[T]) *State[T] {
-	return (*State[T])(s)
-}
-
-func unwrapState[T any](s *State[T]) *istate.State[T] {
-	return (*istate.State[T])(s)
-}
-
-type (
-	SourceRef = istate.SourceRef
-	LayerKind = istate.LayerKind
-)
-
-const (
-	LayerUnknown   = istate.LayerUnknown
-	LayerMerge     = istate.LayerMerge
-	LayerPatch     = istate.LayerPatch
-	LayerProvider  = istate.LayerProvider
-	LayerSecret    = istate.LayerSecret
-	LayerGenerator = istate.LayerGenerator
-	LayerOverride  = istate.LayerOverride
-)
-
-type (
-	Origin          = provenance.Origin
-	OriginIndex     = provenance.Index
-	ProvenanceLevel = provenance.Level
-)
-
-const (
-	ProvenanceOff      = provenance.Off
-	ProvenanceTopLevel = provenance.TopLevel
-	ProvenanceFull     = provenance.Full
-)
-
-type ReloadCause = istate.ReloadCause
-type DiffEvent = istate.DiffEvent
-type DiffReporter = istate.DiffReporter
-type DiffReporterFunc = istate.DiffReporterFunc
-
-// DiffChange classifies one [DiffEntry] as an add, removal, or in-place
-// modification. See [State.Diff].
-type DiffChange = istate.DiffChange
-
-const (
-	DiffAdded    = istate.DiffAdded
-	DiffRemoved  = istate.DiffRemoved
-	DiffModified = istate.DiffModified
-)
-
-// DiffEntry is one structured per-path difference between two State
-// snapshots, returned by [State.Diff] and embedded in [DiffEvent] and
-// [PlanResult]. Use [FormatDiff] to render a human-readable line list.
-type DiffEntry = istate.DiffEntry
-
-// FormatDiff renders a [DiffEntry] sequence as the human-readable line
-// list earlier FastConf revisions returned from State.Diff. The output
-// format is intended for operator-facing surfaces (logs, fastconfctl,
-// PR-bot summaries) and is not covered by the SemVer contract — machine
-// consumers should walk [DiffEntry] fields directly.
-func FormatDiff(entries []DiffEntry) []string { return istate.FormatDiff(entries) }
-
-func WithDiffReporter(r DiffReporter) Option {
-	return func(o *options) {
-		if r != nil {
-			o.DiffReporters = append(o.DiffReporters, r)
+// Explain lists the layers that wrote path, lowest priority first. Origin
+// values for secret paths are masked. It returns nil when provenance was
+// not enabled with WithProvenance or nothing wrote path.
+func (s *State[T]) Explain(path string) []Origin {
+	if s == nil {
+		return nil
+	}
+	origins := s.origins.Explain(path)
+	r := s.displayRedactor()
+	for i := range origins {
+		if origins[i].Value != nil && (secret.PathHasSecrets(reflect.TypeFor[T](), path) ||
+			secret.PatternsMatchValue(origins[i].Value, path, s.secrets)) {
+			origins[i].Value = r(path, origins[i].Value)
 		}
 	}
+	return origins
 }
 
-func WithDiffReporterQueueCap(n int) Option {
-	return func(o *options) {
-		if n < 1 {
-			n = 1
-		}
-		o.DiffReporterQueueCap = n
+// Unredacted gives explicit access to the plaintext views of s.
+func (s *State[T]) Unredacted() Unredacted[T] { return Unredacted[T]{s: s} }
+
+// Unredacted exposes a snapshot's plaintext tree. Every call site that
+// reaches it is a deliberate decision to handle secrets.
+type Unredacted[T any] struct{ s *State[T] }
+
+// Map returns the snapshot tree without masking secrets.
+func (u Unredacted[T]) Map() map[string]any { return u.s.tree(nil) }
+
+// Dump serializes the snapshot without masking secrets.
+func (u Unredacted[T]) Dump(format Format) ([]byte, error) { return dumpState(u.s, format, nil) }
+
+func (s *State[T]) displayRedactor() secret.Redactor {
+	if s != nil && s.redactor != nil {
+		return s.redactor
 	}
+	return secret.DefaultRedactor
 }
 
-// SourcePriorityBand translates a SourceRef's framework-internal
-// Priority into a human-readable band label suitable for audit sinks,
-// fastconfctl explain, or other operator-facing surfaces.
-//
-// The returned label has one of these shapes:
-//
-//	"override"             one-shot in-process override  (9000+)
-//	"provider:<name>"      provider                      (8000–8999)
-//	"generator:<name>"     generator                     (7000–7999)
-//	"file:overlay:<prof>"  single/multi-axis overlay     (2000–6999)
-//	"file:base"            base file layer               (1000–1999)
-//	"unknown:<n>"          any value not in a known band
-func SourcePriorityBand(s SourceRef) string {
-	p := s.Priority
-	switch {
-	case p >= contracts.BandOverride:
-		return "override"
-	case p >= contracts.BandProvider:
-		return "provider:" + trimProviderPrefix(s.Path)
-	case p >= contracts.BandGenerator:
-		return "generator:" + trimGeneratorPrefix(s.Path)
-	case p >= contracts.BandFileOverlay:
-		// Covers both single-axis (BandFileOverlay, 2000) and multi-axis
-		// (BandExtraOverlay, 3000) overlay layers — they render the same.
-		return "file:overlay:" + s.Profile
-	case p >= contracts.BandFileBase:
-		return "file:base"
-	default:
-		return fmt.Sprintf("unknown:%d", p)
+// tree is the single map[string]any view behind Map, Dump and Diff. When
+// redactor is nil the raw JSON tree is returned; otherwise secret paths
+// are passed through redactor. Centralizing here guarantees every view
+// sees the same key ordering and redaction policy.
+func (s *State[T]) tree(redactor secret.Redactor) map[string]any {
+	tree, _ := s.treeChecked(redactor)
+	return tree
+}
+
+func (s *State[T]) treeChecked(redactor secret.Redactor) (map[string]any, error) {
+	raw, err := s.rawTreeChecked()
+	if err != nil {
+		return nil, err
 	}
+	// Redactors can mutate containers or retain their arguments. Keep the cache
+	// private even when returning an unredacted tree (e.g. public Diff entries).
+	raw = confmap.DeepClone(raw)
+	if redactor == nil || s == nil || s.value == nil {
+		return raw, nil
+	}
+	tree := secret.ApplyJSON(raw, reflect.TypeOf(*s.value), redactor)
+	return secret.ApplyPatterns(tree, s.secrets, redactor), nil
 }
 
-// trimProviderPrefix returns the suffix of a "provider://name" path.
-func trimProviderPrefix(p string) string {
-	return strings.TrimPrefix(p, "provider://")
+// rawTreeChecked returns a shared read-only JSON view of this immutable value.
+// Racing first readers may encode independently; only a successful view is
+// retained. Encoding errors remain observable and can be retried by callers.
+func (s *State[T]) rawTreeChecked() (map[string]any, error) {
+	if s == nil || s.value == nil {
+		return nil, nil
+	}
+	if cached := s.raw.Load(); cached != nil {
+		return cached.value, nil
+	}
+	raw, err := valueMapChecked(s.value)
+	if err != nil {
+		return nil, err
+	}
+	s.raw.CompareAndSwap(nil, &cachedTree{value: raw})
+	return s.raw.Load().value, nil
 }
 
-// trimGeneratorPrefix returns the suffix of a "gen://<name>/<sub>" path
-// minus the gen:// scheme, leaving "<name>/<sub>".
-func trimGeneratorPrefix(p string) string {
-	return strings.TrimPrefix(p, "gen://")
+// canonicalHash computes SHA-256 over the JSON encoding of *T.
+// encoding/json emits struct fields in declaration order and map keys
+// in lexicographic order, giving a stable canonical form for free.
+func canonicalHash[T any](v *T) ([32]byte, error) {
+	buf, err := json.Marshal(v)
+	if err != nil {
+		var zero [32]byte
+		return zero, err
+	}
+	return sha256.Sum256(buf), nil
 }

@@ -1,33 +1,22 @@
 package labels
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 var indexedRoutingKeyPattern = regexp.MustCompile(`^(.+)\[(\d+)\]$`)
 
-// PromoteIndexedRoutingKeys collapses sibling groups such as
-// "domains[0]" / "domains[1]" into "domains": []any{...}. Groups that
-// would collide with an existing base key are left untouched.
-//
-// Exported for callers that have already produced a tree (e.g. via a
-// custom Provider) and want to apply only the indexed-key promotion.
-// Internal RoutingLabelProvider callers go through transformRoutingTree
-// which fuses promotion and leaf rewriting into a single tree walk.
-func PromoteIndexedRoutingKeys(node map[string]any) {
-	for _, value := range node {
-		if child, ok := value.(map[string]any); ok {
-			PromoteIndexedRoutingKeys(child)
-		}
-	}
-	promoteIndexedKeysAtLayer(node)
-}
+// MaxRoutingIndex is the largest accepted list index in a routing label key such as
+// domains[3].main. Promotion allocates index+1 slots, so a larger index fails Load instead of
+// allocating an arbitrarily large (possibly overflowing) slice.
+const MaxRoutingIndex = 1023
 
-// promoteIndexedKeysAtLayer promotes only at one map level. Callers must
-// recurse separately (transformRoutingTree handles that fused with the
-// leaf-rewrite pass).
-func promoteIndexedKeysAtLayer(node map[string]any) {
+// promoteIndexedKeysAtLayer promotes only at one map level. Callers must recurse separately
+// (transformRoutingTree handles that fused with the leaf-rewrite pass).
+func promoteIndexedKeysAtLayer(node map[string]any, path []string) error {
 	type indexedGroup struct {
 		max    int
 		values map[int]any
@@ -40,8 +29,8 @@ func promoteIndexedKeysAtLayer(node map[string]any) {
 			continue
 		}
 		index, err := strconv.Atoi(matches[2])
-		if err != nil {
-			continue
+		if err != nil || index > MaxRoutingIndex {
+			return fmt.Errorf("labels: routing key %q: index exceeds %d", strings.Join(append(path, key), "."), MaxRoutingIndex)
 		}
 		base := matches[1]
 		group := groups[base]
@@ -69,18 +58,20 @@ func promoteIndexedKeysAtLayer(node map[string]any) {
 		}
 		node[base] = items
 	}
+	return nil
 }
 
-// transformRoutingTree walks node bottom-up. Children are recursed
-// first (so their leaves are typed and their indexed siblings are
-// promoted), then this level's leaves are rewritten and its indexed
-// siblings promoted. Single pass — no second walk to clean up.
-func transformRoutingTree(node map[string]any, path []string, opts RoutingLabelOptions) {
+// transformRoutingTree walks node bottom-up. Children are recursed first (so their leaves are
+// typed and their indexed siblings are promoted), then this level's leaves are rewritten and its
+// indexed siblings promoted. Single pass — no second walk to clean up.
+func transformRoutingTree(node map[string]any, path []string, opts *Routing) error {
 	for k, v := range node {
 		if child, ok := v.(map[string]any); ok {
-			transformRoutingTree(child, append(append([]string(nil), path...), k), opts)
+			if err := transformRoutingTree(child, append(append([]string(nil), path...), k), opts); err != nil {
+				return err
+			}
 		}
 	}
 	rewriteLeavesAtLayer(node, path, opts)
-	promoteIndexedKeysAtLayer(node)
+	return promoteIndexedKeysAtLayer(node, path)
 }

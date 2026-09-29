@@ -9,59 +9,23 @@ import (
 	"path/filepath"
 	"strings"
 
-	mappath "github.com/fastabc/fastconf/confmap"
+	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/internal/providerutil"
 	envprovider "github.com/fastabc/fastconf/providers/env"
 )
 
-type EnvKeyReplacer = envprovider.EnvKeyReplacer
-
-var DotReplacer = envprovider.DotReplacer
-var DoubleUnderscoreReplacer = envprovider.DoubleUnderscoreReplacer
-
-// DotEnvProvider reads one or more .env files and emits a nested map using
-// the same key convention as EnvProvider: an optional prefix is stripped
-// and the active EnvKeyReplacer (default DotReplacer, single "_" → ".")
-// converts each post-prefix name into a dotted path. Use
-// WithReplacer(DoubleUnderscoreReplacer) for the "single `_` is part of
-// the key" convention. Actual process environment variables take
-// precedence over .env values for the same key, matching the classic
-// dotenv contract. Presence, not non-emptiness, decides precedence:
-// APP_PORT="" still suppresses APP_PORT from the .env fallback layer.
+// DotEnvProvider reads .env files using env.EnvKeyReplacer (env.DotReplacer by default).
+// Process environment keys suppress matching .env keys even when explicitly empty;
+// register env.NewEnv as well to load those process values.
+// PriorityDotEnv puts this layer below other built-in providers. No os.Setenv
+// calls are made, preserving tenant and test isolation.
 //
-// Priority defaults to PriorityDotEnv (5), so all other built-in providers
-// override dotenv values. To force dotenv values to win (equivalent to
-// joho/godotenv.Overload), bump the priority above PriorityEnv (50) — e.g.
-// .WithPriority(contracts.PriorityCLI).
-//
-// Unlike joho/godotenv, this provider does NOT call os.Setenv; .env values
-// live entirely inside the merged configuration tree. That isolation is
-// deliberate: it keeps multi-process / multi-tenant tests from leaking state
-// through the process environment.
-//
-// Supported .env syntax:
-//
-//   - KEY=VALUE          (unquoted; trailing spaces trimmed)
-//   - KEY="double quoted"  (supports \n \t \" \\ escapes)
-//   - KEY='single quoted'  (no escapes; literal content)
-//   - export KEY=VALUE   (leading "export" keyword stripped)
-//   - # comment lines    (must start the line)
-//   - Blank lines are ignored.
-//
-// Semantic notes that diverge from common dotenv dialects:
-//
-//   - Multi-file order. When multiple paths are passed, files are read in
-//     order and later files OVERRIDE earlier ones on the same key. This is
-//     the opposite of joho/godotenv.Load, where the first file wins.
-//   - Inline `#`. `#` is only honored at the start of a line; an unquoted
-//     value containing `#` keeps it as part of the value (e.g.
-//     KEY=value#tag yields "value#tag"). Quote the value or split the
-//     comment onto its own line if you need a trailing comment.
-//   - $VAR interpolation. This provider does NOT expand `$VAR` or `${VAR}`
-//     inside values. Use transform.EnvSubst (or EnvSubstWith for a custom
-//     lookup) as a pipeline stage if you need that — keeping interpolation
-//     out of the dotenv layer avoids the chicken-and-egg "is $VAR resolved
-//     from dotenv or process env?" ambiguity.
+// Later files override earlier ones. Values support unquoted strings, double
+// quotes with escapes, and literal single quotes. Blank lines and full-line
+// comments are skipped; optional export prefixes are accepted. Inline # remains
+// part of a value. Variable references are literal; use transform.EnvSubst
+// for interpolation after merging.
 type DotEnvProvider struct {
 	prefix   string
 	paths    []string
@@ -72,18 +36,12 @@ type DotEnvProvider struct {
 	lookup   EnvLookup
 }
 
-// EnvLookup reports both an env var's value and whether it exists.
-// The boolean is intentionally part of the contract so explicit empty
-// values still win over .env fallbacks.
+// EnvLookup reports both an env var's value and whether it exists. The boolean is intentionally
+// part of the contract so explicit empty values still win over .env fallbacks.
 type EnvLookup func(string) (string, bool)
 
-// NewDotEnv builds a DotEnvProvider that reads the given .env file paths.
-// prefix follows the same convention as NewEnv: e.g. "APP_" so that
-// APP_DATABASE_HOST=db yields {"database":{"host":"db"}} under the
-// default DotReplacer.
-//
-// Values are kept verbatim as strings by default; call WithCoerce(true)
-// to opt into bool/int/float coercion at load time.
+// NewDotEnv loads paths in order, stripping prefix and converting keys with env.DotReplacer. Values
+// stay strings unless WithCoerce(true) is set.
 func NewDotEnv(prefix string, paths ...string) *DotEnvProvider {
 	return &DotEnvProvider{
 		prefix:   prefix,
@@ -100,14 +58,14 @@ func (p *DotEnvProvider) WithPriority(prio int) *DotEnvProvider {
 	return p
 }
 
-// WithCoerce toggles eager value coercion. See EnvProvider.WithCoerce.
+// WithCoerce toggles eager value coercion. See env.EnvProvider.WithCoerce.
 func (p *DotEnvProvider) WithCoerce(on bool) *DotEnvProvider {
 	p.coerce = on
 	return p
 }
 
-// WithReplacer swaps the key-conversion strategy. Passing nil restores
-// the default DotReplacer. See EnvProvider.WithReplacer.
+// WithReplacer swaps the key-conversion strategy. Passing nil restores env.DotReplacer.
+// See env.EnvProvider.WithReplacer.
 func (p *DotEnvProvider) WithReplacer(r envprovider.EnvKeyReplacer) *DotEnvProvider {
 	if r == nil {
 		r = envprovider.DotReplacer
@@ -116,15 +74,15 @@ func (p *DotEnvProvider) WithReplacer(r envprovider.EnvKeyReplacer) *DotEnvProvi
 	return p
 }
 
-// At grafts the loaded tree under the given dotted path instead of the
-// root of the merged configuration. See EnvProvider.At.
+// At grafts the loaded tree under the given dotted path instead of the root of the merged
+// configuration. See env.EnvProvider.At.
 func (p *DotEnvProvider) At(path string) *DotEnvProvider {
-	p.root = mappath.Split(path)
+	p.root = confmap.Split(path)
 	return p
 }
 
-// WithLookup swaps the env lookup used to decide whether a process env
-// value suppresses a .env fallback. Passing nil restores os.LookupEnv.
+// WithLookup swaps the env lookup used to decide whether a process env value suppresses a .env
+// fallback. Passing nil restores os.LookupEnv.
 func (p *DotEnvProvider) WithLookup(fn EnvLookup) *DotEnvProvider {
 	if fn == nil {
 		fn = os.LookupEnv
@@ -136,11 +94,18 @@ func (p *DotEnvProvider) WithLookup(fn EnvLookup) *DotEnvProvider {
 // Name implements Provider.
 func (p *DotEnvProvider) Name() string { return "dotenv:" + strings.Join(p.paths, ",") }
 
-// Priority implements Provider.
-func (p *DotEnvProvider) Priority() int { return p.priority }
+// Describe implements contracts.Describer.
+func (p *DotEnvProvider) Describe() contracts.ProviderInfo {
+	return contracts.ProviderInfo{Priority: p.priority}
+}
 
-// Load implements Provider.
-func (p *DotEnvProvider) Load(_ context.Context) (map[string]any, error) {
+// Load implements contracts.Provider.
+func (p *DotEnvProvider) Load(ctx context.Context) (contracts.Snapshot, error) {
+	m, err := p.loadMap(ctx)
+	return contracts.Snapshot{Map: m}, err
+}
+
+func (p *DotEnvProvider) loadMap(_ context.Context) (map[string]any, error) {
 	inner := map[string]any{}
 	for _, path := range p.paths {
 		data, err := os.ReadFile(path)
@@ -175,34 +140,19 @@ func (p *DotEnvProvider) Load(_ context.Context) (map[string]any, error) {
 			if dotted == "" {
 				continue
 			}
-			mappath.Set(inner, strings.Split(dotted, "."), maybeCoerce(v, p.coerce))
+			confmap.Set(inner, strings.Split(dotted, "."), providerutil.MaybeCoerce(v, p.coerce))
 		}
 	}
-	return graftAt(inner, p.root), nil
+	return providerutil.GraftAt(inner, p.root), nil
 }
 
 // Watch implements Provider. Dotenv files are not watched.
-func (p *DotEnvProvider) Watch(_ context.Context) (<-chan contracts.Event, error) { return nil, nil }
-
-func graftAt(inner map[string]any, root []string) map[string]any {
-	if len(root) == 0 {
-		return inner
-	}
-	out := map[string]any{}
-	mappath.Set(out, root, inner)
-	return out
+func (p *DotEnvProvider) Watch(_ context.Context, _ string) (<-chan contracts.Event, error) {
+	return nil, nil
 }
 
-func maybeCoerce(s string, on bool) any {
-	if !on {
-		return s
-	}
-	return mappath.Coerce(s, mappath.CoerceOptions{IgnoreCase: true})
-}
-
-// parseDotEnv parses .env file bytes and returns KEY → raw-string pairs.
-// Keys retain their original case; stripping and lowercasing is the
-// caller's responsibility (same as EnvProvider).
+// parseDotEnv parses .env file bytes and returns KEY → raw-string pairs. Keys retain their
+// original case; stripping and lowercasing is the caller's responsibility (same as EnvProvider).
 func parseDotEnv(data []byte) (map[string]string, error) {
 	out := map[string]string{}
 	scanner := bufio.NewScanner(bytes.NewReader(data))
@@ -287,9 +237,7 @@ func parseDoubleQuoted(s string) (string, error) {
 	return "", fmt.Errorf("unterminated double-quoted value")
 }
 
-// AutoDotEnvPaths returns the default .env file search paths for
-// WithDotEnvAuto: [configDir + "/.env", ".env"]. Missing files are skipped
-// by DotEnvProvider.Load, so callers do not need to pre-check existence.
+// AutoDotEnvPaths returns configDir/.env followed by .env; missing files are skipped.
 func AutoDotEnvPaths(configDir string) []string {
 	cwd, _ := os.Getwd()
 	candidates := make([]string, 0, 3)

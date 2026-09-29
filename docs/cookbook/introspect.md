@@ -1,43 +1,102 @@
-# Sub-tree introspection (`Keys` / `Settings` / `At` / `Extract`)
+# Inspecting and dumping a snapshot (`Map` / `Dump` / `Explain`)
 
-FastConf's hot read path is `mgr.Get() *T` — strong-typed, zero-alloc, no string paths. Sometimes you need the **opposite**: a flat dotted-key view for debug endpoints, CLI dumps, or DI helpers. That lives on `State[T]`.
+FastConf's hot read path is `mgr.Get() *T` — strong-typed, zero-alloc, no
+string paths. For debug endpoints, CLI dumps or DI helpers you sometimes want
+the opposite: a generic tree. That lives on `State[T]`, and every view there
+masks secrets by default.
 
 | API | Returns | When to use |
 |-----|---------|-------------|
-| `state.Introspect().Keys()` | sorted `[]string` of dotted leaves | CLI listings, completion |
-| `state.Introspect().Settings()` | fresh `map[string]any` with dotted keys | `/dump` JSON, diff tools |
-| `state.Introspect().At("database")` | fresh `map[string]any`, prefix stripped | inject a sub-tree into a sub-module |
-| `Extract[T,M](state, extract)` | live `*M` pointing into `state.Value` | strong-typed DI for a sub-struct |
-
-The flat dotted-key view is **lazy** — built on first access via an `atomic.Pointer` cache on the State, so normal reload paths pay nothing.
+| `state.Map()` | fresh `map[string]any`, secrets masked | debug endpoints, diff tools, dotted lookups |
+| `state.Dump(fastconf.YAML)` | deterministic YAML / JSON / TOML bytes, secrets masked | operator dumps, golden files |
+| `state.Explain("db.dsn")` | the layers that wrote a path, values masked for secrets | "where did this value come from?" (needs `WithProvenance`) |
+| `state.Unredacted().Map()` / `.Dump(f)` | the same without masking | code that must see plaintext — greppable on purpose |
+| `&state.Value().Database` | typed pointer into the snapshot | strong-typed DI for a sub-struct (read-only) |
 
 ## Examples
 
 ```go
 state := mgr.Snapshot()
 
-// dotted keys, sorted
-for _, k := range state.Introspect().Keys() {
-    fmt.Println(k)
-}
-
-// dotted-key map, freshly allocated
-all := state.Introspect().Settings()
-fmt.Println(all["server.addr"])
+// dotted lookup on the masked tree
+dsn, _ := confmap.GetDotted(state.Map(), "database.dsn") // "***REDACTED***" if tagged fc:"secret"
 
 // sub-tree as a fresh map (no shared mutation)
-db := state.Introspect().At("database")
-fmt.Println(db["dsn"]) // "postgres://..."
+db, _ := state.Map()["database"].(map[string]any)
 
-// strong-typed sub-tree pointer (read-only, aliases state.Value)
-type DBView struct{ DSN string `json:"dsn"` }
-dbv := fastconf.Extract(state, func(c *AppConfig) *DBView {
-    return &c.Database
-})
+// strong-typed sub-tree pointer (read-only)
+dbCfg := &state.Value().Database
 ```
 
-`Extract` is the synchronous, one-shot counterpart to `Subscribe` — pair them when you want both an immediate view and a callback on subsequent commits.
+Secrets are the fields tagged `fc:"secret"` plus any `WithSecretPaths`
+patterns; `WithRedactor` changes how they display.
 
 ## Why no `mgr.GetString("a.b")` shortcut?
 
-FastConf intentionally does **not** add string-path read methods on `*Manager`. They would break the 0.73 ns/op zero-alloc contract. If you really need string-path lookups in a hot path, switch `T` to `map[string]any` (and accept losing field-level compile checks).
+FastConf intentionally does **not** add string-path read methods on
+`*Manager`. They would add work to the lock-free typed read path. If you
+really need string-path lookups in a hot path, switch `T` to `map[string]any`
+(and accept losing field-level compile checks).
+
+## Dumping the merged state
+
+When something looks wrong in production, the fastest debug move is to *see the merged config the running process actually has*. FastConf produces a deterministic rendering via `State[T].Dump(format)` — YAML, JSON, or TOML — over the same merged tree the typed snapshot was built from, with secrets masked.
+
+### Library
+
+```go
+state := mgr.Snapshot()
+b, err := state.Dump(fastconf.YAML) // or JSON / TOML; secrets masked
+if err != nil { return err }
+_ = os.WriteFile("/tmp/cur.yaml", b, 0o644)
+```
+
+Map keys are sorted lexicographically inside every YAML mapping, so two snapshots whose merged values match produce **byte-identical** YAML — diff tools work without flake. JSON uses two-space indent; TOML uses BurntSushi/toml's canonical output.
+
+### `fastconfctl dump --format=yaml`
+
+```bash
+fastconfctl dump --dir conf.d --profile prod --format=yaml > /tmp/prod.yaml
+fastconfctl dump --dir conf.d --profile dev  --format=yaml > /tmp/dev.yaml
+diff -u /tmp/dev.yaml /tmp/prod.yaml
+```
+
+The default format is JSON (use `--format=yaml` for the deterministic YAML form).
+
+### Sidecar `/dump` endpoint
+
+`fastconfd` exposes the same artefact over HTTP:
+
+```bash
+# YAML (default)
+curl -s http://localhost:8650/dump
+
+# JSON
+curl -s http://localhost:8650/dump?format=json
+```
+
+### Redaction
+
+`Dump` always masks fields tagged `fc:"secret"` and paths matched by `WithSecretPaths`, showing `***REDACTED***` (or whatever `WithRedactor` returns). Plaintext is an explicit, greppable call:
+
+```go
+b, _ := state.Unredacted().Dump(fastconf.YAML)
+``` Map-typed configurations have no struct tags, so they rely on path patterns:
+
+```go
+mgr, _ := fastconf.New[map[string]any](ctx, fastconf.WithSecretPaths("**.password", "db.dsn"))
+```
+
+The sidecar's `/dump` and `/config` use this path — see the [sidecar recipe](sidecar.md).
+
+### Prefer Dump Over Custom Encoding
+
+Use `State[T].Dump(format)` for every operator-facing export path:
+
+```go
+b, err := state.Dump(fastconf.YAML)
+```
+
+JSON and TOML callers do not need to reach into `state.Value()` and pick their
+own encoder; `Dump` preserves FastConf's redaction and deterministic tree
+shape.

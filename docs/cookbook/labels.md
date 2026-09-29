@@ -7,34 +7,26 @@ FastConf 按来源语义区分 label。先按这条决策树挑入口，然后�
 ```text
 你的 labels 来自哪里？
 │
-├── docker run --label / docker-compose deploy.labels
-│       → labels.NewLabelMap(m, LabelOptions{})
-│         （不透明 metadata，值保持 string）
+├── docker run --label / docker-compose deploy.labels / 你自己的 dotted 应用配置
+│       → labels.New(input, labels.Options{})
+│         （dotted 展开；值保持 string，Coerce: true 转 typed）
 │
 ├── traefik docker / swarm provider（labels 是路由 DSL）
-│       → labels.NewRoutingLabels(list, RoutingLabelOptions{
+│       → labels.New(input, labels.Options{Routing: &labels.Routing{
 │             EnableGate: "traefik.enable",
-│         })
+│         }})
 │         （typed scalar + 逗号 list + [N] index + enable gate）
-│
-├── 你自己定义的 dotted 应用配置（如 myapp.db.dsn=...）
-│       → labels.NewDottedLabels(list, DottedLabelOptions{})
-│         （显式表达"这些 key 就是 dotted config"）
 │
 ├── K8s Downward API（metadata.labels / annotations 投射到 volume）
 │       → providers/k8s.NewDefault()
 │         （默认 raw + namespaced，保留 app.kubernetes.io/name 原 key）
 │
-├── 已经在配置文件里的 deploy.labels: [...] 字段
-│       → transform.ExpandLabels("deploy.labels", "", opts)
-│         （transformer，不是 provider；原地展开成子树）
-│
-└── 不确定 / 调用方自己决定 separator + priority
-        → labels.NewLabels / NewLabelMap（低层 primitive）
+└── 已经在配置文件里的 deploy.labels: [...] 字段
+        → 一个 WithTransform 函数：confmap.ExpandLabels + confmap.Deep（见 §3）
 ```
 
-**反例**：不要把 K8s `metadata.labels` 喂给 `NewDottedLabels` —— `app.kubernetes.io/name`
-经过 dotted 展开会变成嵌套层级，丢失原始 key identity，破坏 selector 语义。
+**反例**：不要把 K8s `metadata.labels` 喂给 dotted 展开 —— `app.kubernetes.io/name`
+会变成嵌套层级，丢失原始 key identity，破坏 selector 语义。
 
 ---
 
@@ -42,77 +34,19 @@ FastConf 按来源语义区分 label。先按这条决策树挑入口，然后�
 
 | 心智模型 | 推荐 API | 默认语义 |
 |---|---|---|
-| 原始 metadata | `labels.NewLabels(...)` / `labels.NewLabelMap(...)` | 低层 primitive；值保留 string；默认 `PriorityStatic` |
-| 明确把 label 当配置 DSL | `labels.NewDottedLabels(...)` / `labels.NewDottedLabelMap(...)` | 显式表达"这些 key 就是 dotted config" |
-| 路由 DSL labels | `labels.NewRoutingLabels(...)` / `labels.NewRoutingLabelMap(...)` | typed scalar + list + `[N]` index；可选整组 enable gate |
-| 配置文件里的 dotted label 字段 | `transform.ExpandLabels(at, to, opts)` | 把已有 list / map 原地展开成配置子树 |
-| K8s Downward API metadata | `k8s.NewDefault()` | 默认 raw + namespaced；`WithWatch(WatchOptions{Enabled: true})` 时跟随 projected-volume refresh |
+| dotted 配置 labels | `labels.New(input, labels.Options{})` | 值保留 string；默认 `PriorityStatic` |
+| 路由 DSL labels | `labels.New(input, labels.Options{Routing: &labels.Routing{}})` | typed scalar + list + `[N]` index；可选整组 enable gate |
+| 配置文件里的 dotted label 字段 | `WithTransform` + `confmap.ExpandLabels` | 把已有 list / map 原地展开成配置子树 |
+| K8s Downward API metadata | `k8s.NewDefault()` | 默认 raw + namespaced；`WithWatch(Watch{})` 时跟随 projected-volume refresh |
 
 底层都复用 `confmap.ExpandLabels`；区别不在 merge 引擎，而在**调用方表达的意图**。
 
 ---
 
-## 1. 配置文件中的 dotted labels（Transformer）
+## 1. dotted labels（Provider）
 
-如果 label 已经在 YAML / JSON 配置里，并且它们本来就是你定义的配置 DSL，用
-`transform.ExpandLabels`：
-
-```yaml
-# conf.d/base/00-app.yaml
-deploy:
-  labels:
-    - "routing.http.services.api.loadbalancer.server.port=9999"
-    - "routing.enable=true"
-```
-
-```go
-cfg, _ := fastconf.New[Cfg](ctx,
-    fastconf.WithDir("conf.d"),
-    fastconf.WithTransformers(transform.ExpandLabels(
-        "deploy.labels",
-        "",
-        transform.LabelExpandOptions{},
-    )),
-)
-```
-
-结果（`deploy.labels` 默认被移除）：
-
-```yaml
-routing:
-  http:
-    services:
-      api:
-        loadbalancer:
-          server:
-            port: "9999"
-  enable: "true"
-```
-
-常用选项：
-
-| 字段 | 含义 | 默认值 |
-|---|---|---|
-| `Prefix` | 只处理某个前缀 | `""` |
-| `StripPrefix` | 展开前移除前缀 | `false` |
-| `Separator` | 单分隔符 | `"."` |
-| `Separators` | 多分隔符，优先于 `Separator` | `nil` |
-| `Coerce` | 把 `"true"` / `"42"` / `"3.14"` 转成 typed value | `false` |
-| `KeepSource` | 是否保留原始 list / map | `false` |
-| `MergeMode` | 展开树与已有子树的合并策略 | `ExpandReplace` |
-
-`MergeMode`：
-
-- `ExpandReplace`：直接覆盖目标子树；
-- `ExpandOverlay`：label 值赢；
-- `ExpandUnderlay`：已有配置赢。
-
----
-
-## 2. 外部注入的 dotted labels（Provider）
-
-如果 label 来自配置文件之外，但你明确把它们当应用配置使用，优先用正式入口
-`NewDottedLabels` / `NewDottedLabelMap`：
+`labels.New` 接受 `[]string` / `[]any`（`"key=value"`）或 `map[string]string` /
+`map[string]any`：
 
 ```go
 import labelprovider "github.com/fastabc/fastconf/providers/labels"
@@ -124,7 +58,7 @@ labelInput := []string{
 
 mgr, _ := fastconf.New[Cfg](ctx,
     fastconf.WithDir("conf.d"),
-    fastconf.WithProvider(labelprovider.NewDottedLabels(labelInput, labelprovider.DottedLabelOptions{})),
+    fastconf.WithProvider(labelprovider.New(labelInput, labelprovider.Options{})),
 )
 ```
 
@@ -134,33 +68,36 @@ annotations := map[string]string{
 }
 
 mgr, _ := fastconf.New[Cfg](ctx,
-    fastconf.WithProvider(labelprovider.NewDottedLabelMap(annotations, labelprovider.DottedLabelOptions{
+    fastconf.WithProvider(labelprovider.New(annotations, labelprovider.Options{
         Prefix:      "config.",
         StripPrefix: true,
     })),
 )
 ```
 
-当你只是需要一个低层 primitive，或者调用方自己已经决定了 separator / priority
-策略时，仍可直接用 `NewLabels` / `NewLabelMap`。它们现在默认落在中性的
-`PriorityStatic`，不会再隐式带入 K8s controller 假设：
+默认落在中性的 `PriorityStatic`（低于文件 overlay 之外的所有 provider band）。
+需要 label 覆盖文件时显式提升：
 
 ```go
-labelMap := map[string]string{
-    "app": "fastconf",
-}
-
-fastconf.WithProvider(labelprovider.NewLabelMap(labelMap, labelprovider.LabelOptions{
-    Priority: contracts.PriorityK8s, // 只有调用方明确需要时才提升
+fastconf.WithProvider(labelprovider.New(labelMap, labelprovider.Options{
+    Priority: contracts.PriorityK8s,
 }))
 ```
 
+| 字段 | 含义 | 默认值 |
+|---|---|---|
+| `Name` / `Priority` | provider 名称与优先级 | `"labels:<Prefix>"` / `PriorityStatic` |
+| `Prefix` / `StripPrefix` | 只处理某个前缀，必要时展开前移除 | `""` / `false` |
+| `Separators` | key 分隔符列表 | `{"."}` |
+| `Coerce` | 把 `"true"` / `"42"` / `"3.14"` 转成 typed value | `false` |
+| `Routing` | 非 nil 时启用路由 DSL（§2） | `nil` |
+
 ---
 
-## 3. 路由 DSL labels
+## 2. 路由 DSL labels
 
-如果这批 label 不是普通 dotted KV，而是一个**路由 DSL**，使用正式入口
-`NewRoutingLabels` / `NewRoutingLabelMap`。它在 dotted 展开之外还会处理：
+如果这批 label 不是普通 dotted KV，而是一个**路由 DSL**，设置 `Options.Routing`。
+它在 dotted 展开之外还会处理：
 
 - `"true"` / `"8080"` / `"1.5"` 这类 typed scalar；
 - `web,websecure` 这类逗号 list；
@@ -177,17 +114,16 @@ labelInput := []string{
 }
 
 mgr, _ := fastconf.New[Cfg](ctx,
-    fastconf.WithProvider(labelprovider.NewRoutingLabels(labelInput, labelprovider.RoutingLabelOptions{
-        EnableGate: "routing.enable",
+    fastconf.WithProvider(labelprovider.New(labelInput, labelprovider.Options{
+        Routing: &labelprovider.Routing{EnableGate: "routing.enable"},
     })),
 )
 ```
 
-常用选项：
+`Routing` 字段：
 
 | 字段 | 含义 | 默认值 |
 |---|---|---|
-| `Prefix` / `StripPrefix` | 只消费某个 prefix，必要时展开前移除 | `""` / `false` |
 | `EnableGate` | label 存在且值不是 truthy 时跳过整组 | `""`（关闭） |
 | `ListSeparator` / `NoListSplit` | list 分隔符及 opt-out | `","` / `false` |
 | `KeepRawSuffixes` | 哪些 key suffix 即使含分隔符也保持 raw string | `[".rule", "regexp"]` |
@@ -197,6 +133,50 @@ mgr, _ := fastconf.New[Cfg](ctx,
 `Raw` 和 `NoListSplit` 是两个不同的逃生门：前者完全保留 value，后者只关闭
 list 拆分，仍保留 scalar coercion。`KeepRawSuffixes` 用于保护表达式型字段，避免
 表达式里的逗号被误判成 list。
+
+---
+
+## 3. 配置文件中的 dotted labels（transform）
+
+如果 label 已经在 YAML / JSON 配置里，写一个 transform 原地展开：
+
+```yaml
+# conf.d/base/00-app.yaml
+deploy:
+  labels:
+    - "routing.http.services.api.loadbalancer.server.port=9999"
+    - "routing.enable=true"
+```
+
+```go
+expandDeployLabels := func(root map[string]any) error {
+    raw, ok := confmap.GetDotted(root, "deploy.labels")
+    if !ok {
+        return nil
+    }
+    confmap.DeleteDotted(root, "deploy.labels")
+    // Deep(root, tree): label 值赢；Deep(tree, root) 再写回则已有配置赢。
+    return confmap.Deep(root, confmap.ExpandLabels(raw, confmap.LabelOptions{}), confmap.Options{})
+}
+
+cfg, _ := fastconf.New[Cfg](ctx,
+    fastconf.WithDir("conf.d"),
+    fastconf.WithTransform(expandDeployLabels),
+)
+```
+
+结果：
+
+```yaml
+routing:
+  http:
+    services:
+      api:
+        loadbalancer:
+          server:
+            port: "9999"
+  enable: "true"
+```
 
 ---
 
@@ -210,7 +190,7 @@ import k8s "github.com/fastabc/fastconf/providers/k8s"
 
 mgr, _ := fastconf.New[Cfg](ctx,
     fastconf.WithProvider(k8s.NewDefault()),
-    fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
+    fastconf.WithWatch(fastconf.Watch{}),
 )
 ```
 
@@ -242,12 +222,12 @@ fastconf.WithProvider(k8s.NewExpandedDefault())
 
 ---
 
-## 5. 直接用 `mappath.ExpandLabels`
+## 5. 直接用 `confmap.ExpandLabels`
 
 ```go
-tree := mappath.ExpandLabels(
+tree := confmap.ExpandLabels(
     []string{"a.b.c=1", "a.b.d=2"},
-    mappath.LabelOptions{},
+    confmap.LabelOptions{},
 )
 // tree = {"a": {"b": {"c": "1", "d": "2"}}}
 ```

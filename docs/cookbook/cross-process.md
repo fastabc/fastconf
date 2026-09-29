@@ -1,13 +1,15 @@
 # Cross-process push (NATS / Redis Streams)
 
-`integrations/bus` ships an in-process Broker. For **cross-process** push (gateway updates config → 50 workers learn within a second) FastConf provides two sub-modules:
+For **cross-process** push (gateway updates config → 50 workers learn within a second) the repository includes two provider reference implementations:
 
-| Sub-module | Transport | Use when |
+| Provider | Transport | Use when |
 |------------|-----------|----------|
-| `providers/nats`         | NATS subject subscribe + JetStream resume | you already run NATS/NATS JetStream |
-| `providers/redisstream`  | Redis `XREAD BLOCK` + stream id resume | you already run Redis 5+ |
+| `examples/nats`         | NATS subject subscribe + JetStream resume | you already run NATS/NATS JetStream |
+| `examples/redisstream`  | Redis `XREAD BLOCK` + stream id resume | you already run Redis 5+ |
 
-Both are sub-modules: their import only enters your closure if you opt in.
+These examples take a transport client from the caller and add no client dependency.
+Copy and adapt them for production; they are no longer supported `providers/*` APIs.
+Their README files describe the shared helper to copy when moving outside this repository.
 
 ## Dependency-free contracts
 
@@ -18,7 +20,7 @@ Neither package imports `github.com/nats-io/nats.go` or `github.com/redis/go-red
 ```go
 import (
     natsgo "github.com/nats-io/nats.go"
-    natsprov "github.com/fastabc/fastconf/providers/nats"
+    natsprov "github.com/fastabc/fastconf/examples/nats"
 )
 
 type natsAdapter struct{ nc *natsgo.Conn }
@@ -30,8 +32,9 @@ func (a natsAdapter) Subscribe(subject string, h func(natsprov.Msg)) (natsprov.S
     return sub, err
 }
 func (a natsAdapter) SubscribeFrom(subject, _ string, h func(natsprov.Msg)) (natsprov.Subscription, error) {
-    // For non-JetStream NATS, return contracts.ErrResumeUnsupported.
-    return nil, contracts.ErrResumeUnsupported
+    // Plain NATS cannot replay: the provider falls back to Subscribe and
+    // marks the first event with Gap.
+    return nil, errors.New("resume not supported")
 }
 
 nc, _ := natsgo.Connect("nats://localhost")
@@ -39,7 +42,7 @@ p, _ := natsprov.New("nats", "fastconf.app", yamlCodec{}, natsAdapter{nc})
 mgr, _ := fastconf.New[AppConfig](ctx,
     fastconf.WithDir("conf.d"),
     fastconf.WithProvider(p),
-    fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
+    fastconf.WithWatch(fastconf.Watch{}),
 )
 ```
 
@@ -51,7 +54,7 @@ import (
     "time"
 
     "github.com/redis/go-redis/v9"
-    rsprov "github.com/fastabc/fastconf/providers/redisstream"
+    rsprov "github.com/fastabc/fastconf/examples/redisstream"
 )
 
 type rdbAdapter struct{ c *redis.Client }
@@ -73,9 +76,13 @@ func (a rdbAdapter) XRead(ctx context.Context, stream, lastID string, block time
 }
 ```
 
-## Resumable
+## Resume
 
-Both providers implement `contracts.Resumable`. The framework remembers the last `Event.Revision` per provider; on reconnect it calls `WatchFrom(ctx, lastRev)`. JetStream / Redis Streams natively support this — return `contracts.ErrResumeUnsupported` for transports that can't.
+The framework remembers the last `Event.Revision` per provider and passes it
+to `Watch(ctx, from)` on reconnect. JetStream / Redis Streams resume natively.
+When `SubscribeFrom` fails, the NATS provider subscribes cold and sets
+`Event.Gap` on the first event; the manager counts it as a provider error and
+reloads the latest snapshot. Intermediate changes during the gap may be lost.
 
 ## Drop-on-full
 
@@ -83,7 +90,7 @@ Subscriptions push events into a buffered channel; if a downstream reload is slo
 
 ## Runnable example
 
-[`examples/external_source/example_test.go`](../../examples/external_source/example_test.go) —
-a stand-alone Provider plus an inline `WithSource(seed, codec.YAMLParser())`
-byte-blob layer, the same two extension points used by the NATS / Redis
-adapters above. Run it with `go test ./examples/external_source/...`.
+[`ExampleWithProvider`](../../example_api_test.go) combines a structured
+provider with an inline `source.NewBytes` document through `WithProvider`,
+the same entry point used by the NATS / Redis adapters above.
+Run it with `go test . -run '^ExampleWithProvider$' -v`.

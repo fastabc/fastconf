@@ -6,12 +6,11 @@
 //
 //	import promfc "github.com/fastabc/fastconf/observability/metrics/prometheus"
 //	sink := promfc.New(prometheus.DefaultRegisterer)
-//	mgr, _ := fastconf.New[Config](ctx, fastconf.WithMetrics(sink))
+//	mgr, _ := fastconf.New[Config](ctx, fastconf.WithObserver(observe.Metrics(sink)))
 //
-// The Sink implements both fastconf.MetricsSink (reload counters,
-// state generation, layer count) and the optional
-// fastconf.ProviderMetricsSink (per-provider error / dropped event
-// counters).
+// The Sink has the method set of observe.MetricsSink: reload counters,
+// stage durations, state generation, layer count, and per-provider error
+// and dropped-event counters.
 package prometheus
 
 import (
@@ -68,7 +67,7 @@ func New(reg prometheus.Registerer) *Sink {
 		}, []string{"provider"}),
 		stageDur: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "fastconf_stage_duration_seconds",
-			Help:    "Per-stage reload pipeline latency (assemble, merge, migration, transform, decode, validate, commit).",
+			Help:    "Per-stage reload pipeline latency (assemble, merge, transform, secret, typed-hooks, decode, field-meta, validate, policy, commit).",
 			Buckets: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5},
 		}, []string{"stage", "result"}),
 	}
@@ -76,10 +75,10 @@ func New(reg prometheus.Registerer) *Sink {
 	return s
 }
 
-// ReloadStarted satisfies fastconf.MetricsSink.
+// ReloadStarted is a no-op kept for v0 fastconf.MetricsSink compatibility.
 func (s *Sink) ReloadStarted() {}
 
-// ReloadFinished satisfies fastconf.MetricsSink.
+// ReloadFinished is called by observe.Metrics.
 func (s *Sink) ReloadFinished(ok bool, dur time.Duration) {
 	label := "ok"
 	if !ok {
@@ -89,24 +88,24 @@ func (s *Sink) ReloadFinished(ok bool, dur time.Duration) {
 	s.reloadDur.Observe(dur.Seconds())
 }
 
-// StateGeneration satisfies fastconf.MetricsSink.
+// StateGeneration is called by observe.Metrics.
 func (s *Sink) StateGeneration(gen uint64) { s.gen.Set(float64(gen)) }
 
-// LayersTotal satisfies fastconf.MetricsSink.
+// LayersTotal is called by observe.Metrics.
 func (s *Sink) LayersTotal(n int) { s.layers.Set(float64(n)) }
 
-// ProviderError satisfies fastconf.ProviderMetricsSink.
+// ProviderError is called by observe.Metrics.
 func (s *Sink) ProviderError(provider string) {
 	s.provError.WithLabelValues(provider).Inc()
 }
 
-// EventDropped satisfies fastconf.ProviderMetricsSink.
+// EventDropped is called by observe.Metrics.
 func (s *Sink) EventDropped(provider string) {
 	s.eventDropped.WithLabelValues(provider).Inc()
 }
 
-// StageDuration satisfies fastconf.StageMetricsSink.
-// stage ∈ {"assemble","merge","migration","transform","decode","validate","commit"}.
+// StageDuration is called by observe.Metrics.
+// stage ∈ {"assemble","merge","transform","secret","typed-hooks","decode","field-meta","validate","policy","commit"}.
 func (s *Sink) StageDuration(stage string, dur time.Duration, ok bool) {
 	label := "ok"
 	if !ok {

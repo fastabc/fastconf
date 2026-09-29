@@ -1,4 +1,4 @@
-# Phase 28 — Prometheus Recording Rules
+# FastConf Prometheus recording rules
 # Drop into your Prometheus config under `rule_files:` to expose
 # convenient SLI views derived from raw fastconf series.
 groups:

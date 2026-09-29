@@ -14,9 +14,11 @@ and the contract the built-in Providers honour.
 
 ## The model in one sentence
 
-**Per-call lifetime is governed by `ctx` (P1.1).** Set a `Reload(ctx)`
+**Per-call lifetime is governed by `ctx`.** Set a `Reload(ctx)`
 deadline and the cancellation flows into every `Provider.Load(ctx)`,
-`SecretResolver`, and `Transformer` running inside that pipeline.
+`SecretResolver` calls running inside that pipeline. Transformers are
+synchronous callbacks without a context parameter; stage boundaries still
+check cancellation before continuing.
 
 This means HTTP-client `Timeout` is a *safety net*, not the primary knob.
 You set it conservatively so a rogue Provider can't pin a goroutine
@@ -140,7 +142,7 @@ When implementing `contracts.Provider`, the cancellation contract is:
 1. **`Load(ctx)` MUST honour `ctx.Done()`** — return `ctx.Err()` promptly.
    If you call out to a custom client, use `http.NewRequestWithContext`
    (or the equivalent), never the deprecated context-less constructor.
-2. **`Watch(ctx)` MUST close the returned channel when `ctx.Done()`
+2. **`Watch(ctx, from)` MUST close the returned channel when `ctx.Done()`
    fires** so the framework's provider watcher loop can exit cleanly.
 3. **Do not use `http.DefaultClient`.** Build your own (`&http.Client{...}`)
    so you can be torn down without affecting unrelated callers.

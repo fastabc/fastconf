@@ -3,37 +3,40 @@ package labels_test
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
-	mappath "github.com/fastabc/fastconf/confmap"
+	"github.com/fastabc/fastconf/internal/testutil"
+
+	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/contracts"
 	provider "github.com/fastabc/fastconf/providers/labels"
 )
 
 func TestRoutingLabelProvider_TypedLeavesListsAndIndexes(t *testing.T) {
-	p := provider.NewRoutingLabels([]string{
+	p := provider.New([]string{
 		"routing.enable=true",
 		"routing.http.services.api.loadbalancer.server.port=8080",
 		"routing.http.routers.api.entrypoints=web,websecure",
 		"routing.http.routers.api.tls.domains[0].main=example.com",
 		"routing.http.routers.api.tls.domains[0].sans=www.example.com,api.example.com",
-	}, provider.RoutingLabelOptions{})
+	}, provider.Options{Routing: &provider.Routing{}})
 
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := mappath.GetDotted(got, "routing.enable"); v != true {
+	if v, _ := confmap.GetDotted(got, "routing.enable"); v != true {
 		t.Fatalf("routing.enable got %v (%T)", v, v)
 	}
-	if v, _ := mappath.GetDotted(got, "routing.http.services.api.loadbalancer.server.port"); v != int64(8080) {
+	if v, _ := confmap.GetDotted(got, "routing.http.services.api.loadbalancer.server.port"); v != int64(8080) {
 		t.Fatalf("port got %v (%T)", v, v)
 	}
-	if v, _ := mappath.GetDotted(got, "routing.http.routers.api.entrypoints"); !reflect.DeepEqual(v, []any{"web", "websecure"}) {
+	if v, _ := confmap.GetDotted(got, "routing.http.routers.api.entrypoints"); !reflect.DeepEqual(v, []any{"web", "websecure"}) {
 		t.Fatalf("entrypoints got %#v", v)
 	}
 
-	domains, ok := mappath.GetDotted(got, "routing.http.routers.api.tls.domains")
+	domains, ok := confmap.GetDotted(got, "routing.http.routers.api.tls.domains")
 	if !ok {
 		t.Fatal("domains missing")
 	}
@@ -49,44 +52,44 @@ func TestRoutingLabelProvider_TypedLeavesListsAndIndexes(t *testing.T) {
 }
 
 func TestRoutingLabelProvider_RawSuffixesProtectExpressions(t *testing.T) {
-	p := provider.NewRoutingLabels([]string{
+	p := provider.New([]string{
 		"routing.http.routers.api.rule=Host(`a.example`,`b.example`)",
 		"routing.http.middlewares.api.headers.headersregexp=foo,bar",
-	}, provider.RoutingLabelOptions{})
+	}, provider.Options{Routing: &provider.Routing{}})
 
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := mappath.GetDotted(got, "routing.http.routers.api.rule"); v != "Host(`a.example`,`b.example`)" {
+	if v, _ := confmap.GetDotted(got, "routing.http.routers.api.rule"); v != "Host(`a.example`,`b.example`)" {
 		t.Fatalf("rule got %#v", v)
 	}
-	if v, _ := mappath.GetDotted(got, "routing.http.middlewares.api.headers.headersregexp"); v != "foo,bar" {
+	if v, _ := confmap.GetDotted(got, "routing.http.middlewares.api.headers.headersregexp"); v != "foo,bar" {
 		t.Fatalf("headersregexp got %#v", v)
 	}
 }
 
 func TestRoutingLabelProvider_ExplicitEmptyRawSuffixesDisableProtection(t *testing.T) {
-	p := provider.NewRoutingLabels([]string{
+	p := provider.New([]string{
 		"routing.http.routers.api.rule=a,b",
-	}, provider.RoutingLabelOptions{KeepRawSuffixes: []string{}})
+	}, provider.Options{Routing: &provider.Routing{KeepRawSuffixes: []string{}}})
 
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := mappath.GetDotted(got, "routing.http.routers.api.rule"); !reflect.DeepEqual(v, []any{"a", "b"}) {
+	if v, _ := confmap.GetDotted(got, "routing.http.routers.api.rule"); !reflect.DeepEqual(v, []any{"a", "b"}) {
 		t.Fatalf("rule got %#v", v)
 	}
 }
 
 func TestRoutingLabelProvider_EnableGateSkipsDisabledSet(t *testing.T) {
-	p := provider.NewRoutingLabels([]string{
+	p := provider.New([]string{
 		"routing.enable=false",
 		"routing.http.routers.api.entrypoints=web,websecure",
-	}, provider.RoutingLabelOptions{EnableGate: "routing.enable"})
+	}, provider.Options{Routing: &provider.Routing{EnableGate: "routing.enable"}})
 
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,12 +108,12 @@ func TestRoutingLabelProvider_EnableGateAllowsAbsentOrTruthySet(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			p := provider.NewRoutingLabels(tc.labels, provider.RoutingLabelOptions{EnableGate: "routing.enable"})
-			got, err := p.Load(context.Background())
+			p := provider.New(tc.labels, provider.Options{Routing: &provider.Routing{EnableGate: "routing.enable"}})
+			got, err := testutil.Map(p.Load(context.Background()))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if v, _ := mappath.GetDotted(got, "routing.http.routers.api.priority"); v != int64(10) {
+			if v, _ := confmap.GetDotted(got, "routing.http.routers.api.priority"); v != int64(10) {
 				t.Fatalf("priority got %#v", v)
 			}
 		})
@@ -118,78 +121,78 @@ func TestRoutingLabelProvider_EnableGateAllowsAbsentOrTruthySet(t *testing.T) {
 }
 
 func TestRoutingLabelProvider_LowercaseKeysNormalizesGateAndTree(t *testing.T) {
-	p := provider.NewRoutingLabels([]string{
+	p := provider.New([]string{
 		"Routing.Enable=true",
 		"Routing.HTTP.Routers.API.EntryPoints=web,websecure",
-	}, provider.RoutingLabelOptions{
+	}, provider.Options{Routing: &provider.Routing{
 		EnableGate:    "Routing.Enable",
 		LowercaseKeys: true,
-	})
+	}})
 
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := mappath.GetDotted(got, "routing.http.routers.api.entrypoints"); !reflect.DeepEqual(v, []any{"web", "websecure"}) {
+	if v, _ := confmap.GetDotted(got, "routing.http.routers.api.entrypoints"); !reflect.DeepEqual(v, []any{"web", "websecure"}) {
 		t.Fatalf("normalized entrypoints got %#v", v)
 	}
 }
 
 func TestRoutingLabelProvider_RawAndNoListSplitOptOuts(t *testing.T) {
 	t.Run("raw", func(t *testing.T) {
-		p := provider.NewRoutingLabels([]string{
+		p := provider.New([]string{
 			"routing.enable=true",
 			"routing.http.routers.api.entrypoints=web,websecure",
-		}, provider.RoutingLabelOptions{Raw: true})
-		got, err := p.Load(context.Background())
+		}, provider.Options{Routing: &provider.Routing{Raw: true}})
+		got, err := testutil.Map(p.Load(context.Background()))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if v, _ := mappath.GetDotted(got, "routing.enable"); v != "true" {
+		if v, _ := confmap.GetDotted(got, "routing.enable"); v != "true" {
 			t.Fatalf("raw enable got %#v", v)
 		}
-		if v, _ := mappath.GetDotted(got, "routing.http.routers.api.entrypoints"); v != "web,websecure" {
+		if v, _ := confmap.GetDotted(got, "routing.http.routers.api.entrypoints"); v != "web,websecure" {
 			t.Fatalf("raw entrypoints got %#v", v)
 		}
 	})
 
 	t.Run("no-list-split", func(t *testing.T) {
-		p := provider.NewRoutingLabels([]string{
+		p := provider.New([]string{
 			"routing.http.routers.api.entrypoints=web,websecure",
-		}, provider.RoutingLabelOptions{NoListSplit: true})
-		got, err := p.Load(context.Background())
+		}, provider.Options{Routing: &provider.Routing{NoListSplit: true}})
+		got, err := testutil.Map(p.Load(context.Background()))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if v, _ := mappath.GetDotted(got, "routing.http.routers.api.entrypoints"); v != "web,websecure" {
+		if v, _ := confmap.GetDotted(got, "routing.http.routers.api.entrypoints"); v != "web,websecure" {
 			t.Fatalf("entrypoints got %#v", v)
 		}
 	})
 }
 
 func TestRoutingLabelProvider_IndexedPromotionLeavesMixedBaseUntouched(t *testing.T) {
-	p := provider.NewRoutingLabels([]string{
+	p := provider.New([]string{
 		"routing.domains=base",
 		"routing.domains[0].main=example.com",
-	}, provider.RoutingLabelOptions{})
+	}, provider.Options{Routing: &provider.Routing{}})
 
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := mappath.GetDotted(got, "routing.domains"); v != "base" {
+	if v, _ := confmap.GetDotted(got, "routing.domains"); v != "base" {
 		t.Fatalf("base domains got %#v", v)
 	}
-	if v, _ := mappath.Get(got, "routing", "domains[0]", "main"); v != "example.com" {
+	if v, _ := confmap.Get(got, "routing", "domains[0]", "main"); v != "example.com" {
 		t.Fatalf("indexed sibling should remain untouched, got %#v", v)
 	}
 }
 
-func TestPromoteIndexedRoutingKeys_SparseIndicesFillWithNil(t *testing.T) {
-	tree := map[string]any{
-		"domains[1]": map[string]any{"main": "b.example"},
+func TestRoutingLabelProvider_SparseIndicesFillWithNil(t *testing.T) {
+	tree, err := testutil.Map(provider.New([]string{"domains[1].main=b.example"}, provider.Options{Routing: &provider.Routing{}}).Load(context.Background()))
+	if err != nil {
+		t.Fatal(err)
 	}
-	provider.PromoteIndexedRoutingKeys(tree)
 	want := []any{nil, map[string]any{"main": "b.example"}}
 	if !reflect.DeepEqual(tree["domains"], want) {
 		t.Fatalf("domains got %#v want %#v", tree["domains"], want)
@@ -197,19 +200,19 @@ func TestPromoteIndexedRoutingKeys_SparseIndicesFillWithNil(t *testing.T) {
 }
 
 func TestRoutingLabelProvider_MapFormAndDefaults(t *testing.T) {
-	p := provider.NewRoutingLabelMap(map[string]string{
+	p := provider.New(map[string]string{
 		"routing.http.routers.api.priority": "10",
-	}, provider.RoutingLabelOptions{Prefix: "routing."})
+	}, provider.Options{Prefix: "routing.", Routing: &provider.Routing{}})
 
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := mappath.GetDotted(got, "routing.http.routers.api.priority"); v != int64(10) {
+	if v, _ := confmap.GetDotted(got, "routing.http.routers.api.priority"); v != int64(10) {
 		t.Fatalf("priority got %#v", v)
 	}
-	if p.Priority() != contracts.PriorityStatic {
-		t.Fatalf("priority got %d want %d", p.Priority(), contracts.PriorityStatic)
+	if contracts.Describe(p).Priority != contracts.PriorityStatic {
+		t.Fatalf("priority got %d want %d", contracts.Describe(p).Priority, contracts.PriorityStatic)
 	}
 	if p.Name() != "labels:routing:routing." {
 		t.Fatalf("name got %q", p.Name())
@@ -217,12 +220,32 @@ func TestRoutingLabelProvider_MapFormAndDefaults(t *testing.T) {
 }
 
 func TestRoutingLabelProvider_WatchReturnsNil(t *testing.T) {
-	p := provider.NewRoutingLabels(nil, provider.RoutingLabelOptions{})
-	ch, err := p.Watch(context.Background())
+	p := provider.New(nil, provider.Options{Routing: &provider.Routing{}})
+	ch, err := p.Watch(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ch != nil {
 		t.Fatal("Watch should return (nil, nil) — labels are static")
+	}
+}
+
+func TestRoutingLabelProvider_IndexLimit(t *testing.T) {
+	for _, key := range []string{
+		"items[9223372036854775807]=x",
+		"items[99999999999999999999]=x",
+		"a.items[1024]=x",
+	} {
+		_, err := provider.New([]string{key}, provider.Options{Routing: &provider.Routing{}}).Load(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "index exceeds") {
+			t.Errorf("%s: err = %v, want index limit error", key, err)
+		}
+	}
+	tree, err := testutil.Map(provider.New([]string{"items[1023]=x"}, provider.Options{Routing: &provider.Routing{}}).Load(context.Background()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if items := tree["items"].([]any); len(items) != provider.MaxRoutingIndex+1 || items[1023] != "x" {
+		t.Fatalf("items len = %d", len(items))
 	}
 }

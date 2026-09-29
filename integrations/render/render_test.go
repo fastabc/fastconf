@@ -2,8 +2,11 @@ package render
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
@@ -36,7 +39,7 @@ func TestWire_AtomicWriteAndHook(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	r, err := GoTemplate[cfg](tmpl, nil)
 	if err != nil {
@@ -70,12 +73,12 @@ func TestWire_AtomicWriteAndHook(t *testing.T) {
 	// Trigger reload via a bytes patch source.
 	mgr2, err := fastconf.New[cfg](context.Background(),
 		fastconf.WithFS(mfs), fastconf.WithDir("conf.d"),
-		fastconf.WithSource(source.NewBytes("override", "yaml", []byte("port: 9090\n")), nil),
+		fastconf.WithProvider(source.NewBytes("override", "yaml", []byte("port: 9090\n"))),
 	)
 	if err != nil {
 		t.Fatalf("manager 2: %v", err)
 	}
-	defer mgr2.Close()
+	defer func() { _ = mgr2.Close() }()
 	if mgr2.Get().Port != 9090 {
 		t.Fatalf("override failed, got %+v", mgr2.Get())
 	}
@@ -154,7 +157,7 @@ func TestOptions_OnError_ReceivesRenderError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	renderer, err := GoTemplate[cfg](tmpl, nil)
 	if err != nil {
@@ -175,5 +178,129 @@ func TestOptions_OnError_ReceivesRenderError(t *testing.T) {
 	// The initial render should succeed (path is valid). Verify file exists.
 	if _, err := os.Stat(out); err != nil {
 		t.Errorf("output file not created: %v", err)
+	}
+}
+
+type versioned struct {
+	V     int `json:"v"`
+	Other int `json:"other"`
+}
+
+func newVersionedManager(t *testing.T) *fastconf.Manager[versioned] {
+	t.Helper()
+	mfs := fstest.MapFS{"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("v: 1\n")}}
+	mgr, err := fastconf.New[versioned](context.Background(), fastconf.WithFS(mfs), fastconf.WithDir("conf.d"))
+	if err != nil {
+		t.Fatalf("manager: %v", err)
+	}
+	t.Cleanup(func() { _ = mgr.Close() })
+	return mgr
+}
+
+func renderV(v *versioned) ([]byte, error) { return []byte(strconv.Itoa(v.V)), nil }
+
+// A slow initial render must not overwrite a newer reload that finished meanwhile.
+func TestWire_InitialRenderDoesNotOverwriteNewerReload(t *testing.T) {
+	mgr := newVersionedManager(t)
+	out := filepath.Join(t.TempDir(), "out")
+	entered, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	r := RendererFunc[versioned](func(v *versioned) ([]byte, error) {
+		if calls.Add(1) == 1 {
+			close(entered)
+			<-release
+		}
+		return renderV(v)
+	})
+	wired := make(chan func())
+	go func() {
+		cancel, err := Wire(mgr, r, out, Options{})
+		if err != nil {
+			t.Error(err)
+		}
+		wired <- cancel
+	}()
+	<-entered
+	reloaded := make(chan error)
+	go func() { reloaded <- mgr.Reload(context.Background(), fastconf.WithOverride(map[string]any{"v": 2})) }()
+	// Give the reload time to reach the (blocked) subscriber before releasing v1.
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	if err := <-reloaded; err != nil {
+		t.Fatal(err)
+	}
+	defer (<-wired)()
+	if mgr.Get().V != 2 {
+		t.Fatalf("manager V = %d", mgr.Get().V)
+	}
+	if got, _ := os.ReadFile(out); string(got) != "2" {
+		t.Fatalf("file = %q, want 2", got)
+	}
+}
+
+// A failed write must not poison the dedupe cache: the next reload retries.
+func TestWire_RetriesAfterWriteFailure(t *testing.T) {
+	mgr := newVersionedManager(t)
+	out := filepath.Join(t.TempDir(), "out")
+	if err := os.MkdirAll(filepath.Join(out, "block"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var errs atomic.Int32
+	cancel, err := Wire(mgr, RendererFunc[versioned](renderV), out, Options{OnError: func(error) { errs.Add(1) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+	if errs.Load() != 1 {
+		t.Fatalf("errors = %d, want 1", errs.Load())
+	}
+	if err := os.RemoveAll(out); err != nil {
+		t.Fatal(err)
+	}
+	// Only an unrelated field changes; the rendered bytes are identical.
+	if err := mgr.Reload(context.Background(), fastconf.WithOverride(map[string]any{"other": 1})); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(out); err != nil || string(got) != "1" {
+		t.Fatalf("file = %q, err = %v", got, err)
+	}
+}
+
+func TestWire_EmptyFirstRenderCreatesFile(t *testing.T) {
+	mgr := newVersionedManager(t)
+	out := filepath.Join(t.TempDir(), "out")
+	cancel, err := Wire(mgr, RendererFunc[versioned](func(*versioned) ([]byte, error) { return nil, nil }), out, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+	if got, err := os.ReadFile(out); err != nil || len(got) != 0 {
+		t.Fatalf("file = %q, err = %v", got, err)
+	}
+}
+
+func TestHTTPGet_DoesNotFollowRedirect(t *testing.T) {
+	var calls atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+	}))
+	defer target.Close()
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	}))
+	defer redirect.Close()
+	if err := HTTPGet(redirect.URL)(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 0 {
+		t.Fatal("hook followed redirect")
+	}
+	if err := HTTPGet(target.URL)(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := HTTPGet(target.URL)(ctx, ""); err == nil {
+		t.Fatal("expected cancellation")
 	}
 }

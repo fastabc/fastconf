@@ -1,47 +1,47 @@
 package fastconf
 
-// P2.4: every boundary method on *State[T] must tolerate a nil receiver
-// the same way Introspect / Dump / Sub already do. This file pins that
-// contract down so future additions cannot silently regress.
-
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
+	"time"
+
+	"github.com/fastabc/fastconf/providers/source"
 )
+
+// Snapshot accessors tolerate a nil receiver.
 
 type nilCfg struct {
 	Name string `json:"name"`
 }
 
+func TestStateCauseRevisionsAreDetached(t *testing.T) {
+	s := &State[nilCfg]{cause: ReloadCause{Revisions: map[string]string{"remote": "r1"}}}
+	cause := s.Cause()
+	cause.Revisions["remote"] = "changed"
+	delete(cause.Revisions, "remote")
+	if got := s.Cause().Revisions["remote"]; got != "r1" {
+		t.Fatalf("Cause mutation changed snapshot revision: %q", got)
+	}
+}
+
 func TestState_NilSafety(t *testing.T) {
 	var s *State[nilCfg] // intentionally nil
 
-	t.Run("Redacted", func(t *testing.T) {
-		if got := s.Redacted(); got != nil {
-			t.Errorf("Redacted on nil: want nil, got %v", got)
+	t.Run("Map", func(t *testing.T) {
+		if got := s.Map(); got != nil {
+			t.Errorf("Map on nil: want nil, got %v", got)
 		}
-	})
-
-	t.Run("Redact", func(t *testing.T) {
-		if got := s.Redact(DefaultSecretRedactor); got != nil {
-			t.Errorf("Redact on nil: want nil, got %v", got)
-		}
-	})
-
-	t.Run("FeatureRules", func(t *testing.T) {
-		if got := s.FeatureRules(); got != nil {
-			t.Errorf("FeatureRules on nil: want nil, got %v", got)
-		}
-	})
-
-	t.Run("Origins", func(t *testing.T) {
-		if got := s.Origins(); got != nil {
-			t.Errorf("Origins on nil: want nil, got %v", got)
+		if got := s.Unredacted().Map(); got != nil {
+			t.Errorf("Unredacted().Map on nil: want nil, got %v", got)
 		}
 	})
 
@@ -51,324 +51,43 @@ func TestState_NilSafety(t *testing.T) {
 		}
 	})
 
-	t.Run("LookupStrict", func(t *testing.T) {
-		got, err := s.LookupStrict("any.path")
-		if got != nil {
-			t.Errorf("LookupStrict on nil: want nil slice, got %v", got)
-		}
-		if !errors.Is(err, ErrNoOrigin) {
-			t.Errorf("LookupStrict on nil: want ErrNoOrigin, got %v", err)
-		}
-	})
-
 	t.Run("Diff", func(t *testing.T) {
 		// nil vs nil → no differences
 		if got := s.Diff(nil); len(got) != 0 {
 			t.Errorf("nil.Diff(nil): want empty, got %v", got)
 		}
-		// nil vs nil receiver on either side must not panic
-		other := s
-		_ = other.Diff(s)
-	})
-
-	t.Run("Introspect", func(t *testing.T) {
-		// Introspect on a nil State returns a nil *Introspection
-		// (documented behaviour). Calling Keys/Settings/At on that nil
-		// holder must NOT panic and must return empty.
-		ins := s.Introspect()
-		if got := ins.Keys(); len(got) != 0 {
-			t.Errorf("Introspect.Keys on nil state: want empty, got %v", got)
-		}
-		if got := ins.Settings(); len(got) != 0 {
-			t.Errorf("Introspect.Settings on nil state: want empty, got %v", got)
-		}
-		if got := ins.At("foo"); len(got) != 0 {
-			t.Errorf("Introspect.At on nil state: want empty, got %v", got)
-		}
 	})
 
 	t.Run("Dump", func(t *testing.T) {
-		b, err := s.Dump(DumpYAML, nil)
-		if err != nil {
-			t.Fatalf("Dump on nil: unexpected error %v", err)
-		}
-		if string(b) != "{}\n" {
-			t.Errorf("Dump on nil: want \"{}\\n\", got %q", b)
-		}
-		// Same with a redactor — must not panic.
-		if _, err := s.Dump(DumpYAML, DefaultSecretRedactor); err != nil {
-			t.Errorf("Dump(redactor) on nil: unexpected error %v", err)
+		for _, tc := range []struct {
+			format Format
+			want   string
+		}{{JSON, "{}"}, {YAML, "{}\n"}, {TOML, ""}} {
+			t.Run(string(tc.format), func(t *testing.T) {
+				for _, dump := range []func(Format) ([]byte, error){s.Dump, s.Unredacted().Dump} {
+					b, err := dump(tc.format)
+					if err != nil || string(b) != tc.want {
+						t.Errorf("Dump on nil = %q, %v; want %q, nil", b, err, tc.want)
+					}
+				}
+			})
 		}
 	})
 }
 
-func TestState_SourcesAndFeatureRulesAreCopies(t *testing.T) {
-	type cfg struct {
-		Name     string                 `json:"name" yaml:"name"`
-		Features map[string]FeatureRule `json:"features" yaml:"features"`
+func TestState_SourcesAreCopies(t *testing.T) {
+	s := &State[int]{sources: []SourceRef{{Path: "original", Priority: 1}}}
+	sources := s.Sources()
+	sources[0] = SourceRef{Path: "mutated", Priority: 99999}
+	if got := s.Sources(); len(got) != 1 || got[0] != s.sourcesRef()[0] || got[0].Path != "original" || got[0].Priority != 1 {
+		t.Fatalf("Sources leaked storage: %+v", got)
 	}
-	fs := fstest.MapFS{
-		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte(`
-name: base
-features:
-  rollout:
-    default: false
-    targets:
-      - when: {region: eu}
-        value: true
-`)},
+	if s.sourceCount() != 1 {
+		t.Fatalf("sourceCount = %d; want 1", s.sourceCount())
 	}
-	mgr, err := New[cfg](context.Background(),
-		WithFS(fs),
-		WithDir("conf.d"),
-		WithFeatureRules(func(c *cfg) map[string]FeatureRule { return c.Features }),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer mgr.Close()
-
-	snap := mgr.Snapshot()
-	sources := snap.Sources()
-	if len(sources) == 0 {
-		t.Fatal("expected at least one source")
-	}
-	origPriority := sources[0].Priority
-	sources[0].Priority = 99999
-	if got := snap.Sources()[0].Priority; got != origPriority {
-		t.Fatalf("Sources returned internal slice: got priority %d want %d", got, origPriority)
-	}
-
-	rules := snap.FeatureRules()
-	if _, ok := rules["rollout"]; !ok {
-		t.Fatalf("missing feature rule: %+v", rules)
-	}
-	rule := rules["rollout"]
-	rule.Default = true
-	rule.Targets[0].When["region"] = "us"
-	rules["rollout"] = rule
-
-	fresh := snap.FeatureRules()["rollout"]
-	if fresh.Default != false {
-		t.Fatalf("FeatureRules returned internal map value: default=%v", fresh.Default)
-	}
-	if got := fresh.Targets[0].When["region"]; got != "eu" {
-		t.Fatalf("FeatureRules returned shared nested target map: region=%q", got)
-	}
-}
-
-type yamlCfg struct {
-	Server struct {
-		Addr string `json:"addr"`
-		Port int    `json:"port"`
-	} `json:"server"`
-	Database struct {
-		DSN string `json:"dsn"`
-	} `json:"database"`
-}
-
-func TestState_Dump_StableOrder(t *testing.T) {
-	fs := fstest.MapFS{
-		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte(`
-server:
-  addr: ":8080"
-  port: 8080
-database:
-  dsn: "postgres://prod"
-`)},
-	}
-	mgr, err := New[yamlCfg](context.Background(),
-		WithFS(fs),
-		WithDir("conf.d"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer mgr.Close()
-	state := mgr.Snapshot()
-
-	// First call.
-	a, err := state.Dump(DumpYAML, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Second call must produce byte-identical output (deterministic order).
-	b, err := state.Dump(DumpYAML, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(a, b) {
-		t.Errorf("Dump(YAML) not stable:\nfirst:\n%s\nsecond:\n%s", a, b)
-	}
-
-	// Lexicographic ordering: database key must appear before server.
-	out := string(a)
-	dbIdx := strings.Index(out, "database:")
-	srvIdx := strings.Index(out, "server:")
-	if dbIdx < 0 || srvIdx < 0 || dbIdx > srvIdx {
-		t.Errorf("expected sorted keys; got order:\n%s", out)
-	}
-}
-
-func TestState_Dump_NilState(t *testing.T) {
-	var s *State[yamlCfg]
-	b, err := s.Dump(DumpYAML, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(b) != "{}\n" {
-		t.Errorf("nil state should dump to empty map, got %q", b)
-	}
-}
-
-// secretYAMLCfg has a fc:"secret" field so we can prove the
-// redactor parameter is honoured (P2.3).
-type secretYAMLCfg struct {
-	Server struct {
-		Addr string `json:"addr"`
-	} `json:"server"`
-	Database struct {
-		DSN string `json:"dsn" fc:"secret"`
-	} `json:"database"`
-}
-
-func TestState_Dump_HonoursRedactor(t *testing.T) {
-	fs := fstest.MapFS{
-		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte(`
-server:
-  addr: ":8080"
-database:
-  dsn: "postgres://user:hunter2@host/db"
-`)},
-	}
-	mgr, err := New[secretYAMLCfg](context.Background(),
-		WithFS(fs),
-		WithDir("conf.d"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer mgr.Close()
-
-	// Without redactor: raw secret leaks.
-	raw, err := mgr.Snapshot().Dump(DumpYAML, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(raw), "hunter2") {
-		t.Errorf("baseline (nil redactor) should emit raw secret; got:\n%s", raw)
-	}
-
-	// With DefaultSecretRedactor: secret replaced, non-secret untouched.
-	masked, err := mgr.Snapshot().Dump(DumpYAML, DefaultSecretRedactor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(masked), "hunter2") {
-		t.Errorf("DefaultSecretRedactor did not mask secret:\n%s", masked)
-	}
-	if !strings.Contains(string(masked), "REDACTED") {
-		t.Errorf("expected REDACTED marker:\n%s", masked)
-	}
-	if !strings.Contains(string(masked), ":8080") {
-		t.Errorf("non-secret field unexpectedly altered:\n%s", masked)
-	}
-
-	// Custom redactor: full control over display.
-	custom := func(path string, _ any) any { return "[secret:" + path + "]" }
-	out, err := mgr.Snapshot().Dump(DumpYAML, custom)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(out), "[secret:database.dsn]") {
-		t.Errorf("custom redactor did not apply:\n%s", out)
-	}
-}
-
-func TestState_Dump_NestedShape(t *testing.T) {
-	fs := fstest.MapFS{
-		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("server:\n  addr: x\n  port: 1\n")},
-	}
-	mgr, _ := New[yamlCfg](context.Background(),
-		WithFS(fs),
-		WithDir("conf.d"),
-	)
-	defer mgr.Close()
-	out, err := mgr.Snapshot().Dump(DumpYAML, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Output should be nested YAML, not flat dotted keys.
-	if !strings.Contains(string(out), "server:\n") {
-		t.Errorf("expected nested server: in output:\n%s", out)
-	}
-	if strings.Contains(string(out), "server.addr") {
-		t.Errorf("flat key leaked into YAML output:\n%s", out)
-	}
-}
-
-// TestState_Dump_JSONParity verifies that Dump(DumpJSON, nil) round-trips
-// to the same tree as json.Marshal(*state.Value) does
-// (modulo whitespace/ordering — both sides unmarshal to identical maps).
-func TestState_Dump_JSONParity(t *testing.T) {
-	fs := fstest.MapFS{
-		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte(`
-server:
-  addr: ":8080"
-  port: 8080
-database:
-  dsn: "postgres://prod"
-`)},
-	}
-	mgr, err := New[yamlCfg](context.Background(),
-		WithFS(fs),
-		WithDir("conf.d"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer mgr.Close()
-	snap := mgr.Snapshot()
-
-	dump, err := snap.Dump(DumpJSON, nil)
-	if err != nil {
-		t.Fatalf("Dump(JSON): %v", err)
-	}
-	direct, err := json.Marshal(snap.Value())
-	if err != nil {
-		t.Fatalf("json.Marshal(Value): %v", err)
-	}
-	var a, b map[string]any
-	if err := json.Unmarshal(dump, &a); err != nil {
-		t.Fatalf("unmarshal dump: %v", err)
-	}
-	if err := json.Unmarshal(direct, &b); err != nil {
-		t.Fatalf("unmarshal direct: %v", err)
-	}
-	if !mapsEqualJSON(a, b) {
-		t.Errorf("Dump(JSON) tree does not match json.Marshal(Value)\ndump: %s\ndirect: %s", dump, direct)
-	}
-}
-
-func TestState_Dump_TOML(t *testing.T) {
-	fs := fstest.MapFS{
-		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("server:\n  addr: x\n  port: 1\ndatabase:\n  dsn: pg\n")},
-	}
-	mgr, err := New[yamlCfg](context.Background(),
-		WithFS(fs),
-		WithDir("conf.d"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer mgr.Close()
-	out, err := mgr.Snapshot().Dump(DumpTOML, nil)
-	if err != nil {
-		t.Fatalf("Dump(TOML): %v", err)
-	}
-	s := string(out)
-	if !strings.Contains(s, "[server]") || !strings.Contains(s, "[database]") {
-		t.Errorf("expected TOML section headers in:\n%s", s)
+	var empty *State[int]
+	if empty.Sources() != nil || empty.sourceCount() != 0 || empty.sourcesRef() != nil {
+		t.Fatal("nil state source accessors must return nil/zero")
 	}
 }
 
@@ -381,53 +100,236 @@ func mapsEqualJSON(a, b map[string]any) bool {
 	return bytes.Equal(pa, pb)
 }
 
-func TestSourcePriorityBand(t *testing.T) {
-	tests := []struct {
-		name string
-		ref  SourceRef
-		want string
-	}{
-		{
-			name: "file base",
-			ref:  SourceRef{Priority: 1004, Path: "conf.d/base/00.yaml"},
-			want: "file:base",
-		},
-		{
-			name: "file overlay single profile",
-			ref:  SourceRef{Priority: 2001, Profile: "prod"},
-			want: "file:overlay:prod",
-		},
-		{
-			name: "file overlay multi-axis",
-			ref:  SourceRef{Priority: 3010, Profile: "region:us-east-1"},
-			want: "file:overlay:region:us-east-1",
-		},
-		{
-			name: "generator default priority (PriorityGenerator=70)",
-			ref:  SourceRef{Priority: 7070, Path: "gen://flags/feature.yaml"},
-			want: "generator:flags/feature.yaml",
-		},
-		{
-			name: "generator custom RawLayer.Priority",
-			ref:  SourceRef{Priority: 7042, Path: "gen://buildinfo/info.yaml"},
-			want: "generator:buildinfo/info.yaml",
-		},
-		{
-			name: "provider CLI band",
-			ref:  SourceRef{Priority: 8060, Path: "provider://cli"},
-			want: "provider:cli",
-		},
-		{
-			name: "unknown",
-			ref:  SourceRef{Priority: 17, Path: "anywhere"},
-			want: "unknown:17",
-		},
+type snapshotConfig struct {
+	Name string `json:"name" yaml:"name"`
+	DB   struct {
+		DSN  string `json:"dsn" yaml:"dsn"`
+		Pool int    `json:"pool" yaml:"pool"`
+	} `json:"db" yaml:"db"`
+}
+
+// emptyFS provides an empty conf.d so the file-discovery layer produces no
+// layers, leaving WithBytes as the only contributor.
+func emptyFS() fstest.MapFS {
+	return fstest.MapFS{
+		"conf.d/base/.keep": &fstest.MapFile{Data: []byte{}},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := SourcePriorityBand(tt.ref); got != tt.want {
-				t.Fatalf("SourcePriorityBand(%+v) = %q, want %q", tt.ref, got, tt.want)
+}
+
+func waitCommittedReason(t *testing.T, ch <-chan Committed, reason string) Committed {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-ch:
+			if ev.Cause.Reason == reason {
+				return ev
 			}
-		})
+		case <-deadline:
+			t.Fatalf("timed out waiting for Committed reason %q", reason)
+		}
+	}
+}
+
+func TestDiagnosticNumbersAreLossless(t *testing.T) {
+	type config struct {
+		ID       int64  `json:"id"`
+		Unsigned uint64 `json:"unsigned"`
+	}
+	m, err := New[config](context.Background(), WithFS(emptyFS()), WithProvider(source.NewBytes("numbers", "json", []byte(`{"id":9007199254740992}`))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.Close() }()
+	before := m.Snapshot()
+	if err := m.Reload(context.Background(), WithOverride(map[string]any{"id": int64(9007199254740993)})); err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Diff(m.Snapshot())) != 1 {
+		t.Fatal("integer increment disappeared from diff")
+	}
+	if got := fmt.Sprint(m.Snapshot().Unredacted().Map()["id"]); got != "9007199254740993" {
+		t.Fatalf("Map rounded integer: %s", got)
+	}
+	for _, format := range []Format{JSON, YAML, TOML} {
+		b, err := m.Snapshot().Unredacted().Dump(format)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(b), "9007199254740993") || strings.Contains(string(b), `"9007199254740993"`) {
+			t.Fatalf("%s changed number: %s", format, b)
+		}
+	}
+	if err := m.Reload(context.Background(), WithOverride(map[string]any{"id": int64(-9223372036854775808), "unsigned": uint64(18446744073709551615)})); err != nil {
+		t.Fatal(err)
+	}
+	for _, format := range []Format{JSON, YAML} {
+		b, err := m.Snapshot().Unredacted().Dump(format)
+		if err != nil || !strings.Contains(string(b), "18446744073709551615") || !strings.Contains(string(b), "-9223372036854775808") {
+			t.Fatalf("boundary lost in %s", format)
+		}
+	}
+	if _, err := m.Snapshot().Unredacted().Dump(TOML); err == nil {
+		t.Fatal("TOML must reject integers outside signed 64-bit range")
+	}
+}
+
+func TestMapNumbersStayExact(t *testing.T) {
+	m, err := New[map[string]any](context.Background(), WithFS(emptyFS()), WithProvider(source.NewBytes("numbers", "json", []byte(`{"id":9007199254740993,"decimal":1.234567890123456789,"exponent":1e30}`))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.Close() }()
+	for k, want := range map[string]string{"id": "9007199254740993", "decimal": "1.234567890123456789", "exponent": "1e30"} {
+		got, ok := (*m.Get())[k].(json.Number)
+		if !ok || got.String() != want {
+			t.Fatalf("%s lost numeric representation", k)
+		}
+	}
+}
+
+type countedJSONValue struct {
+	calls   *atomic.Int64
+	payload map[string]any
+	fail    bool
+}
+
+func (v countedJSONValue) MarshalJSON() ([]byte, error) {
+	v.calls.Add(1)
+	if v.fail {
+		return nil, errors.New("cannot encode")
+	}
+	return json.Marshal(v.payload)
+}
+
+func cachedTestState() (*State[countedJSONValue], *atomic.Int64) {
+	calls := new(atomic.Int64)
+	v := &countedJSONValue{calls: calls, payload: map[string]any{"items": []any{map[string]any{"value": "original"}}}}
+	return &State[countedJSONValue]{value: v}, calls
+}
+
+func mutateCachedView(raw map[string]any) {
+	raw["items"].([]any)[0].(map[string]any)["value"] = "mutated"
+}
+
+func TestTreeCacheMemoizationAndDetachedViews(t *testing.T) {
+	s, calls := cachedTestState()
+	mutateCachedView(s.Map())
+	diff := s.Diff(nil)
+	diff[0].Before.([]any)[0].(map[string]any)["value"] = "diff mutation"
+	copy := restampState(s, 2, ReloadCause{})
+	mutateCachedView(copy.Map())
+	for _, state := range []*State[countedJSONValue]{s, copy} {
+		dump, err := state.Unredacted().Dump(JSON)
+		if err != nil || !strings.Contains(string(dump), "original") || strings.Contains(string(dump), "mutation") {
+			t.Fatalf("dump=%s err=%v", dump, err)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("marshal calls=%d want=1", calls.Load())
+	}
+}
+
+func TestTreeCacheConcurrentViews(t *testing.T) {
+	s, _ := cachedTestState()
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				mutateCachedView(s.Map())
+				diff := s.Diff(nil)
+				diff[0].Before.([]any)[0].(map[string]any)["value"] = "diff mutation"
+				dump, err := s.Unredacted().Dump(JSON)
+				if err != nil || !strings.Contains(string(dump), "original") {
+					t.Errorf("dump=%s err=%v", dump, err)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestTreeCacheEncodingFailuresRemainErrors(t *testing.T) {
+	s, calls := cachedTestState()
+	s.value.fail = true
+	for i := 0; i < 2; i++ {
+		if _, err := s.Unredacted().Dump(JSON); err == nil {
+			t.Fatal("encoding failure hidden")
+		}
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("encoding failure was cached: calls=%d", calls.Load())
+	}
+}
+
+func TestTreeCacheRedactorIsolationAndSecretDiff(t *testing.T) {
+	type cfg struct {
+		Tokens []map[string]string `json:"tokens" fc:"secret"`
+		Value  string              `json:"value"`
+	}
+	// A custom redactor may mutate a container argument and return it directly.
+	mutating := func(_ string, v any) any { v.([]any)[0].(map[string]any)["token"] = "custom"; return v }
+	before := &State[cfg]{value: &cfg{Tokens: []map[string]string{{"token": "before-secret"}}, Value: "unchanged"}, redactor: mutating}
+	after := &State[cfg]{value: &cfg{Tokens: []map[string]string{{"token": "after-secret"}}, Value: "unchanged"}}
+	view := before.Map()
+	view["tokens"].([]any)[0].(map[string]any)["token"] = "caller mutation"
+	diff := diagnosticDiff(before, after)
+	if len(diff) != 1 || diff[0].Path != "tokens" {
+		t.Fatalf("secret-only change lost: %+v", diff)
+	}
+	encoded, _ := json.Marshal(diff)
+	if strings.Contains(string(encoded), "before-secret") || strings.Contains(string(encoded), "after-secret") {
+		t.Fatalf("secret leaked: %s", encoded)
+	}
+	raw, err := before.Unredacted().Dump(JSON)
+	if err != nil || !strings.Contains(string(raw), "before-secret") || strings.Contains(string(raw), "custom") {
+		t.Fatalf("cache mutated by redactor: %s %v", raw, err)
+	}
+}
+
+type hashConfig struct {
+	B string `json:"b"`
+	A int    `json:"a"`
+}
+
+func TestState_HashIgnoresUndecodedFields(t *testing.T) {
+	cfg := &hashConfig{B: "hello", A: 1}
+	if err := decodeInto(map[string]any{"a": 1, "b": "hello", "extra": true}, cfg, false, false); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := canonicalHash(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := sha256.Sum256([]byte(`{"b":"hello","a":1}`))
+	if got != want {
+		t.Fatalf("hash mismatch: got %x want %x", got, want)
+	}
+}
+
+func TestRingBuffer_CircularPush(t *testing.T) {
+	r := newRing[State[int]](3)
+	mk := func(g uint64) *State[int] { return &State[int]{generation: g} }
+	for g := uint64(1); g <= 5; g++ {
+		r.Push(mk(g))
+	}
+	snap := r.Snapshot()
+	if len(snap) != 3 {
+		t.Fatalf("want 3, got %d", len(snap))
+	}
+	want := []uint64{3, 4, 5}
+	for i, s := range snap {
+		if s.generation != want[i] {
+			t.Fatalf("idx %d: want %d got %d", i, want[i], s.generation)
+		}
+	}
+	matchGen := func(g uint64) func(*State[int]) bool {
+		return func(s *State[int]) bool { return s.generation == g }
+	}
+	if r.Find(matchGen(4)) == nil || r.Find(matchGen(1)) != nil {
+		t.Fatalf("Find broken")
 	}
 }

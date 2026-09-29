@@ -1,5 +1,3 @@
-//go:build !no_provider_vault
-
 package vault
 
 import (
@@ -12,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/fastabc/fastconf/internal/testutil"
 
 	"github.com/fastabc/fastconf/contracts"
 )
@@ -54,7 +54,7 @@ func TestProvider_LoadExpandsKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,12 +72,12 @@ func TestProvider_WatchOnVersionBump(t *testing.T) {
 	version.Store(1)
 	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		v := int(version.Load())
-		switch {
-		case r.URL.Path == "/v1/secret/data/cfg":
+		switch r.URL.Path {
+		case "/v1/secret/data/cfg":
 			if _, err := w.Write(dataResponse(v, map[string]any{"k": "v"})); err != nil {
 				t.Error(err)
 			}
-		case r.URL.Path == "/v1/secret/metadata/cfg":
+		case "/v1/secret/metadata/cfg":
 			if _, err := w.Write(metadataResponse(v)); err != nil {
 				t.Error(err)
 			}
@@ -94,7 +94,7 @@ func TestProvider_WatchOnVersionBump(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
-	ch, _ := p.Watch(ctx)
+	ch, _ := p.Watch(ctx, "")
 	// Bump the version after watch starts.
 	go func() { time.Sleep(60 * time.Millisecond); version.Store(2) }()
 	select {
@@ -127,11 +127,14 @@ func TestNew_Validation(t *testing.T) {
 			t.Fatalf("expected error for %+v", c)
 		}
 	}
+	if _, err := New("http://x", "p", "", WithInterval(10*time.Second)); err == nil {
+		t.Fatal("expected error for empty token with non-auth option")
+	}
 }
 
 func TestProvider_WatchDisabled(t *testing.T) {
 	p, _ := New("http://x", "p", "t", WithInterval(0))
-	ch, err := p.Watch(context.Background())
+	ch, err := p.Watch(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,10 +195,10 @@ func TestProvider_WatchLoopRetriesAfterBackpressure(t *testing.T) {
 	version.Store(1)
 	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		v := int(version.Load())
-		switch {
-		case r.URL.Path == "/v1/secret/data/cfg":
+		switch r.URL.Path {
+		case "/v1/secret/data/cfg":
 			_, _ = w.Write(dataResponse(v, map[string]any{"k": "v"}))
-		case r.URL.Path == "/v1/secret/metadata/cfg":
+		case "/v1/secret/metadata/cfg":
 			_, _ = w.Write(metadataResponse(v))
 		default:
 			w.WriteHeader(404)
@@ -238,5 +241,67 @@ func TestProvider_WatchLoopRetriesAfterBackpressure(t *testing.T) {
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("event was never re-emitted after channel drained — version got prematurely committed")
+	}
+}
+
+// A delivered event whose Load fails must not suppress later retries for the
+// same remote version.
+func TestProvider_WatchRetriesAfterFailedLoad(t *testing.T) {
+	var version atomic.Int64
+	version.Store(1)
+	var failNext atomic.Bool
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		v := int(version.Load())
+		switch r.URL.Path {
+		case "/v1/secret/data/cfg":
+			if failNext.CompareAndSwap(true, false) {
+				w.WriteHeader(500)
+				return
+			}
+			_, _ = w.Write(dataResponse(v, map[string]any{"v": v}))
+		case "/v1/secret/metadata/cfg":
+			_, _ = w.Write(metadataResponse(v))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	p, _ := New(srv.URL, "cfg", "tok", WithInterval(10*time.Millisecond))
+	if _, err := p.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	out := make(chan contracts.Event, 1)
+	go p.watchLoop(ctx, out)
+
+	failNext.Store(true)
+	version.Store(2)
+	next := func() {
+		t.Helper()
+		select {
+		case <-out:
+		case <-time.After(time.Second):
+			t.Fatal("no vault-version event")
+		}
+	}
+	next()
+	if _, err := p.Load(context.Background()); err == nil {
+		t.Fatal("expected transient load failure")
+	}
+	next()
+	snap, err := p.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snap.Map["v"]; got != float64(2) {
+		t.Fatalf("v = %v", got)
+	}
+	// Accepted: no further events for version 2.
+	select {
+	case <-out:
+		t.Fatal("unexpected event after successful load")
+	case <-time.After(60 * time.Millisecond):
 	}
 }

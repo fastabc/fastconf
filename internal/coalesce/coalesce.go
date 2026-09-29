@@ -12,9 +12,8 @@
 //   - caps every burst's total lifetime at MaxLag so pathological churn
 //     cannot starve the reload pipeline.
 //
-// The package depends only on the standard library; this rule is guarded
-// by check-layout.sh's directory allowlist and the go list -deps CI step,
-// and mirrors the constraint internal/flog operates under.
+// The package depends only on the standard library; CI enforces this with
+// go list -deps.
 package coalesce
 
 import (
@@ -142,7 +141,7 @@ func (c *Coalescer) Push(key, reason string, swapCommit bool) {
 			window = c.opts.SwapHint
 		}
 		k := key
-		nb.timer = time.AfterFunc(window, func() { c.flush(k) })
+		nb.timer = time.AfterFunc(window, func() { c.flush(k, nb) })
 	} else {
 		b.reasons = append(b.reasons, reason)
 		switch {
@@ -170,10 +169,10 @@ func (c *Coalescer) Push(key, reason string, swapCommit bool) {
 
 // flush is the timer callback; it acquires the lock, removes the burst,
 // and dispatches fn with the collected reasons.
-func (c *Coalescer) flush(key string) {
+func (c *Coalescer) flush(key string, self *burst) {
 	c.mu.Lock()
 	b, ok := c.bursts[key]
-	if !ok || c.stopped {
+	if !ok || b != self || c.stopped {
 		c.mu.Unlock()
 		return
 	}

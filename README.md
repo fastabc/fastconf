@@ -11,9 +11,9 @@ via `atomic.Pointer`; the hot read path is one `atomic.Pointer.Load()`.
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-> **Status**: public beta. The API still moves where semantics demand it.
-> [`pkg.go.dev`](https://pkg.go.dev/github.com/fastabc/fastconf) and this
-> README track the current truth of the codebase.
+> **Status**: v1.0.0. This README describes
+> the candidate API. See the [v1 migration guide](docs/cookbook/migration-v1.md)
+> when upgrading from a published v0 release.
 
 ---
 
@@ -24,19 +24,19 @@ via `atomic.Pointer`; the hot read path is one `atomic.Pointer.Load()`.
 3. [Installation](#installation)
 4. [Core model](#core-model)
 5. [Manager API](#manager-api)
-6. [Options reference](#options-reference)
-7. [Reload pipeline](#reload-pipeline)
-8. [Profiles & overlays](#profiles--overlays)
-9. [Provider system](#provider-system)
-10. [Transformers & migration](#transformers--migration)
-11. [Watch, Subscribe, and Plan](#watch-subscribe-and-plan)
-12. [Provenance, history & rollback](#provenance-history--rollback)
-13. [Observability](#observability)
-14. [Multi-tenant & presets](#multi-tenant--presets)
-15. [Sub-module ecosystem](#sub-module-ecosystem)
-16. [CLI tools](#cli-tools)
-17. [Performance](#performance)
-18. [Development](#development)
+6. [Reload pipeline](#reload-pipeline)
+7. [Profiles & overlays](#profiles--overlays)
+8. [Provider system](#provider-system)
+9. [Transformers & migration](#transformers--migration)
+10. [Watch, Subscribe, and Plan](#watch-subscribe-and-plan)
+11. [Provenance, history & rollback](#provenance-history--rollback)
+12. [Observability](#observability)
+13. [Multi-tenant setups](#multi-tenant-setups)
+14. [Sub-module ecosystem](#sub-module-ecosystem)
+15. [CLI tools](#cli-tools)
+16. [Performance](#performance)
+17. [Development](#development)
+18. [Documentation](#documentation)
 19. [License](#license)
 
 ---
@@ -67,12 +67,12 @@ type AppConfig struct {
 func main() {
     mgr, err := fastconf.New[AppConfig](context.Background(),
         fastconf.WithDir("conf.d"),
-        fastconf.WithProfile(fastconf.ProfileOptions{
-            EnvVar:  "APP_PROFILE",
+        fastconf.WithProfile(fastconf.Profile{
+            Env:     "APP_PROFILE",
             Default: "dev",
         }),
         fastconf.WithProvider(env.NewEnv("APP_")),
-        fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
+        fastconf.WithWatch(fastconf.Watch{}),
     )
     if err != nil {
         log.Fatal(err)
@@ -93,7 +93,7 @@ conf.d/
   overlays/
     prod/
       50-overrides.yaml
-      _patch.json
+      90-fix.patch.json
 ```
 
 ```yaml
@@ -115,14 +115,6 @@ APP_PROFILE=prod APP_DATABASE_POOL=20 go run .
 Viper/Spring Boot style). With `APP_PROFILE=prod`, FastConf merges `base/*`
 first, then `overlays/prod/*`.
 
-### Recommended entry points
-
-| Scenario | Recommended combo | Read more | Runnable example |
-|---|---|---|---|
-| Local file config | `New + WithDir + Get` | [Quickstart](docs/readme/01-quickstart.md) | [`examples/basic`](examples/basic/example_test.go) |
-| Kubernetes hot-reload | `PresetK8s + Subscribe + Errors` | [k8s cookbook](docs/cookbook/k8s.md) | [`examples/sidecar`](examples/sidecar/example_test.go) |
-| Remote source / GitOps | `WithProvider + Plan + Provenance` | [Vault](docs/cookbook/vault.md) / [Consul](docs/cookbook/consul.md) | [`examples/external_source`](examples/external_source/example_test.go) |
-
 ---
 
 ## Why FastConf
@@ -142,56 +134,26 @@ first, then `overlays/prod/*`.
 
 ## Installation
 
-```bash
-go get github.com/fastabc/fastconf@latest
-
-# Optional sub-modules:
-go get github.com/fastabc/fastconf/observability/otel@latest
-go get github.com/fastabc/fastconf/observability/metrics/prometheus@latest
-go get github.com/fastabc/fastconf/cue@latest
-go get github.com/fastabc/fastconf/policy/opa@latest
-go get github.com/fastabc/fastconf/providers/s3@latest
-```
-
-Command-line tools (Go ≥ 1.22):
+Requires Go 1.24+ for the root module. Submodules require at least Go 1.24;
+those with newer dependencies declare a higher minimum in their go.mod.
+Version **v1.0.0 is prepared but not tagged**. Build this checkout to use it:
 
 ```bash
-go install github.com/fastabc/fastconf/cmd/fastconfd@latest
-go install github.com/fastabc/fastconf/cmd/fastconfctl@latest
-go install github.com/fastabc/fastconf/cmd/fastconfgen@latest
+go build ./...
+go build ./cmd/fastconfctl ./cmd/fastconfd
 ```
 
-### Compatibility
+After publication:
 
-| Item | Supported |
-|---|---|
-| Go toolchain | 1.22, 1.23, 1.24, 1.25, 1.26 (no toolchain pin in `go.mod`) |
-| OS / arch | linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64 (binaries published on each tag) |
-| Module form | one root module + independent sub-modules (`cue`, `policy/opa`, `validate/playground`, `observability/{otel,metrics/prometheus}`, `providers/s3`, `integrations/{cli/pflag,log/phuslu,log/zerolog}`) |
-| Pre-release contract | semantic-version tags follow `vMAJOR.MINOR.PATCH`. The current public line is `v0.19`; release-to-release API changes are documented in [CHANGELOG.md](CHANGELOG.md) and focused migration recipes under `docs/cookbook/`. |
+```bash
+go get github.com/fastabc/fastconf@v1.0.0
+go get github.com/fastabc/fastconf/integrations/log/zerolog@v1.0.0  # or .../log/phuslu
+go get github.com/fastabc/fastconf/observability/metrics/prometheus@v1.0.0
+go get github.com/fastabc/fastconf/observability/otel@v1.0.0
+```
 
-### Versioning
-
-- Tags follow `vMAJOR.MINOR.PATCH`. The root module and every sub-module
-  receive the same tag through `tools/tag-release.sh vX.Y.Z`.
-- Major-version `0` is reserved for the pre-1.0 cycle. Breaking changes
-  may still land between minor versions until v1.0, but each release
-  ships with an explicit migration recipe under `docs/cookbook/` so the
-  call-site delta is mechanical.
-- The internal package set under `internal/*` is implementation detail
-  and not covered by the SemVer contract — root re-exports (type
-  aliases or wrappers) are the only stable surface.
-- Reusable primitives live in domain packages such as `codec`, `confmap`,
-  `overlay`, `transform`, `feature`, and `providers/*`. The old `pkg/*`
-  import paths were removed in v0.20.
-- When sub-modules tag independently the tag is module-path-prefixed
-  (e.g. `cue/vX.Y.Z`); the README mostly hides this because a single
-  release pushes the same version across the root and every sub-module.
-- Before each release we run `make test` plus five guard scripts under
-  `tools/{check-layout,check-doc-symbols,audit-phase-comments,
-  check-cjk-comments,loc-budget}.sh`, so directory
-  layout, public symbols, comment archaeology and LOC budgets are all
-  enforced before a tag is pushed.
+Root tags use `vX.Y.Z`; independent modules use `<module>/vX.Y.Z`.
+All modules release together at the same version. See [releasing](RELEASING.md).
 
 ---
 
@@ -204,14 +166,14 @@ sources / generators / providers
        assemble preflight
               │
               ▼
- merge → migration → transform → secret → typed-hooks
+ merge → transform → secret → typed-hooks
       → decode → field-meta → validate → policy
               │
       fail ───┴─── keep old State[T]
               │
            success
               ▼
- canonical hash → atomic swap → history → audit → subscribers
+ canonical hash → atomic swap → history → observers → subscribers
 ```
 
 | Property | What it means |
@@ -226,144 +188,38 @@ sources / generators / providers
 
 ## Manager API
 
-```go
-// Construction (first reload runs synchronously)
-func New[T any](ctx context.Context, opts ...Option) (*Manager[T], error)
-
-// Read path — lock-free, O(1), zero-alloc
-func (m *Manager[T]) Get() *T
-
-// Trigger a reload; ctx controls the full pipeline.
-func (m *Manager[T]) Reload(ctx context.Context, opts ...ReloadOption) error
-
-// Dry-run — never updates the live pointer
-func (m *Manager[T]) Plan() *PlanBuilder[T]
-
-// Current snapshot (State[T] + Sources + Origins)
-func (m *Manager[T]) Snapshot() *State[T]
-
-// Async failure stream — buffered 16, drop-on-full, closed by Close()
-func (m *Manager[T]) Errors() <-chan ReloadError
-
-func (m *Manager[T]) Watcher() *Watcher[T]  // .Pause() / .Resume()
-func (m *Manager[T]) Replay()  *Replay[T]   // .List() / .Rollback(*State[T])
-func (m *Manager[T]) Close() error
-```
-
-Package-level generics:
-
-```go
-// Per-field subscribe; fires only when the extracted value actually changes.
-// Pass WithEqual(eq) to override the default reflect.DeepEqual comparator.
-func Subscribe[T, M any](m *Manager[T], extract func(*T) *M, fn func(old, new *M), opts ...SubscribeOption[M]) (cancel func())
-func WithEqual[M any](equal func(old, new *M) bool) SubscribeOption[M]
-
-// Typed feature-flag evaluation.
-func Eval[T, V any](m *Manager[T], key string, ctx feature.EvalContext, def V) V
-```
-
-`State[T]` carries `Value *T`, `Hash [32]byte`, `Generation uint64`,
-`Sources []SourceRef`, and provenance helpers (`Explain`, `Diff`, `Redacted`).
-
----
-
-## Options reference
-
-All `WithXxx` options return `Option` and may be composed in any order.
-The full reference is in [docs/readme/02-core-model.md](docs/readme/02-core-model.md).
-
-### Key options
-
-| Option | Purpose | Default |
-|---|---|---|
-| `WithDir(dir)` | Config root directory | `"conf.d"` |
-| `WithFS(fs.FS)` | Alternate `fs.FS` (testing) | — |
-| `WithWatch(WatchOptions{...})` | Enable fsnotify; bundles `Enabled` / `Paths` / `Coalesce` / `CoalesceProfile` | `Enabled:false` |
-| `WithProfile(ProfileOptions{...})` | Profile selection bundle: `Single`, `Multi`, `Expr`, `EnvVar`, `Default` | — |
-| `WithCoalesce(CoalesceOptions{...})` | Tune watcher `Quiet` / `MaxLag` / `SwapHint` independently of `WithWatch` | — |
-| `WithProvider(p)` | Register a structured provider | — |
-| `WithSource(src, parser)` | Byte-blob source + parser | — |
-| `WithMigrations(fn)` | Schema migration callback | — |
-| `WithTransformers(t...)` | Post-merge transform chain | — |
-| `WithSecretResolver(r)` | Decrypt leaves before decode | — |
-| `WithValidator[T](fn)` | Typed validation after decode | — |
-| `WithPolicy[T](p)` | Policy evaluation after validate | — |
-| `WithHistory(n)` | Keep last `n` successful states | — |
-| `WithProvenance(level)` | `Off` / `TopLevel` / `Full` | `Off` |
-| `WithMetrics(sink)` | Metrics sink | — |
-| `WithAuditSink(sink)` | Audit on each successful reload | — |
-| `WithTracer(tracer)` | OTel-compatible tracer | — |
-| `WithLogger(*slog.Logger)` | Inject a logger | `io.Discard` |
-| `WithStructDefaults[T]()` | Populate zero values via `fc:"default=…"` tags | — |
+`New[T]` loads synchronously and starts watching; `Load[T]` loads once.
+`Get()` returns a read-only `*T`, while `Snapshot()` adds diagnostics.
+`Reload(ctx)` and `Plan(ctx)` serialize through the same writer. `Plan` reports
+all validators (including successes) and policy findings without publishing.
+Call `Close()` when finished; use `Shutdown(ctx)` to bound the wait.
+See the [API reference](https://pkg.go.dev/github.com/fastabc/fastconf).
 
 ---
 
 ## Reload pipeline
 
-### Stage sequence
-
-```
-reloadCh.recv(req)
-  ├─ stageMerge:      overlay.Scan(dir) → decode files → confmap merge(layers)
-  │                   apply _meta.yaml (appendSlices / profileEnv / match)
-  │                   apply _patch.json (RFC 6902)
-  ├─ stageAssemble:   for each provider: Load(ctx) → merge by Priority
-  ├─ stageMigrate:    opts.migrationRun(merged)
-  ├─ stageTransform:  for each transformer: t.Transform(merged)
-  ├─ stageDecode:     json.Marshal(merged) → json.Unmarshal(→ *T)
-  ├─ stageFieldMeta:  range / enum / required checks
-  ├─ stageValidate:   for each validator: v(*T)
-  ├─ stagePolicy:     for each policy: p.Evaluate(ctx, *T, reason, tenant)
-  └─ commit:
-       canonical SHA-256 dedup
-       atomic.Pointer.Store(newState) → history → audit → subscribers
-```
-
-When any stage errors: `atomic.Pointer` is **not** updated, `Generation`
-is **not** incremented, the error surfaces on `Errors()`, no `AuditSink` fires.
+Assembly scans files and loads generators and providers, then the stages above
+merge, transform, resolve secrets, decode, validate and evaluate policy.
+Failures preserve the current state and generation, reach `Errors()`, and emit
+`ReloadFinished{Err}` without `Committed`. A successful change hashes the typed
+value, publishes it atomically, retains history and notifies observers and
+subscribers. See the [runtime contract](docs/design/spec.md).
 
 ---
 
 ## Profiles & overlays
 
-```text
-conf.d/
-  base/                     # applied for every profile
-    00-defaults.yaml
-  overlays/
-    prod/
-      50-prod.yaml
-      _meta.yaml            # profile match expression
-      _patch.json           # RFC 6902 patch
-```
+Files in `base/` apply first, followed by matched `overlays/<profile>/`.
+`WithProfile(Profile{Names: []string{"prod", "eu-west"}})` selects multiple
+profiles; each overlay's `_meta.yaml.match` supports `&`, `|`, `!`, and parentheses.
+Root `_meta.yaml` configures defaults and merge behavior. Files ending in
+`.patch.json` apply RFC 6902 operations.
 
-### `_meta.yaml`
-
-```yaml
-schemaVersion: "1"
-profileEnv: "APP_PROFILE"
-defaultProfile: "dev"
-appendSlices: true
-match: "prod | staging"     # &, |, !, () supported
-```
-
-### RFC 6902 JSON Patch
-
-```json
-[
-  { "op": "replace", "path": "/server/addr",      "value": ":8443" },
-  { "op": "add",     "path": "/feature/darkMode", "value": true    },
-  { "op": "remove",  "path": "/obsolete/key"                       }
-]
-```
-
-Multi-profile mode: `WithProfile(ProfileOptions{Multi: []string{"prod", "eu-west", "canary"}})`
-— each overlay's `_meta.yaml.match` decides whether it applies.
-
-> **Per-directory file limit.** Each overlay directory holds **< 100**
-> config files and `base/` holds **< 1000**, so file priorities stay
-> inside their band. Exceeding the limit fails the scan loud instead of
-> silently interleaving layers across directories.
+`WithAxes` adds independent overlay dimensions. Higher `Axis.Priority` wins
+across whole directories; declaration order breaks ties, then filenames order
+files. Up to 40 axes, 100 files per overlay, and 1000 base files are supported.
+See the [runtime contract](docs/design/spec.md).
 
 ---
 
@@ -376,245 +232,109 @@ Multi-profile mode: `WithProfile(ProfileOptions{Multi: []string{"prod", "eu-west
 | Env | `env.NewEnv("APP_")` (`providers/env`) | `APP_FOO_BAR` → `foo.bar`; chain `.WithReplacer`, `.At`, `.WithCoerce` |
 | CLI | `cliflag.NewCLI(map)` (`providers/cliflag`) | Pass only explicitly changed flags; files/env stay authoritative |
 | DotEnv | `dotenv.NewDotEnv("APP_", paths...)` (`providers/dotenv`) | `.env` fallback; process env wins |
-| Labels | `labels.NewDottedLabels(labels, opts)` / `NewRoutingLabels(labels, opts)` (`providers/labels`) | Config and routing DSL labels |
+| Labels | `labels.New(labels, labels.Options{})` (`providers/labels`) | Dotted config labels; `Options.Routing` enables the routing DSL |
 | K8s Downward | `k8s.NewDefault()` | `/etc/podinfo/{labels,annotations}` |
 
-First-party KV providers (root module, trim via build tag):
+First-party KV providers (root module; only imported packages are linked):
 
 ```go
 vp, _ := vault.New("https://vault.svc", "kv/data/myapp", os.Getenv("VAULT_TOKEN"))
 cp, _ := consul.New("http://consul.svc:8500", "config/myapp")
 hp, _ := httpprov.New("remote", "https://example.com/cfg.yaml", yamlCodec{})
-// Build tag to exclude: -tags no_provider_vault,no_provider_consul,no_provider_http
 ```
 
-Root-versioned event providers: NATS (`providers/nats`) and Redis Streams
-(`providers/redisstream`). Independent provider sub-module (`go get` as
-needed): S3 (`providers/s3`).
+NATS and Redis Streams reference implementations live in `examples/nats` and
+`examples/redisstream`; copy and adapt them with a real client. S3 remains an
+independent provider module (`providers/s3`). HTTP supports automatic codec
+selection with a nil codec and manual-only fetching with `WithInterval(0)`.
 
-### Priority constants
-
-Merge order follows `Priority()` ascending — higher values overwrite lower:
-
-| Constant | Value | Use |
-|---|---:|---|
-| `PriorityDotEnv` | 5 | `.env` fallback |
-| `PriorityStatic` | 10 | Static / file layers |
-| `PriorityKV` | 30 | Vault / Consul / HTTP / S3 |
-| `PriorityK8s` | 40 | Kubernetes ConfigMap / Secret |
-| `PriorityEnv` | 50 | Process environment variables |
-| `PriorityCLI` | 60 | Command-line flags (highest) |
-| `contracts.PriorityOrderedBase` | 160 | Reserved base used by `WithProviderOrdered` |
-
-Use `WithProviderOrdered(p1, p2, p3)` to auto-assign priorities in call order.
-
-### `contracts.Provider` interface
-
-```go
-type Provider interface {
-    Name()     string
-    Priority() int
-    Load(ctx context.Context) (map[string]any, error)
-    Watch(ctx context.Context) (<-chan Event, error)
-}
-```
+Provider priorities, low to high: DotEnv (5), Static (10), KV (30),
+K8s (40), Env (50), CLI (60). Equal priorities follow registration order.
+Implement `contracts.Provider` (`Name`, `Load`, `Watch`); optional
+`contracts.Describer` supplies priority and file-watch paths.
 
 ---
 
 ## Transformers & migration
 
-### Built-in transformers (`transform`)
-
 ```go
-fastconf.WithTransformers(
-    transform.Defaults(map[string]any{"server": map[string]any{"timeout": "30s"}}),
-    transform.SetIfAbsent("server.timeout", "30s"),
-    transform.EnvSubst(),                           // ${VAR} / ${VAR:-default}
+fastconf.WithTransform(
+    transform.EnvSubst(),
     transform.DeletePaths("internal.debug"),
     transform.Aliases(map[string]string{"db.url": "database.dsn"}),
 )
+fastconf.WithMergeKeys(map[string]string{"listeners": "name"})
 ```
 
-### Struct tags
-
-```go
-type AppConfig struct {
-    Server struct {
-        Addr    string        `json:"addr"    fc:"default=:8080"`
-        Timeout time.Duration `json:"timeout" fc:"default=30s"`
-    } `json:"server"`
-    Database struct {
-        DSN string `json:"dsn" fc:"secret"` // redacted in logs/snapshots
-    } `json:"database"`
-}
-```
-
-### Migration
-
-```go
-fastconf.WithMigrations(func(root map[string]any) error {
-    if v, ok := root["db_url"]; ok {
-        db, _ := root["database"].(map[string]any)
-        if db == nil { db = map[string]any{}; root["database"] = db }
-        if _, has := db["dsn"]; !has { db["dsn"] = v }
-        delete(root, "db_url")
-    }
-    return nil
-})
-```
-
-For multi-step schema migrations use `transform.New`.
+Transforms run after merging. Keyed lists merge through `WithMergeKeys` or
+`_meta.yaml` before this stage. Defaults belong in `fc:"default=…"` tags or
+`Defaulter.Defaults`; `fc:"secret"` marks sensitive fields. `transform.New`
+builds schema migration chains. See [migration](docs/cookbook/migration-v1.md)
+and [secrets](docs/cookbook/secrets.md).
 
 ---
 
 ## Watch, Subscribe, and Plan
 
-### Field-level Subscribe
-
-`Subscribe` fires the callback only when the extracted value actually
-changes (DeepEqual on the dereferenced values). Pass `WithEqual` for a
-custom comparator — e.g. ignore noisy fields, hash-compare large structs,
-or force a side effect on every committed reload.
-
 ```go
 cancel := fastconf.Subscribe(mgr,
-    func(app *AppConfig) *DatabaseConfig { return &app.Database },
-    func(old, neu *DatabaseConfig) {
-        reconnect(neu.DSN) // guaranteed: DB config actually changed
-    },
+    func(c *AppConfig) *string { return &c.Database.DSN },
+    func(old, next *string) { reconnect(*next) },
 )
 defer cancel()
 
-// Custom equality (ignore Pool).
-fastconf.Subscribe(mgr,
-    func(app *AppConfig) *DatabaseConfig { return &app.Database },
-    func(_, neu *DatabaseConfig) { warmCache(neu) },
-    fastconf.WithEqual(func(a, b *DatabaseConfig) bool { return a.DSN == b.DSN }),
-)
-
-// Fire on every reload regardless of value.
-fastconf.Subscribe(mgr,
-    func(app *AppConfig) *AppConfig { return app },
-    func(_, neu *AppConfig) { auditEveryReload(neu) },
-    fastconf.WithEqual(func(_, _ *AppConfig) bool { return false }),
-)
+err := mgr.Reload(ctx, fastconf.WithReason("admin"),
+    fastconf.WithOverride(map[string]any{"enabled": true}))
+result, err := mgr.Plan(ctx, fastconf.WithPlanHostname("prod-1"))
 ```
 
-### Manual reload with one-shot override
-
-```go
-err := mgr.Reload(ctx,
-    fastconf.WithReloadReason("admin-cli"),
-    fastconf.WithSourceOverride(map[string]any{
-        "server": map[string]any{"addr": ":9999"},
-    }),
-)
-```
-
-### Plan (dry-run)
-
-```go
-result, err := mgr.Plan().WithHostname("ci-runner-7").Run(ctx)
-// result.Validators — validation errors
-// result.Policies   — policy violations (SeverityError downgraded to warning in dry-run)
-```
-
-### Pause / Resume
-
-```go
-mgr.Watcher().Pause()
-applyBatchUpdate()
-mgr.Watcher().Resume()
-```
+Subscribe compares extracted values; `WithEqual` customizes equality.
+Override applies only to that reload. Plan returns proposed state, diff,
+validator results and policy findings. `Pause()` ignores file and provider
+change events; `Resume()` resumes listening without replaying ignored events.
+Call `Reload(ctx)` explicitly after a batch to load its final state. See [subscriptions](docs/cookbook/observer.md) and
+[plans](docs/cookbook/plan.md).
 
 ---
 
 ## Provenance, history & rollback
 
-### Provenance
+Enable `WithProvenance(ProvenanceFull)` for per-leaf origin chains via
+`mgr.Snapshot().Explain("server.addr")`; `ProvenanceTopLevel` tracks top-level
+keys and `ProvenanceOff` disables tracking. Secret list paths use `items.0`.
 
-```go
-mgr, _ := fastconf.New[AppConfig](ctx,
-    fastconf.WithDir("conf.d"),
-    fastconf.WithProvenance(fastconf.ProvenanceFull),
-)
-
-origins := mgr.Snapshot().Explain("server.addr")
-// each Origin: Source.Name, Source.Priority, Value
-```
-
-| Level | Cost | What you can trace |
-|---|---|---|
-| `ProvenanceOff` | zero | nothing |
-| `ProvenanceTopLevel` | O(top-level keys) | which layer set each top-level field |
-| `ProvenanceFull` | O(leaves) | full override chain per leaf |
-
-### History & rollback
-
-```go
-mgr, _ := fastconf.New[AppConfig](ctx,
-    fastconf.WithHistory(10),
-)
-history := mgr.Replay().List()     // []*State[T], oldest → newest
-_ = mgr.Replay().Rollback(history[len(history)-2])
-```
-
-### Errors stream
-
-```go
-go func() {
-    for re := range mgr.Errors() {
-        slog.Error("reload failed", "reason", re.Reason, "err", re.Err)
-    }
-}()
-```
+`WithHistory(10)` retains prior snapshots. `mgr.History().List()` is ordered
+oldest first; pass a retained snapshot to `Rollback`. Zero disables history;
+negative capacities are errors. Failed reloads reach `mgr.Errors()`.
+Snapshot `Map`, `Dump`, `Diff`, and `Explain` mask secrets; use `Unredacted()`
+only where plaintext is intended. See [history](docs/cookbook/introspect.md).
 
 ---
 
 ## Observability
 
-```go
-// JSON-lines audit on each successful reload
-mgr, _ := fastconf.New[AppConfig](ctx,
-    fastconf.WithAuditSink(fastconf.NewJSONAuditSink(os.Stderr)),
-    fastconf.WithDiffReporter(fastconf.DiffReporterFunc(
-        func(ctx context.Context, ev fastconf.DiffEvent) error {
-            return slack.Post(ctx, ev.Diff) // async, never blocks reload
-        },
-    )),
-)
-```
+`WithObserver` receives reload, stage, provider-error, dropped-event and commit
+notifications. Compose observers using `observe.Multi`, `observe.JSONLines`,
+`observe.Metrics` and `observe.Func`. Slow observers can use `observe.Async`;
+close the manager before closing the async observer to drain queued events.
 
-Prometheus metrics and OpenTelemetry tracing live in sub-modules:
-
-```go
-import prommetrics "github.com/fastabc/fastconf/observability/metrics/prometheus"
-import fastconfotel "github.com/fastabc/fastconf/observability/otel"
-
-fastconf.WithMetrics(prommetrics.New())
-fastconf.WithTracer(fastconfotel.NewTracer(otel.GetTracerProvider()))
-```
-
-Policy violations abort reload at `SeverityError`; `SeverityWarning` logs
-and continues. CUE and OPA implementations in `cue/policy` and `policy/opa`.
+Prometheus (`observability/metrics/prometheus`) and OpenTelemetry
+(`observability/otel`) remain separate modules. Logging adapters
+(`integrations/log/phuslu`, `integrations/log/zerolog`) are separate modules
+that share a dependency-free logging core in the root module, so each pulls in only its own backend.
+See [observability](docs/cookbook/observability.md) and [logging](docs/cookbook/log.md).
 
 ---
 
-## Multi-tenant & presets
+## Multi-tenant setups
 
 ```go
-// Multi-tenant: each tenant is a fully isolated Manager[T]
-tm := fastconf.NewTenantManager[AppConfig]()
-mgrA, _ := tm.Add(ctx, "tenant-a", fastconf.WithDir("/etc/config/tenant-a"))
-app, err := tm.Get("tenant-a")  // fastconf.ErrUnknownTenant if absent
-tm.Close()
-```
-
-```go
-// Presets
-fastconf.PresetK8s(fastconf.K8sOpts{Dir: "/etc/config", Watch: true})
-fastconf.PresetSidecar(fastconf.SidecarOpts{Dir: "/etc/fastconfd", HistoryN: 16})
-fastconf.PresetTesting(fastconf.TestingOpts{FS: memFS, Profile: "testing"})
+// Multi-tenant: each tenant is a fully isolated Manager[T] tagged with its id;
+// keep them in your own registry (see docs/cookbook/tenant.md).
+mgrA, err := fastconf.New[AppConfig](ctx,
+    fastconf.WithDir("/etc/config/tenant-a"),
+    fastconf.WithTenant("tenant-a"),
+)
 ```
 
 ---
@@ -626,27 +346,29 @@ fastconf.PresetTesting(fastconf.TestingOpts{FS: memFS, Profile: "testing"})
 | Package | Path |
 |---|---|
 | contracts | `contracts` — public interfaces |
-| reusable primitives | `codec`, `confmap`, `overlay`, `transform`, `feature`, `providers/{env,cliflag,dotenv,labels,source}` |
-| http / vault / consul | `providers/{http,vault,consul}` — build tags: `no_provider_{http,vault,consul}` |
-| nats / redis-streams | `providers/{nats,redisstream}` — caller injects the transport client |
+| reusable primitives | `codec`, `confmap`, `transform`, `feature`, `providers/{env,cliflag,dotenv,labels,source}` |
+| http / vault / consul | `providers/{http,vault,consul}` |
 | policy | `policy` — `Func` adapter |
 | sidecar service | `cmd/fastconfd` |
-| CLI tools | `cmd/{fastconfctl,fastconfgen}` |
-| integrations | `integrations/{bus,openfeature,render}` |
+| CLI tools | `cmd/fastconfctl` (root), `cmd/fastconfgen` (own module) |
+| integrations | `integrations/render` |
 
 ### Independent sub-modules (`go get` as needed)
 
 | Sub-module | Path | Primary dependency |
 |---|---|---|
 | validate/playground | `validate/playground` | go-playground/validator |
-| prometheus | `observability/metrics/prometheus` | prometheus/client_golang |
-| otel | `observability/otel` | OpenTelemetry SDK |
+| Prometheus | `observability/metrics/prometheus` | Prometheus |
+| OpenTelemetry | `observability/otel` | OpenTelemetry |
+| phuslu adapter | `integrations/log/phuslu` | phuslu/log |
+| zerolog adapter | `integrations/log/zerolog` | zerolog |
+| generator | `cmd/fastconfgen` | yaml.v3 |
 | cue (validation + policy) | `cue` | cuelang.org/go |
 | opa-policy | `policy/opa` | open-policy-agent/opa |
 | cli/pflag | `integrations/cli/pflag` | spf13/pflag |
 | s3 provider | `providers/s3` | AWS SDK v2 |
 
-Tag all sub-modules at once: `./tools/tag-release.sh vX.Y.Z [--push]`
+Tag every module at the same version: `./tools/tag-release.sh vX.Y.Z [--push]`
 
 ---
 
@@ -655,17 +377,22 @@ Tag all sub-modules at once: `./tools/tag-release.sh vX.Y.Z [--push]`
 ### `fastconfd` — sidecar service
 
 ```bash
-fastconfd --dir=/etc/config --profile=prod --addr=:8081
+fastconfd --dir=/etc/config --profile=prod --addr=127.0.0.1:8081 \
+  --read-token="$FASTCONFD_READ_TOKEN" --reload-token="$FASTCONFD_RELOAD_TOKEN"
 ```
 
 | Endpoint | Method | Description |
 |---|---|---|
 | `/healthz` | GET  | Plain text `ok` once the first reload succeeded |
 | `/version` | GET  | Version, generation, hash, load time, reason |
-| `/config`  | GET  | Current config JSON; pass `?redact=true` for masking |
+| `/config`  | GET  | Current config JSON, secrets masked; `?unredacted=true` + `X-Unredacted-Token` for plaintext |
 | `/dump`    | GET  | Deterministic YAML (`?format=json` for JSON) |
 | `/reload`  | POST | Trigger a manual reload |
-| `/events`  | GET  | SSE stream of `ReloadCause` on each successful reload |
+| `/events`  | GET  | SSE stream of `ReloadCause` when a new snapshot commits |
+
+`FASTCONFD_READ_TOKEN` and `FASTCONFD_RELOAD_TOKEN` must be non-empty.
+`/config`, `/dump`, and `/events` require `X-Config-Token`; `/reload` requires
+`X-Reload-Token`. See the [sidecar recipe](docs/cookbook/sidecar.md).
 
 ### `fastconfctl` — admin CLI
 
@@ -686,16 +413,9 @@ fastconfgen -in conf.d/base/00-app.yaml -pkg config -type Config -out config/con
 
 ## Performance
 
-Most recent benchmark run: **Apple M2 / darwin-arm64 / Go 1.26.2**.
-
-| Benchmark | median |
-|---|---:|
-| `BenchmarkGet` | 0.52 ns/op |
-| `BenchmarkReloadNoop` | 15.1 µs/op |
-| `BenchmarkReloadCommitSmall` | 16.5 µs/op |
-| `BenchmarkReloadManySubscribers/50` | 17.5 µs/op |
-
-Full baseline: [`docs/design/perf.md`](docs/design/perf.md).
+Performance contracts and reproducible benchmark commands are maintained in
+[Performance Notes](docs/design/perf.md). Use `tools/profile-reload.sh` to measure your target
+machine; `tools/bench-guard.sh` checks the read-path latency and zero-allocation budget.
 
 ---
 
@@ -705,8 +425,10 @@ Full baseline: [`docs/design/perf.md`](docs/design/perf.md).
 go mod tidy
 make build
 make test        # go test -race -count=1 ./...
-make test-all    # includes sub-modules
+make test-workspace # all modules against this checkout
+make test-candidate # isolated dependency resolution before publication
 make lint        # requires golangci-lint
+make check       # release tooling regression tests
 
 go test ./... -run '^Example' -v
 go test -bench=BenchmarkGet -benchmem ./...
@@ -718,20 +440,19 @@ go test -bench=BenchmarkGet -benchmem ./...
 
 | Doc | Purpose |
 |---|---|
-| [docs/readme/](docs/readme/) | In-depth chapters: core model, pipeline, extensions, operations |
+| [docs/architecture.md](docs/architecture.md) | Source responsibilities, package boundaries, test layout and naming |
 | [docs/cookbook/README.md](docs/cookbook/README.md) | Ready recipes ordered by user journey |
 | [docs/design/spec.md](docs/design/spec.md) | Runtime model, concurrency, module boundaries |
-| [docs/cookbook/migration-v0.19.md](docs/cookbook/migration-v0.19.md) | v0.19 `Subscribe` diff-aware migration notes |
+| [docs/cookbook/migration-v1.md](docs/cookbook/migration-v1.md) | v0 → v1 migration guide |
+| [docs/cookbook/migration-v0.md](docs/cookbook/migration-v0.md) | Archived notes for moves between v0 releases |
 | [GitHub Releases](https://github.com/fastabc/fastconf/releases) | Release notes and prebuilt CLI binaries |
 | [pkg.go.dev](https://pkg.go.dev/github.com/fastabc/fastconf) | godoc and runnable examples |
 
 Common recipes: [k8s](docs/cookbook/k8s.md) · [vault](docs/cookbook/vault.md) ·
 [consul](docs/cookbook/consul.md) · [secrets](docs/cookbook/secrets.md) ·
 [features](docs/cookbook/features.md) · [policy](docs/cookbook/policy.md) ·
-[otel](docs/cookbook/otel.md) · [tenant](docs/cookbook/tenant.md) ·
+[otel](docs/cookbook/observability.md#opentelemetry) · [tenant](docs/cookbook/tenant.md) ·
 [sidecar](docs/cookbook/sidecar.md) · [plan](docs/cookbook/plan.md)
-
----
 
 ## License
 

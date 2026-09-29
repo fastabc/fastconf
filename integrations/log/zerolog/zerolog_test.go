@@ -11,6 +11,7 @@ import (
 
 	zlog "github.com/rs/zerolog"
 
+	"github.com/fastabc/fastconf/integrations/log/internal/logtest"
 	zerologadapter "github.com/fastabc/fastconf/integrations/log/zerolog"
 )
 
@@ -146,4 +147,11 @@ func TestHandler_LevelGate(t *testing.T) {
 	if buf.Len() == 0 {
 		t.Fatalf("Debug should pass Level gate after lowering")
 	}
+}
+
+func TestHandler_GroupScopes(t *testing.T) {
+	logtest.GroupCases(t, func(buf *bytes.Buffer) slog.Handler {
+		h, _ := newLogger(buf)
+		return h
+	})
 }

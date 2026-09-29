@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"os"
 
 	"github.com/fastabc/fastconf"
@@ -33,18 +31,13 @@ func runDump(args []string) error {
 }
 
 // dumpYAML loads a manager and writes the deterministic YAML form
-// produced by State.Dump(DumpYAML, nil).
+// produced by State.Unredacted().Dump(YAML).
 func dumpYAML(f cli.Flags) error {
-	mgr, err := cli.LoadConfig[map[string]any](context.Background(), f)
+	st, err := loadSnapshot(f)
 	if err != nil {
 		return err
 	}
-	defer mgr.Close()
-	st := mgr.Snapshot()
-	if st == nil {
-		return fmt.Errorf("no state available")
-	}
-	b, err := st.Dump(fastconf.DumpYAML, nil)
+	b, err := st.Unredacted().Dump(fastconf.YAML)
 	if err != nil {
 		return err
 	}

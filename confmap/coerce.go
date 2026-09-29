@@ -1,4 +1,5 @@
 // Scalar-value helpers shared by providers and map-path expansion.
+
 package confmap
 
 import (
@@ -20,10 +21,9 @@ type CoerceOptions struct {
 	IgnoreCase bool
 }
 
-// Coerce converts s into a typed Go value using the canonical
-// bool → int64 → float64 → string ladder. Behavior is deterministic
-// across env, routing-labels, and label expansion: tune the rung with
-// CoerceOptions rather than forking the ladder per call site.
+// Coerce converts s into a typed Go value using the canonical bool → int64 → float64 → string
+// ladder. Behavior is deterministic across env, routing-labels, and label expansion: tune the rung
+// with CoerceOptions rather than forking the ladder per call site.
 func Coerce(s string, opts CoerceOptions) any {
 	if opts.TrimSpace {
 		s = strings.TrimSpace(s)

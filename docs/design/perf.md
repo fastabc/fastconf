@@ -1,114 +1,71 @@
 # Performance Notes
 
-## Baseline environment
+## Read-path contract
 
-Measured on **Apple M2 / darwin arm64 / Go 1.26.2 / `-race=false`** with:
+`Manager.Get()` reads an atomic snapshot pointer: O(1), lock-free, zero
+allocations. `tools/bench-guard.sh` checks `BenchmarkGet` in CI with a default
+limit of 5 ns/op and 0 allocs/op. Local timings depend on CPU, Go version,
+concurrency and instrumentation; they are not a portable latency guarantee.
+
+## Reproduce measurements
+
+Run from the repository root with a clean workspace and record the commit,
+Go version, OS, architecture and `GOMAXPROCS` alongside the samples:
 
 ```bash
-go test . -run '^$' \
-  -bench '^(BenchmarkGet$|BenchmarkGetParallel$|BenchmarkReloadNoop$|BenchmarkReloadCommitSmall$|BenchmarkReloadManySubscribers$|BenchmarkTypedHooksWide$|BenchmarkIntrospectCold$|BenchmarkIntrospectWarmKeys$|BenchmarkExplainDeep$|BenchmarkReloadLarge$)$' \
+go version
+go env GOOS GOARCH
+GOWORK=off GOMAXPROCS=4 go test . -run '^$' \
+  -bench '^(BenchmarkGetWarmState|BenchmarkReloadNoop|BenchmarkReloadCommitSmall|BenchmarkReloadLarge|BenchmarkStateMapCold)$' \
   -benchmem -count=5
+bash tools/bench-guard.sh
+bash tools/profile-reload.sh /tmp/fastconf-profiles
 ```
 
-Tables below report the median of the five runs from the 2026-05-16 closeout retest.
+`BenchmarkReloadNoop` reloads unchanged files. `BenchmarkReloadCommitSmall`
+changes an override on each iteration and verifies generation advances.
+`BenchmarkReloadLarge` uses 256 file layers; `BenchmarkReloadLargeIncremental`
+changes one layer. `BenchmarkStateMapCold` measures a snapshot's first masked
+map view. Keep race-detector timings separate from performance samples.
 
-## Read-path baseline
+## Input fingerprint
 
-| Benchmark              | ns/op | B/op | allocs/op |
-|------------------------|------:|-----:|----------:|
-| `BenchmarkGet`         |  0.52 |    0 |         0 |
-| `BenchmarkGetParallel` |  0.14 |    0 |         0 |
+After assembly, file-only inputs are fingerprinted using file contents,
+paths, priority, profile, codec, root metadata and codec registry generation.
+An equal fingerprint skips merge through hashing. Files are still read on
+each reload: neither size nor mtime determines freshness.
 
-`Get()` is a single `atomic.Pointer.Load`. The contract is:
+The shortcut is disabled by providers, generators, overrides, transforms,
+secret resolvers, custom typed hooks, validators, policies, observers,
+`Defaulter`, or custom JSON/YAML/text encoding methods anywhere in `T`.
+These hooks may depend on external state. Rollback clears the fingerprint;
+failed reloads do not update it. Plans always execute their pipeline.
 
-- zero allocation,
-- O(1) wall-clock, ~1 ns on the steady state,
-- no lock acquisition.
+## Retained memory
 
-`tools/bench-guard.sh` enforces these guarantees in CI. Any change that violates them MUST add a benchmark regression note and an explicit rationale in the PR description.
+Each manager caches at most 512 decoded file layers. A key includes file
+path, codec, content hash and codec registry generation. Trees are cloned
+before use; failures are not cached. Eviction is FIFO, bounded by entry
+count rather than bytes, so retained memory depends on document sizes.
 
-## Reload pipeline cost
+Snapshots lazily cache one immutable JSON tree for diagnostics. Each returned
+view is detached, including custom redactor inputs. `Get` does not create
+this tree. History and application-held snapshots extend its lifetime.
+`Explain` copies the origin chain and checks type metadata and secret path
+patterns; origin containers with secret descendants are masked as a whole.
 
-`BenchmarkReloadNoop` and `BenchmarkReloadCommitSmall` exercise the full
+The final typed value is hashed after decode/defaults whenever the pipeline
+runs. Subscriber equality avoids unnecessary callbacks. RFC 6902 patching
+works on a copy of the merged map, retaining untouched leaf types.
 
-```text
-assemble → merge → migration → transform → secret →
-typed-hooks → decode → field-meta → validate → policy → commit
+## Resource soak
+
+```bash
+GOWORK=off GOMAXPROCS=4 FASTCONF_SOAK_DURATION=5m \
+  go test -mod=readonly -race -count=1 -timeout=10m \
+  -run '^TestResourceSoak$' -v .
 ```
 
-pipeline over the small reference config. `Noop` keeps the same hash and exits before publish; `CommitSmall` alternates a one-shot override so every run publishes a new `State[T]`.
-
-| Benchmark | ns/op | B/op | allocs/op |
-|---|---:|---:|---:|
-| `BenchmarkReloadNoop` | 15,065 | 13,685 | 174 |
-| `BenchmarkReloadCommitSmall` | 16,490 | 14,534 | 179 |
-| `BenchmarkReloadLarge` *(256 layers)* | 983,263 | 2,135,027 | 13,406 |
-
-The small-config publish tail is ~1.4 µs over the no-op path on this baseline. Large reloads remain dominated by discovery / decode / merge volume, not the pointer swap.
-
-### Subscriber fan-out retest
-
-`Subscribe` is diff-aware by default: it compares the extracted value and
-only runs callbacks when that value changes. The fan-out retest quantifies
-the dispatch cost with 1 / 10 / 50 subscribers while forcing every reload
-to commit a changed value:
-
-| Benchmark | ns/op | B/op | allocs/op |
-|---|---:|---:|---:|
-| `BenchmarkReloadManySubscribers/1` | 16,583 | 14,535 | 179 |
-| `BenchmarkReloadManySubscribers/10` | 16,813 | 14,615 | 180 |
-| `BenchmarkReloadManySubscribers/50` | 17,499 | 14,952 | 180 |
-
-On this baseline, 50 subscribers add ~0.9 µs over the one-subscriber case,
-with only one extra allocation over the plain commit path. Equal extracted
-values skip the callback entirely; callers can still force fire-on-every-reload
-side effects with `WithEqual(func(_, _ *T) bool { return false })`.
-
-### Cold-path feature probes
-
-| Benchmark | ns/op | B/op | allocs/op |
-|---|---:|---:|---:|
-| `BenchmarkTypedHooksWide` *(16 `time.Duration` leaves)* | 39,224 | 25,857 | 433 |
-| `BenchmarkIntrospectCold` | 1,673 | 1,960 | 28 |
-| `BenchmarkIntrospectWarmKeys` | 0.92 | 0 | 0 |
-| `BenchmarkExplainDeep` *(32-segment path, 16 origins)* | 219.4 | 2,048 | 1 |
-
-### Active optimisations
-
-- `commit()` caches the most recent `mergedJSON-SHA → state-hash` pair. Idempotent reloads short-circuit the second `json.Marshal` entirely. First reload still pays the marshal cost (cache miss).
-- `Subscribe` performs per-subscriber equality at fan-out time and skips
-  callbacks for unchanged extracted values. There is no manager-wide
-  per-field hash table to maintain.
-
-### Cold-path improvement backlog
-
-- Pool the `bytes.Buffer` used by `json.Marshal` (cold path; trivial savings for high-frequency reload deployments).
-- If `typed-hooks` becomes a deployment bottleneck, rerun `BenchmarkTypedHooksWide` on a generated hundreds-of-fields shape before optimising; the current benchmark only covers a 16-field representative struct.
-- `Explain` currently allocates only for the defensive copy returned to callers. Keep that copy unless a future API offers an explicitly borrowed view.
-
-## Reload pipeline contract
-
-Every stage emits:
-
-- a `slog.Debug` line ("stage done", with duration),
-- a `StageDuration(name, dur, ok)` to the metrics sink,
-- a tracing span (`fastconf.<stage>`) under the per-reload root span (if a `Tracer` is installed).
-
-Stages remain pure over `*pipelineCtx[T]`; the single-writer reload goroutine is the only goroutine that mutates them. There is no synchronisation between stages.
-
-## Provenance lookup
-
-`OriginIndex.Explain(path)` is a map lookup followed by a defensive copy of the origin chain. Path depth affects the key string, not traversal complexity; chain length controls the returned copy cost. `BenchmarkExplainDeep` above pins the current behavior for a long dotted path with 16 recorded origins.
-
-## Memory shape
-
-`State[T]` holds:
-
-- `*T` — the strongly typed value, freshly allocated per reload.
-- The source ref slice.
-- The optional `*OriginIndex` (only when `WithProvenance(level)` is configured).
-- The lazily-materialised dotted-key view, populated on first `state.Introspect()` access.
-- The feature rule table, stamped when `WithFeatureRules[T]` is configured.
-- The stamped `SecretRedactor` reference.
-
-The lazy view is the only field that allocates after publish; first access pays one `json.Marshal` + walk, subsequent accesses are O(n) in the number of keys.
+The soak covers reloads, plans, file caching, history, observers and shutdown.
+The manual resource-soak workflow runs the platform matrix. Record actual
+platform results for each candidate; earlier runs do not validate a new one.

@@ -1,27 +1,30 @@
-# JSON / 结构化日志：zerolog 与 phuslu/log 适配
+# JSON and structured logging with zerolog and phuslu/log
 
-FastConf 的日志接入完全走标准库 `*slog.Logger` / `slog.Handler`——"用什么后端"由调用方决定，根模块只依赖 `log/slog`，不绑死任何具体 logger。
+FastConf accepts a standard-library `*slog.Logger` through `WithLogger`.
+The caller chooses the `slog.Handler` and logging backend; the root module's
+logging code depends only on `log/slog`.
 
-> **内部风格**：FastConf 自己写日志走内部 `flog` fluent builder（`log.Info().Str("k", v).Msg("...")`），底层仍是注入的 `*slog.Logger`。这只影响 FastConf 内部调用点的写法，对调用方完全透明；应用代码继续直接使用自己的 logger。
+For JSON Lines output, choose one of these three options:
 
-如果你需要 JSON 行式输出，常见有三条路径：
-
-| 场景 | 推荐 | 依赖 |
+| Use case | Recommended option | Logging dependency |
 |---|---|---|
-| 只想要 JSON 行，对字段名不挑 | `slog.NewJSONHandler` | 零依赖（标准库） |
-| 应用已经在用 zerolog，希望 FastConf 跟着走 | `integrations/log/zerolog` 适配子模块 | 仅在用户 `go get` 时引入 zerolog |
-| 应用已经在用 phuslu/log | `integrations/log/phuslu` 适配子模块 | 仅在用户 `go get` 时引入 phuslu/log |
+| JSON Lines with standard field names | `slog.NewJSONHandler` | Standard library only |
+| An application already using zerolog | The `integrations/log/zerolog` module | zerolog |
+| An application already using phuslu/log | The `integrations/log/phuslu` module | phuslu/log |
 
-两个适配 sub-module **完全独立 go.mod**——根模块的依赖图永远不知道 zerolog / phuslu 的存在。
+Each adapter has its own `go.mod`. Both share the standard-library-only
+[`fclog` core](#shared-handler-core-fclog), which ships with the root module.
+Importing the zerolog adapter does not pull in phuslu/log, or vice versa.
 
 ---
 
-## 路径 A：标准库 JSON Handler（零依赖）
+## Option A: standard-library JSON handler
 
 ```go
 import (
     "log/slog"
     "os"
+
     "github.com/fastabc/fastconf"
 )
 
@@ -32,13 +35,13 @@ cfg, _ := fastconf.New[AppConfig](ctx,
 )
 ```
 
-输出：
+Example output:
 
 ```json
 {"time":"2026-05-15T12:34:56Z","level":"INFO","msg":"fastconf reload swap","reason":"watcher","generation":7,"layers":5}
 ```
 
-若想让字段名与 zerolog 默认（`level` / `message`）一致：
+To use zerolog's default message field name, `message`, instead of `msg`:
 
 ```go
 opts := &slog.HandlerOptions{
@@ -54,7 +57,7 @@ h := slog.NewJSONHandler(os.Stderr, opts)
 
 ---
 
-## 路径 B：zerolog 适配（`integrations/log/zerolog`）
+## Option B: zerolog adapter
 
 ```bash
 go get github.com/fastabc/fastconf/integrations/log/zerolog@latest
@@ -62,10 +65,12 @@ go get github.com/fastabc/fastconf/integrations/log/zerolog@latest
 
 ```go
 import (
+    "log/slog"
     "os"
+
     "github.com/fastabc/fastconf"
-    "github.com/rs/zerolog"
     zerologadapter "github.com/fastabc/fastconf/integrations/log/zerolog"
+    "github.com/rs/zerolog"
 )
 
 zl := zerolog.New(os.Stderr).With().Timestamp().Logger().Level(zerolog.InfoLevel)
@@ -75,28 +80,32 @@ cfg, _ := fastconf.New[AppConfig](ctx,
 )
 ```
 
-`Options` 字段：
+`Options` fields:
 
-| 字段 | 类型 | 含义 |
+| Field | Type | Meaning |
 |---|---|---|
-| `Level` | `slog.Leveler` | 可选 slog 侧门控。`nil`（默认）= 不在 slog 侧过滤，全部由 zerolog 决定 |
-| `AddSource` | `bool` | 是否带上调用站点 `file:line` |
-| `GroupSeparator` | `string` | `slog.Group` 嵌套时连接键的分隔符，默认 `.` |
+| `Level` | `slog.Leveler` | Optional slog threshold. The default, `nil`, delegates filtering to zerolog |
+| `AddSource` | `bool` | Include the call site as a `source` field containing `file:line` |
+| `GroupSeparator` | `string` | Separator for nested `slog.Group` key prefixes; defaults to `.` |
 
-`Level` 可以是 `*slog.LevelVar`，实现**热门控**：
+Use a `*slog.LevelVar` to change the slog threshold at runtime. The backend
+must also allow the requested level:
 
 ```go
 lv := new(slog.LevelVar)
 lv.Set(slog.LevelInfo)
-h := zerologadapter.NewHandler(zl, zerologadapter.Options{Level: lv})
+h := zerologadapter.NewHandler(zl.Level(zerolog.DebugLevel), zerologadapter.Options{Level: lv})
 
-// 运行期把 fastconf 自身日志降到 Debug，而不动 zerolog 全局级别：
+// Allow FastConf debug logs without changing zerolog's global level.
 lv.Set(slog.LevelDebug)
 ```
 
+The adapter captures the zerolog logger by value. Changing the original
+logger variable later does not change the handler's backend configuration.
+
 ---
 
-## 路径 C：phuslu/log 适配（`integrations/log/phuslu`）
+## Option C: phuslu/log adapter
 
 ```bash
 go get github.com/fastabc/fastconf/integrations/log/phuslu@latest
@@ -104,10 +113,12 @@ go get github.com/fastabc/fastconf/integrations/log/phuslu@latest
 
 ```go
 import (
+    "log/slog"
     "os"
+
     "github.com/fastabc/fastconf"
-    plog "github.com/phuslu/log"
     phusluadapter "github.com/fastabc/fastconf/integrations/log/phuslu"
+    plog "github.com/phuslu/log"
 )
 
 pl := &plog.Logger{
@@ -121,30 +132,93 @@ cfg, _ := fastconf.New[AppConfig](ctx,
 )
 ```
 
-`Options` 字段与 zerolog 适配完全一致（`Level slog.Leveler` / `AddSource bool` / `GroupSeparator string`）。
+This adapter exposes the same `Options` fields as the zerolog adapter:
+`Level slog.Leveler`, `AddSource bool`, and `GroupSeparator string`.
 
-传 `nil` Logger 会得到一个无操作 handler（不 panic、不输出），方便"测试时关闭日志"。
+Passing a nil logger returns a handler that discards all records without
+panicking, which is useful for disabling logging in tests.
 
 ---
 
-## 三种路径选择建议
+## Choosing an option
 
-| 你的场景 | 选什么 |
+| Use case | Choice |
 |---|---|
-| 只想要 JSON，没历史包袱 | **A** 标准库，零依赖 |
-| 已经在用 zerolog | **B** zerolog 适配 |
-| 已经在用 phuslu/log | **C** phuslu 适配 |
-| 用其他第三方 logger（zap / logrus / charmbracelet/log …） | 仿照 B/C 的形态自己写一个 `slog.Handler` 适配，放在你自己的项目里 |
+| JSON output without an existing logging backend | **A**: standard library |
+| Existing zerolog application | **B**: zerolog adapter |
+| Existing phuslu/log application | **C**: phuslu/log adapter |
+| Another backend, such as zap, logrus, or charmbracelet/log | Implement a `slog.Handler` in your application, following the adapter examples |
 
-无论哪条路径，根 `go.mod` **永远只依赖** `yaml.v3 + json-patch + fsnotify + contracts` 这套最小集；具体 logger 实现由你按需 `go get` 拉入。
+The backend dependencies remain in the optional adapter modules. Selecting an
+adapter does not add a logging backend requirement to the root `go.mod`.
 
 ---
 
-## slog → 后端字段语义对照
+## Shared handler core: `fclog`
 
-两个适配 sub-module 共享同一套 slog.Attr → 后端 Entry 映射：
+`integrations/log/internal/fclog` implements the shared `slog.Handler`
+behavior. It ships with the root module and depends only on the standard
+library, which CI checks. Go's `internal` import boundary restricts it to
+packages under `integrations/log`; application code should use an adapter.
 
-| slog.Value Kind | zerolog Entry 方法 | phuslu Entry 方法 |
+Module relationships:
+
+```text
+github.com/fastabc/fastconf                  root module
+└── integrations/log/internal/fclog         shared handler; standard library only
+.../integrations/log/phuslu                 root module + phuslu/log
+.../integrations/log/zerolog                root module + zerolog
+```
+
+Responsibilities:
+
+| Shared in `fclog` | Implemented by each adapter |
+|---|---|
+| Map `slog.Level` to Trace/Debug/Info/Warn/Error | Map the shared level to a backend level (`plevel` / `zlevel`) |
+| Apply `Options.Level`, including a mutable `slog.Leveler` | `Backend.Enabled`: check the backend's threshold |
+| Preserve `WithAttrs` / `WithGroup` scope and flatten groups into key prefixes | `Backend.Event`: create a record, or return nil if it is dropped |
+| Dispatch `slog.Value` by kind, recognize errors, and resolve `LogValuer` values | `Event`: forward `Str`, `Int64`, `Err`, `Any`, and other fields to the backend |
+| Render `AddSource` as `file:line`; discard records when the backend is nil | |
+
+Adapters implement two small interfaces:
+
+```go
+type Backend interface {
+    Enabled(lvl Level) bool
+    Event(lvl Level) Event // nil means the backend dropped the record
+}
+
+type Event interface {
+    Str(key, val string)
+    Int64(key string, val int64)
+    Uint64(key string, val uint64)
+    Float64(key string, val float64)
+    Bool(key string, val bool)
+    Dur(key string, val time.Duration)
+    Time(key string, val time.Time)
+    Err(key string, err error)
+    Any(key string, val any)
+    Msg(msg string)
+}
+```
+
+Each adapter's `Options` has the same fields as `fclog.Options` and converts
+directly to it. Shared behavior tests live in
+`integrations/log/internal/logtest`.
+
+To add a backend inside this repository, create an independent module under
+`integrations/log/<backend>`, implement `Backend` and `Event`, and require the
+root `github.com/fastabc/fastconf` module. External applications cannot import
+this internal package; implement a `slog.Handler` as described in
+[Choosing an option](#choosing-an-option).
+
+---
+
+## Field mapping
+
+Both adapters share the `slog.Attr` mapping implemented in `internal/fclog`:
+
+| `slog.Value` kind | zerolog method | phuslu/log method |
 |---|---|---|
 | `KindString` | `Str(k, v)` | `Str(k, v)` |
 | `KindInt64` | `Int64(k, v)` | `Int64(k, v)` |
@@ -153,40 +227,14 @@ cfg, _ := fastconf.New[AppConfig](ctx,
 | `KindBool` | `Bool(k, v)` | `Bool(k, v)` |
 | `KindDuration` | `Dur(k, v)` | `Dur(k, v)` |
 | `KindTime` | `Time(k, v)` | `Time(k, v)` |
-| `KindAny`（error） | `AnErr(k, err)` | `AnErr(k, err)` |
-| `KindAny`（其它） | `Interface(k, v)` | `Any(k, v)` |
-| `KindGroup` | 嵌套，键以 `GroupSeparator` 串接（如 `stage.name`） | 同左 |
+| `KindAny` containing an error | `AnErr(k, err)` | `AnErr(k, err)` |
+| Other `KindAny` values | `Interface(k, v)` | `Any(k, v)` |
+| `KindGroup` | Flattened keys joined with `GroupSeparator`, such as `stage.name` | Same as zerolog |
 
 ---
 
-## 常见问题
+## FAQ
 
-- **为什么不直接把适配放进根模块？** 因为这样会让所有 fastconf 用户（即使不用 zerolog/phuslu）的 `go.sum` 都被污染。Sub-module 独立 `go.mod` 是 FastConf 的一贯隔离原则，与 `observability/otel`、`cue`、`policy/opa` 同构。
-- **能不能同时用两套？** 可以，但通常没有必要。`slog` 接口允许你随时切换 handler；也可以用 `slog.NewLogger(io.MultiWriter(...))` 做多写。
-- **Group 为什么用 dotted key 而不是嵌套 JSON 对象？** zerolog/phuslu 都没有原生 group 概念；扁平 + 前缀是最低成本、最不损失语义的映射；如果你需要嵌套，自定义 `slog.Handler` 写 `RawJSON` 即可。
-
----
-
-## 内部 `flog` 简介
-
-FastConf 内部不再写 `logger.Info("msg", "k", v, "k2", v2, ...)` 这种 slog 默认风格，而是包了一层 fluent builder：
-
-```go
-log.Info().
-    Str("reason", reason).
-    Uint64("generation", gen).
-    Int("layers", n).
-    Err(err).      // err == nil 自动跳过
-    Msg("fastconf reload swap")
-```
-
-设计要点：
-
-- **底层仍是 `*slog.Logger`**。所有上面讲过的 zerolog / phuslu / 标准库 Handler 都直接可用，**调用点不感知后端**。
-- **Level 短路 + 池化**：disabled 时 `Info()`/`Debug()` 返回 nil，所有链式方法 no-op，开销只剩一次 level 检查；`Msg()` 时通过 `sync.Pool` 回收 Event，amortized 零分配。
-- **强类型字段方法**：`Str / Strs / Int / Int64 / Uint64 / Float64 / Bool / Dur / Time / Err / NamedErr / Any / Attr`；写错类型编译期就拦下。
-- **互操作逃生口**：`log.Slog()` 返回底层 `*slog.Logger`，可塞给任意 slog-typed API。
-- **Ctx 变体**：`InfoCtx(ctx)` / `DebugCtx(ctx)` 等保留 context 传播。
-- **派生 logger**：`log.With().Str("component", "x").Group("stage").Str("name", "decode").Logger()` 等价于 zerolog 的 `With().Str(...).Logger()`。
-
-如果你只关心如何让 FastConf 自己产生 JSON / zerolog 风格的输出，只要按上面路径 A/B/C 配 Handler 即可；`flog` 现在是内部实现细节，不再作为公共包导出。
+- **Why are the adapters separate modules?** Each adapter isolates its backend dependencies, so users of the root module do not need either logging library. This follows the same module boundary used by `observability/otel`, `cue`, and `policy/opa`.
+- **Can I use both adapters?** Yes. To send records to both, use a `slog.Handler` that delegates to both handlers. To write the same JSON output to multiple destinations, pass an `io.MultiWriter` to `slog.NewJSONHandler`.
+- **Why do groups use dotted keys instead of nested JSON objects?** Both adapters use the shared key-prefix mapping to preserve group scope. Use `slog.NewJSONHandler` if you need nested JSON objects.

@@ -1,16 +1,6 @@
-// Package render plugs FastConf into the long tail of existing daemons that
-// only consume on-disk configuration files (nginx.conf, envoy.yaml,
-// postgresql.conf, ...). It mirrors the Consul-Template / Spring Cloud
-// Config "render to disk + signal" workflow but stays inside the calling
-// Go process, so there is no separate sidecar to operate.
-//
-// A Wire[T] call subscribes to a Manager's per-T notifications, renders
-// the typed snapshot through a Renderer, atomically writes the bytes to
-// outPath via a temp-file + rename(2), and finally fires every registered
-// OnChange hook (SIGHUP a pid, POST to a webhook, restart a systemd unit,
-// ...). On any error the previous file is preserved and a structured
-// log line is emitted; the framework never partially overwrites the
-// destination.
+// Package render writes configuration for file-based daemons. Wire subscribes
+// to snapshots, renders into a temporary file, atomically renames it, then runs
+// change hooks. Rendering or write failures preserve the previous destination.
 package render
 
 import (
@@ -31,11 +21,10 @@ import (
 	"time"
 
 	"github.com/fastabc/fastconf"
+	"github.com/fastabc/fastconf/internal/providerutil"
 )
 
-// Renderer turns a strongly-typed configuration snapshot into bytes. The
-// most common impl is GoTemplate; users can supply their own (e.g. a
-// pongo2 or jet renderer) without depending on this module's templating.
+// Renderer converts a typed configuration snapshot to file contents.
 type Renderer[T any] interface {
 	Render(value *T) ([]byte, error)
 }
@@ -99,29 +88,37 @@ func Wire[T any](
 	}
 	opts.applyDefaults()
 
-	var lastBytes []byte
-	var mu sync.Mutex
-	apply := func(value *T, isFirst bool) {
-		if value == nil {
+	// mu serializes render, write and hooks so a slow initial render cannot
+	// land after a newer reload; lastGen drops snapshots older than the one
+	// already handled. lastBytes is only trusted once written is set.
+	var (
+		mu        sync.Mutex
+		lastGen   uint64
+		lastBytes []byte
+		written   bool
+	)
+	apply := func(snap *fastconf.State[T], initial bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		if snap == nil || snap.Value() == nil || (lastGen != 0 && snap.Generation() <= lastGen) {
 			return
 		}
-		buf, rerr := r.Render(value)
+		lastGen = snap.Generation()
+		buf, rerr := r.Render(snap.Value())
 		if rerr != nil {
 			opts.report(fmt.Errorf("render: %w", rerr))
 			return
 		}
-		mu.Lock()
-		if bytes.Equal(buf, lastBytes) {
-			mu.Unlock()
+		if written && bytes.Equal(buf, lastBytes) {
 			return
 		}
-		lastBytes = buf
-		mu.Unlock()
 		if werr := atomicWrite(outPath, buf, opts.FileMode); werr != nil {
 			opts.report(fmt.Errorf("render: write %s: %w", outPath, werr))
 			return
 		}
-		if isFirst && opts.SkipFirstHook {
+		// Copy: renderers may reuse the returned buffer.
+		lastBytes, written = bytes.Clone(buf), true
+		if initial && opts.SkipFirstHook {
 			return
 		}
 		ctx, ccancel := context.WithTimeout(context.Background(), opts.HookTimeout)
@@ -136,12 +133,12 @@ func Wire[T any](
 		}
 	}
 
-	cancel = fastconf.Subscribe(mgr, func(t *T) *T { return t }, func(_, neu *T) {
-		apply(neu, false)
+	// The callback only signals a change; the current snapshot carries the
+	// generation that orders it against the eager first render.
+	cancel = fastconf.Subscribe(mgr, func(t *T) *T { return t }, func(_, _ *T) {
+		apply(mgr.Snapshot(), false)
 	})
-	if snap := mgr.Snapshot(); snap != nil {
-		apply(snap.Value(), true)
-	}
+	apply(mgr.Snapshot(), true)
 	return cancel, nil
 }
 
@@ -151,10 +148,8 @@ func (o *Options) report(err error) {
 	}
 }
 
-// atomicWrite writes data to a temp file in the destination directory and
-// atomically renames it over outPath. This is the same idiom Kubernetes
-// kubelet uses for projected ConfigMap volumes: readers either see the
-// fully-old content or the fully-new content, never a half-written file.
+// atomicWrite uses a same-directory temporary file and rename so readers see
+// only the complete old or new file, never a partial write.
 func atomicWrite(outPath string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(outPath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -240,19 +235,21 @@ func SignalProcess(pidFile string, sig os.Signal) Hook {
 }
 
 // HTTPGet returns a Hook that issues a GET to url and treats any
-// 2xx/3xx response as success. Use it to poke a webhook or kick off
+// 2xx/3xx response as success without following redirects. Requests time out
+// after 20 seconds or when ctx is canceled. Use it to poke a webhook or kick off
 // an external orchestrator after every config change.
 func HTTPGet(url string) Hook {
+	client := providerutil.HTTPClient(20 * time.Second)
 	return func(ctx context.Context, _ string) error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return err
 		}
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		_, _ = io.Copy(io.Discard, resp.Body)
 		if resp.StatusCode >= 400 {
 			return fmt.Errorf("render: http %s -> %d", url, resp.StatusCode)
@@ -261,9 +258,7 @@ func HTTPGet(url string) Hook {
 	}
 }
 
-// ReloadSystemd returns a Hook that runs `systemctl reload <unit>`. It is
-// implemented via os/exec rather than the dbus binding to keep this
-// module dependency-free; mocked in tests via Options.OnError verification.
+// ReloadSystemd runs systemctl reload for the named unit.
 func ReloadSystemd(unit string) Hook {
 	return func(ctx context.Context, _ string) error {
 		return exec.CommandContext(ctx, "systemctl", "reload", unit).Run()

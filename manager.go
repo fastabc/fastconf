@@ -2,357 +2,245 @@ package fastconf
 
 import (
 	"context"
-	"fmt"
+	"reflect"
+	"sync"
+	"sync/atomic"
 
+	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/internal/fcerr"
-	imanager "github.com/fastabc/fastconf/internal/manager"
-	istate "github.com/fastabc/fastconf/internal/state"
-	itenant "github.com/fastabc/fastconf/internal/tenant"
-	"github.com/fastabc/fastconf/policy"
+	"github.com/fastabc/fastconf/internal/watcher"
 )
 
-// closedErrCh is returned by Errors() when the manager is nil/uninitialized,
-// avoiding a per-call allocation.
-var closedErrCh = func() chan ReloadError {
-	ch := make(chan ReloadError)
-	close(ch)
-	return ch
-}()
+// Manager owns lifecycle and reads; reload_queue.go serializes writes.
 
 // Manager is the strongly-typed, lock-free configuration manager.
+//
+// Typical usage:
+//
+//	cfg, err := fastconf.New[MyConfig](ctx,
+//	    fastconf.WithDir("conf.d"),
+//	    fastconf.WithProfile(fastconf.Profile{Env: "APP_PROFILE"}),
+//	    fastconf.WithProvider(env.NewEnv("APP_")),
+//	    fastconf.WithWatch(fastconf.Watch{}),
+//	)
+//	defer cfg.Close()
+//	app := cfg.Get()
+//
+// Internally Manager serializes the write path (one reload goroutine)
+// while keeping the read path completely lock-free.
 type Manager[T any] struct {
-	inner *imanager.M[T]
+	state      atomic.Pointer[State[T]]
+	opts       options
+	stages     []stage[T]
+	layerCache layerCache
+	// metaKeys caches the combined _meta.yaml + WithMergeKeys table per
+	// _meta.yaml content; owned by the single writer like layerCache.
+	metaKeys metaKeysCache
+	// lastInputs is the input fingerprint of the published state, zero
+	// when unknown; owned by the single writer.
+	lastInputs [32]byte
+	gen        atomic.Uint64
+	closeOnce  sync.Once
+	closeDone  chan struct{}
+	// lifetime is canceled exactly once, by Shutdown (or by a failed New /
+	// finished Load); its Done channel is the only close signal.
+	lifetimeCancel context.CancelFunc
+	lifetime       context.Context
+
+	// Subscriber callbacks are copied under the lock, then run without it.
+	subscriberMu  sync.RWMutex
+	subscribers   map[uint64]subscriber[T]
+	subscriberSeq atomic.Uint64
+
+	// Background goroutines spawned by startWatcher / startProviderWatchers.
+	bgWG        sync.WaitGroup
+	fileWatcher *watcher.Watcher
+	// scannedDirs holds the directories the last reload scanned (writer-owned).
+	scannedDirs []string
+
+	// Serialized external reload trigger; watcher → reloadCh → reload goroutine.
+	reloadCh chan reloadRequest
+
+	// errsCh is the drop-on-full ring fed by reloadLoop after every failed
+	// reload attempt; reloadLoop is its only writer. Consumers iterate via
+	// m.Errors(); closed during Close() once reloadLoop has returned.
+	errsCh chan fcerr.ReloadError
+
+	// Optional in-memory history ring + watch-pause toggle.
+	history     *ring[State[T]]
+	historyMu   sync.Mutex
+	watchPaused atomic.Bool
+
+	// Per-provider last revision, passed to Provider.Watch on resubscribe.
+	resume *resumeState
+
+	// Tenant tag used by policy evaluation and committed events.
+	tenant string
+
+	// typedHookPlan holds the precomputed type-paired tree of typed
+	// decoder hooks built once at construction. nil when the option set
+	// disabled both defaults and extras.
+	typedHookPlan *codec.TypedHookPlan
+
+	// lastUnknownField is the last unknown-key message logged under
+	// UnknownWarn, so a persistent typo logs once rather than every reload.
+	lastUnknownField atomic.Value
+	// Custom encoders/decoders may consult external state on each reload.
+	customEncoding bool
 }
 
 // New constructs a Manager and runs the first reload synchronously.
+// On failure no goroutine is started. ctx bounds that initial reload only;
+// canceling it later does not stop watchers, which run until
+// Close or Shutdown. Values carried by ctx remain visible to background work.
 //
-// For one-line initialisation in main / init see [MustNew].
+// Once construction succeeds, read with Get, react with Subscribe and
+// Errors, preview future changes with Plan, and recover retained snapshots
+// through History when WithHistory was configured.
 func New[T any](ctx context.Context, opts ...Option) (*Manager[T], error) {
-	m, err := imanager.New[T](ctx, opts...)
+	m, err := newManager[T](ctx, opts)
 	if err != nil {
 		return nil, err
 	}
-	return &Manager[T]{inner: m}, nil
-}
-
-// MustNew is the panic variant of [New]. It is intended for top-level
-// program initialisation (main / init), where the only sensible
-// response to a configuration-load failure is to abort startup with a
-// loud, deterministic panic:
-//
-//	var Config = fastconf.MustNew[AppConfig](context.Background(),
-//	    fastconf.WithDir("conf.d"),
-//	    fastconf.WithProvider(provider.NewEnv("APP_")),
-//	)
-//
-// Long-running servers / daemons should continue to use [New] so they
-// can decide whether to fall back to built-in defaults or keep serving
-// the previous snapshot. MustNew deliberately omits MustGet /
-// MustReload variants:
-//
-//   - [Manager.Get] on a successfully constructed manager never
-//     returns nil — New runs the initial reload before returning, so
-//     the snapshot is always populated.
-//   - [Manager.Reload] failures are runtime events; panicking on a
-//     network blip would violate the framework's failure-safe contract.
-//   - [Extract] is nil-safe by design and cannot fail.
-//
-// The panic message wraps the underlying error so `recover` / panic
-// reporters surface the original cause.
-func MustNew[T any](ctx context.Context, opts ...Option) *Manager[T] {
-	m, err := New[T](ctx, opts...)
-	if err != nil {
-		panic(fmt.Errorf("fastconf.MustNew: %w", err))
+	if err := m.reload(ctx, "initial", ""); err != nil {
+		m.lifetimeCancel()
+		return nil, err
 	}
-	return m
+	if err := m.startBackground(); err != nil {
+		_ = m.Close()
+		return nil, err
+	}
+	return m, nil
 }
 
+// Load performs the initial pipeline synchronously without starting the
+// manager reload loop, file watcher, provider watchers.
+// The returned state is detached from manager lifecycle ownership and remains
+// valid for read-only inspection.
+//
+// Load resolves options exactly like New, including file discovery via
+// WithDir / WithFS / WithProfile.
+func Load[T any](ctx context.Context, opts ...Option) (*State[T], error) {
+	m, err := newManager[T](ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer m.lifetimeCancel()
+	if err := m.reload(ctx, "load", ""); err != nil {
+		return nil, err
+	}
+	return m.Snapshot(), nil
+}
+
+// newManager resolves options and prepares shared state without loading sources
+// or starting workers. New and Load differ only in their lifecycle ownership.
+func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) {
+	o, err := resolveOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	if !o.YAMLBridge {
+		warnIfYAMLOnlyTags[T](o.Logger)
+	}
+	// ctx bounds initialisation only: background work keeps its values
+	// (trace ids, loggers) but ends solely via Close/Shutdown.
+	lifetime, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	return &Manager[T]{
+		opts:           o,
+		lifetime:       lifetime,
+		lifetimeCancel: cancel,
+		stages:         defaultStages[T](),
+		closeDone:      make(chan struct{}),
+		subscribers:    map[uint64]subscriber[T]{},
+		reloadCh:       make(chan reloadRequest, reloadChanCap),
+		errsCh:         make(chan fcerr.ReloadError, fcerr.ErrorChanCap),
+		history:        newRing[State[T]](o.HistoryCap),
+		resume:         newResumeState(),
+		tenant:         o.Tenant,
+		typedHookPlan:  buildTypedHookPlan[T](&o),
+		customEncoding: hasCustomEncoding(reflect.TypeFor[T](), map[reflect.Type]bool{}),
+	}, nil
+}
+
+func (m *Manager[T]) startBackground() error {
+	m.bgWG.Add(1)
+	go m.reloadLoop()
+	if m.opts.Watch {
+		if err := m.startWatcher(m.lifetime); err != nil {
+			return err
+		}
+	}
+	// Provider Watch is its own opt-in (a nil channel means "no watch"),
+	// so it does not depend on the file-watcher switch.
+	m.startProviderWatchers(m.lifetime)
+	return nil
+}
+
+// Get returns a pointer to the current snapshot's value. Zero
+// allocation, O(1), lock-free. The returned value MUST be treated as
+// read-only.
 func (m *Manager[T]) Get() *T {
 	if m == nil {
 		return nil
 	}
-	return m.inner.Get()
+	if s := m.state.Load(); s != nil {
+		return s.Value()
+	}
+	return nil
 }
 
+// Snapshot returns the full immutable State[T] snapshot used for
+// diagnostics and fingerprint comparisons.
 func (m *Manager[T]) Snapshot() *State[T] {
 	if m == nil {
 		return nil
 	}
-	return wrapState(m.inner.Snapshot())
+	return m.state.Load()
 }
 
+// Close shuts the Manager down gracefully. Idempotent. After Close
+// returns, the channel from Errors() is closed; consumers iterating with
+// `for re := range m.Errors()` exit cleanly.
 func (m *Manager[T]) Close() error {
+	return m.Shutdown(context.Background())
+}
+
+// Shutdown cancels owned background work and waits for it to finish, honoring
+// ctx while the close continues in the background after a deadline.
+// Repeated calls share the close task. Once it finishes, Shutdown returns nil
+// even if ctx is already canceled. Callbacks that ignore cancellation can
+// retain their worker and snapshots after a timed-out Shutdown; Close waits
+// until those callbacks return.
+func (m *Manager[T]) Shutdown(ctx context.Context) error {
 	if m == nil {
 		return nil
 	}
-	return m.inner.Close()
-}
-
-func (m *Manager[T]) Errors() <-chan ReloadError {
-	if m == nil {
-		return closedErrCh
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	return m.inner.Errors()
-}
-
-func (m *Manager[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
-	if m == nil {
-		return fcerr.ErrClosed
-	}
-	return m.inner.Reload(ctx, opts...)
-}
-
-func (m *Manager[T]) Plan() *PlanBuilder[T] {
-	if m == nil {
-		return &PlanBuilder[T]{}
-	}
-	return &PlanBuilder[T]{inner: m.inner.Plan()}
-}
-
-func (m *Manager[T]) Replay() *Replay[T] {
-	if m == nil {
-		return &Replay[T]{}
-	}
-	return &Replay[T]{inner: m.inner.Replay()}
-}
-
-func (m *Manager[T]) Watcher() *Watcher[T] {
-	if m == nil {
-		return &Watcher[T]{}
-	}
-	return &Watcher[T]{inner: m.inner.Watcher()}
-}
-
-type ReloadOption = imanager.ReloadOption
-
-// WithSourceOverride injects a one-shot in-memory layer for a single
-// Reload. Override values must be JSON-serializable; Reload copies the map
-// into an independent JSON-shaped tree when applying the option, then the
-// next plain Reload reverts to the natural source state.
-func WithSourceOverride(override map[string]any) ReloadOption {
-	return imanager.WithSourceOverride(override)
-}
-
-func WithReloadReason(reason string) ReloadOption {
-	return imanager.WithReloadReason(reason)
-}
-
-type ValidatorReport = imanager.ValidatorReport
-
-type PlanResult[T any] struct {
-	Proposed   *State[T]
-	Diff       []DiffEntry
-	Validators []ValidatorReport
-	Policies   []policy.Violation
-}
-
-type PlanBuilder[T any] struct {
-	inner *imanager.PlanBuilder[T]
-}
-
-func (b *PlanBuilder[T]) WithHostname(host string) *PlanBuilder[T] {
-	if b != nil && b.inner != nil {
-		b.inner = b.inner.WithHostname(host)
-	}
-	return b
-}
-
-func (b *PlanBuilder[T]) Run(ctx context.Context) (*PlanResult[T], error) {
-	if b == nil || b.inner == nil {
-		return nil, fmt.Errorf("fastconf: nil manager")
-	}
-	res, err := b.inner.Run(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &PlanResult[T]{
-		Proposed:   wrapState(res.Proposed),
-		Diff:       res.Diff,
-		Validators: res.Validators,
-		Policies:   res.Policies,
-	}, nil
-}
-
-type Replay[T any] struct {
-	inner *imanager.Replay[T]
-}
-
-func (r *Replay[T]) List() []*State[T] {
-	if r == nil {
+	// Canceling lifetime signals every background goroutine — reloadLoop,
+	// fsnotify watcher and provider watchers —
+	// to exit. bgWG.Wait then blocks until they all return.
+	m.closeOnce.Do(func() {
+		m.lifetimeCancel()
+		go m.finishClose()
+	})
+	select {
+	case <-m.closeDone:
 		return nil
+	default:
 	}
-	return wrapStates(r.inner.List())
-}
-
-func (r *Replay[T]) Rollback(target *State[T]) error {
-	if r == nil {
-		return imanager.ErrHistoryDisabled
-	}
-	return r.inner.Rollback(unwrapState(target))
-}
-
-type Watcher[T any] struct {
-	inner *imanager.Watcher[T]
-}
-
-func (w *Watcher[T]) Pause() {
-	if w != nil && w.inner != nil {
-		w.inner.Pause()
-	}
-}
-
-func (w *Watcher[T]) Resume() {
-	if w != nil && w.inner != nil {
-		w.inner.Resume()
-	}
-}
-
-func (w *Watcher[T]) Paused() bool {
-	return w != nil && w.inner != nil && w.inner.Paused()
-}
-
-var ErrUnknownGeneration = imanager.ErrUnknownGeneration
-var ErrHistoryDisabled = imanager.ErrHistoryDisabled
-
-// SubscribeOption customises a [Subscribe] registration. The only
-// constructor today is [WithEqual]; the type is exported so callers can
-// write helper functions that return options.
-type SubscribeOption[M any] func(*subscribeOpts[M])
-
-// subscribeOpts carries the resolved per-subscriber knobs.
-type subscribeOpts[M any] struct {
-	equal func(old, new *M) bool
-}
-
-// WithEqual replaces the default [reflect.DeepEqual] comparator used by
-// [Subscribe] to decide whether the extracted value actually changed.
-//
-// The framework invokes equal only with two non-nil pointers; nil ↔
-// non-nil transitions are unambiguous changes and never consult equal.
-// Return true to mark old and new as unchanged (the callback is skipped).
-//
-// Common uses:
-//
-//   - Ignore a noisy field: return a.URL == b.URL && a.Pool == b.Pool
-//   - Hash-compare large structs: return a.Hash == b.Hash
-//   - Force fire-on-every-reload (e.g. audit, mirror, heartbeat):
-//     WithEqual(func(_, _ *T) bool { return false })
-func WithEqual[M any](equal func(old, new *M) bool) SubscribeOption[M] {
-	return func(o *subscribeOpts[M]) { o.equal = equal }
-}
-
-// Subscribe registers a callback that fires after a successful reload
-// when the value extracted by extract has actually changed.
-//
-// Change detection uses [reflect.DeepEqual] on the dereferenced values by
-// default. Pass [WithEqual] to substitute a custom comparator (skip
-// noisy fields, hash-compare large structs, force fire-on-every-reload).
-//
-//	cancel := fastconf.Subscribe(mgr,
-//	    func(c *AppConfig) *DBConfig { return &c.Database },
-//	    func(old, new *DBConfig) {
-//	        reconnect(new) // guaranteed: database config actually changed
-//	    },
-//	)
-//	defer cancel()
-//
-// nil ↔ non-nil transitions always fire (unambiguous changes; equality
-// function is not consulted). Two nil values do not fire.
-//
-// Callbacks run synchronously on the reload goroutine. They must return
-// quickly; blocking I/O postpones the next reload. Spawn a goroutine
-// inside the callback if needed.
-//
-// A panic in fn (or in a [WithEqual] comparator) is recovered and
-// surfaced on [Manager.Errors]; it does not poison the writer or affect
-// other subscribers. The returned cancel removes the subscription;
-// calling it after Close() is a no-op.
-//
-// To run a side effect on every committed reload regardless of equality,
-// pass WithEqual(func(_, _ *T) bool { return false }).
-func Subscribe[T any, M any](
-	m *Manager[T],
-	extract func(*T) *M,
-	fn func(old, new *M),
-	opts ...SubscribeOption[M],
-) (cancel func()) {
-	if m == nil {
-		return func() {}
-	}
-	cfg := subscribeOpts[M]{}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(&cfg)
-		}
-	}
-	return imanager.Subscribe[T, M](m.inner, extract, fn, cfg.equal)
-}
-
-type TenantManager[T any] struct {
-	inner *itenant.Manager[T]
-}
-
-func NewTenantManager[T any]() *TenantManager[T] {
-	return &TenantManager[T]{inner: itenant.New[T]()}
-}
-
-func (tm *TenantManager[T]) Add(ctx context.Context, id string, opts ...Option) (*Manager[T], error) {
-	if tm == nil {
-		return nil, fmt.Errorf("fastconf: nil TenantManager")
-	}
-	m, err := tm.inner.Add(ctx, id, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return &Manager[T]{inner: m}, nil
-}
-
-func (tm *TenantManager[T]) Get(id string) (*Manager[T], error) {
-	if tm == nil {
-		return nil, fmt.Errorf("%w: %q", itenant.ErrUnknownTenant, id)
-	}
-	m, err := tm.inner.Get(id)
-	if err != nil {
-		return nil, err
-	}
-	return &Manager[T]{inner: m}, nil
-}
-
-func (tm *TenantManager[T]) Has(id string) bool {
-	return tm != nil && tm.inner.Has(id)
-}
-
-func (tm *TenantManager[T]) Remove(id string) error {
-	if tm == nil {
-		return fmt.Errorf("%w: %q", itenant.ErrUnknownTenant, id)
-	}
-	return tm.inner.Remove(id)
-}
-
-func (tm *TenantManager[T]) Tenants() []string {
-	if tm == nil {
+	select {
+	case <-m.closeDone:
 		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	return tm.inner.Tenants()
 }
 
-func (tm *TenantManager[T]) Close() error {
-	if tm == nil {
-		return nil
-	}
-	return tm.inner.Close()
+func (m *Manager[T]) finishClose() {
+	m.bgWG.Wait()
+	// reloadLoop, the only errsCh writer, has returned.
+	close(m.errsCh)
+	close(m.closeDone)
 }
-
-func wrapStates[T any](states []*istate.State[T]) []*State[T] {
-	if states == nil {
-		return nil
-	}
-	out := make([]*State[T], len(states))
-	for i, s := range states {
-		out[i] = wrapState(s)
-	}
-	return out
-}
-
-var ErrTenantExists = itenant.ErrTenantExists
-var ErrUnknownTenant = itenant.ErrUnknownTenant

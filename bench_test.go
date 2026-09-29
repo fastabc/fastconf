@@ -7,10 +7,6 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
-
-	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/internal/obs"
-	istate "github.com/fastabc/fastconf/internal/state"
 )
 
 type benchCfg struct {
@@ -40,7 +36,7 @@ func newBenchManager(b testing.TB) *Manager[benchCfg] {
 // shape (single atomic.Pointer.Load + struct-pointer return).
 func BenchmarkGetWarmState(b *testing.B) {
 	mgr := newBenchManager(b)
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 	b.ReportAllocs()
 	b.ResetTimer()
 	var sink *benchCfg
@@ -56,41 +52,79 @@ func BenchmarkReloadNoop(b *testing.B) {
 
 func benchmarkReloadNoop(b *testing.B) {
 	mgr := newBenchManager(b)
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 	ctx := context.Background()
+	generation := mgr.Snapshot().Generation()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = mgr.Reload(ctx)
+		if err := mgr.Reload(ctx); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.StopTimer()
+	if mgr.Snapshot().Generation() != generation {
+		b.Fatal("no-op reload published a state")
 	}
 }
 
 // BenchmarkReloadAllocs is the allocation guard for the reload-with-commit
-// path. Pairs with BenchmarkReloadCommitSmall, which uses the same fixture,
-// and is consumed by tools/bench-guard.sh.
+// path. It shares the fixture and commit checks with BenchmarkReloadCommitSmall.
 func BenchmarkReloadAllocs(b *testing.B) {
-	mgr := newBenchManager(b)
-	defer mgr.Close()
-	ctx := context.Background()
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = mgr.Reload(ctx, WithSourceOverride(map[string]any{
-			"a": 2 + i%2,
-		}))
-	}
+	benchmarkReloadCommitSmall(b)
 }
 
 func BenchmarkReloadCommitSmall(b *testing.B) {
+	benchmarkReloadCommitSmall(b)
+}
+
+func benchmarkReloadCommitSmall(b *testing.B) {
 	mgr := newBenchManager(b)
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 	ctx := context.Background()
+	generation := mgr.Snapshot().Generation()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = mgr.Reload(ctx, WithSourceOverride(map[string]any{
+		if err := mgr.Reload(ctx, WithOverride(map[string]any{
 			"a": 2 + i%2, // alternate so every reload publishes a new State
-		}))
+		})); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.StopTimer()
+	if got := mgr.Snapshot().Generation(); got != generation+uint64(b.N) {
+		b.Fatalf("committed %d generations, want %d", got-generation, b.N)
+	}
+}
+
+func BenchmarkReloadDocument(b *testing.B) {
+	for _, size := range []int{4 << 10, 64 << 10, 1 << 20} {
+		b.Run(fmt.Sprintf("%dKiB", size>>10), func(b *testing.B) {
+			doc := []byte(`{"payload":"` + strings.Repeat("x", size-len(`{"payload":""}`)) + `"}`)
+			m, err := New[struct {
+				Payload string `json:"payload"`
+			}](context.Background(), WithFS(fstest.MapFS{
+				"conf.d/base/config.json": &fstest.MapFile{Data: doc},
+			}))
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer func() { _ = m.Close() }()
+			generation := m.Snapshot().Generation()
+			b.SetBytes(int64(len(doc)))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := m.Reload(context.Background()); err != nil {
+					b.Fatal(err)
+				}
+			}
+			b.StopTimer()
+			if m.Snapshot().Generation() != generation {
+				b.Fatal("unchanged document published a state")
+			}
+		})
 	}
 }
 
@@ -101,7 +135,7 @@ func BenchmarkReloadCommitSmall(b *testing.B) {
 func BenchmarkSubscribeContention(b *testing.B) {
 	const subscriberCount = 100
 	mgr := newBenchManager(b)
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 	var dummyA int
 	for range subscriberCount {
 		Subscribe(mgr,
@@ -123,7 +157,7 @@ func BenchmarkSubscribeContention(b *testing.B) {
 			func(c *benchCfg) *int { return &c.A },
 			func(_, _ *int) {},
 		)
-		_ = mgr.Reload(ctx, WithSourceOverride(map[string]any{
+		_ = mgr.Reload(ctx, WithOverride(map[string]any{
 			"a": 2 + i%2,
 		}))
 		cancel()
@@ -135,7 +169,7 @@ func BenchmarkReloadManySubscribers(b *testing.B) {
 	for _, n := range []int{1, 10, 50} {
 		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
 			mgr := newBenchManager(b)
-			defer mgr.Close()
+			defer func() { _ = mgr.Close() }()
 			var sink int
 			cancels := make([]func(), 0, n)
 			for range n {
@@ -157,7 +191,7 @@ func BenchmarkReloadManySubscribers(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_ = mgr.Reload(ctx, WithSourceOverride(map[string]any{
+				_ = mgr.Reload(ctx, WithOverride(map[string]any{
 					"a": 2 + i%2,
 				}))
 			}
@@ -198,7 +232,7 @@ func BenchmarkTypedHooksWide(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 	ctx := context.Background()
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -210,48 +244,48 @@ func BenchmarkTypedHooksWide(b *testing.B) {
 var (
 	benchIntSink      int
 	benchSettingsSink map[string]any
-	benchKeysSink     []string
 )
 
-func BenchmarkIntrospectCold(b *testing.B) {
+func BenchmarkStateMapCold(b *testing.B) {
 	cfg := benchCfg{A: 1, B: "hello"}
 	cfg.C.D = true
 	cfg.C.E = "world"
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		state := wrapState(istate.NewSnapshot(&cfg, [32]byte{}, 0, nil, 0, nil, istate.ReloadCause{}, nil, nil))
-		benchSettingsSink = state.Introspect().Settings()
+		state := &State[benchCfg]{value: &cfg}
+		benchSettingsSink = state.Map()
 	}
 }
 
-func BenchmarkIntrospectWarmKeys(b *testing.B) {
-	cfg := benchCfg{A: 1, B: "hello"}
-	cfg.C.D = true
-	cfg.C.E = "world"
-	state := wrapState(istate.NewSnapshot(&cfg, [32]byte{}, 0, nil, 0, nil, istate.ReloadCause{}, nil, nil))
-	intro := state.Introspect()
+// BenchmarkReloadCommitObserver includes delivery of every Committed event
+// and its diff computation.
+func BenchmarkReloadCommitObserver(b *testing.B) {
+	delivered := make(chan struct{}, 1)
+	mgr, err := New[benchCfg](context.Background(),
+		WithFS(fstest.MapFS{"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("a: 1\nb: hello\nc:\n  d: true\n  e: world\n")}}),
+		WithObserver(observerFunc(func(_ context.Context, e Event) {
+			if c, ok := e.(Committed); ok {
+				_ = c.Diff()
+				delivered <- struct{}{}
+			}
+		})),
+	)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer func() { _ = mgr.Close() }()
+	generation := mgr.Snapshot().Generation()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchKeysSink = intro.Keys()
+		if err := mgr.Reload(context.Background(), WithOverride(map[string]any{"a": 2 + i%2})); err != nil {
+			b.Fatal(err)
+		}
+		<-delivered
 	}
-}
-
-type benchSpan struct{}
-
-func (benchSpan) End()                     {}
-func (benchSpan) RecordError(error)        {}
-func (benchSpan) SetAttribute(string, any) {}
-
-func BenchmarkEnrichAttrs4(b *testing.B) {
-	var sp benchSpan
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		obs.EnrichAttrs(&sp,
-			contracts.Attr{Key: "a", Value: 1},
-			contracts.Attr{Key: "b", Value: "x"},
-			contracts.Attr{Key: "c", Value: true},
-			contracts.Attr{Key: "d", Value: int64(42)})
+	b.StopTimer()
+	if mgr.Snapshot().Generation() != generation+uint64(b.N) {
+		b.Fatal("observer fixture skipped a commit")
 	}
 }

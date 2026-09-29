@@ -4,6 +4,9 @@ import (
 	"context"
 	"os"
 	"testing"
+
+	"github.com/fastabc/fastconf/internal/testutil"
+	envprovider "github.com/fastabc/fastconf/providers/env"
 )
 
 func TestDotEnvProvider_BasicParsing(t *testing.T) {
@@ -56,7 +59,7 @@ func TestDotEnvProvider_EnvPresenceWinsEvenWhenEmpty(t *testing.T) {
 		}
 		return "", false
 	})
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +76,7 @@ func TestDotEnvProvider_EnvAbsenceFallsBackToDotEnv(t *testing.T) {
 	p := NewDotEnv("APP_", path).WithLookup(func(string) (string, bool) {
 		return "", false
 	})
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +91,7 @@ func TestDotEnvProvider_WithLookupNilRestoresDefault(t *testing.T) {
 	p := NewDotEnv("APP_", path).
 		WithLookup(func(string) (string, bool) { return "", false }).
 		WithLookup(nil)
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +110,7 @@ func TestDotEnvProvider_NoPrefixFilter(t *testing.T) {
 func TestDotEnvProvider_MissingFile(t *testing.T) {
 	p := NewDotEnv("APP_", "/nonexistent/.env").
 		WithLookup(func(string) (string, bool) { return "", false })
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatalf("Load with missing file: %v", err)
 	}
@@ -120,7 +123,7 @@ func TestDotEnvProvider_MissingFile(t *testing.T) {
 func TestDotEnvProvider_DotReplacerLoad(t *testing.T) {
 	path := writeTempDotEnv(t, "APP_DATABASE_DSN=postgres://x\nAPP_PORT=8080\n")
 	p := NewDotEnv("APP_", path).WithLookup(func(string) (string, bool) { return "", false })
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,9 +140,9 @@ func TestDotEnvProvider_DotReplacerLoad(t *testing.T) {
 func TestDotEnvProvider_DoubleUnderscoreReplacer(t *testing.T) {
 	path := writeTempDotEnv(t, "APP_DATABASE__POOL=20\nAPP_FEATURE_FLAGS=on\n")
 	p := NewDotEnv("APP_", path).
-		WithReplacer(DoubleUnderscoreReplacer).
+		WithReplacer(envprovider.DoubleUnderscoreReplacer).
 		WithLookup(func(string) (string, bool) { return "", false })
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +161,7 @@ func TestDotEnvProvider_AtNamespaces(t *testing.T) {
 	p := NewDotEnv("APP_", path).
 		At("config.runtime").
 		WithLookup(func(string) (string, bool) { return "", false })
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}

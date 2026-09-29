@@ -3,15 +3,14 @@ package labels
 import (
 	"strings"
 
-	mappath "github.com/fastabc/fastconf/confmap"
+	"github.com/fastabc/fastconf/confmap"
 )
 
-// collectRoutingLabelPairs normalises any of the accepted label inputs
-// ([]string, map[string]string, ...) into a pair slice with each key
-// optionally lowercased.
-func collectRoutingLabelPairs(input any, lowercase bool) []mappath.LabelPair {
-	pairs := mappath.NormalizeLabelInput(input)
-	out := make([]mappath.LabelPair, 0, len(pairs))
+// collectRoutingLabelPairs normalises any of the accepted label inputs ([]string,
+// map[string]string, ...) into a pair slice with each key optionally lowercased.
+func collectRoutingLabelPairs(input any, lowercase bool) []confmap.LabelPair {
+	pairs := confmap.NormalizeLabelInput(input)
+	out := make([]confmap.LabelPair, 0, len(pairs))
 	for _, p := range pairs {
 		p.Key = normalizeRoutingKey(p.Key, lowercase)
 		out = append(out, p)
@@ -19,9 +18,8 @@ func collectRoutingLabelPairs(input any, lowercase bool) []mappath.LabelPair {
 	return out
 }
 
-// routingPairsAsList re-renders pairs into the "key=value" form expected
-// by mappath.ExpandLabels.
-func routingPairsAsList(pairs []mappath.LabelPair) []string {
+// routingPairsAsList re-renders pairs into the "key=value" form expected by confmap.ExpandLabels.
+func routingPairsAsList(pairs []confmap.LabelPair) []string {
 	out := make([]string, 0, len(pairs))
 	for _, pair := range pairs {
 		out = append(out, pair.Key+"="+pair.Value)
@@ -29,8 +27,8 @@ func routingPairsAsList(pairs []mappath.LabelPair) []string {
 	return out
 }
 
-// normalizeRoutingKey applies the lowercase-keys option uniformly across
-// the inspection and expansion paths.
+// normalizeRoutingKey applies the lowercase-keys option uniformly across the inspection and
+// expansion paths.
 func normalizeRoutingKey(key string, lowercase bool) string {
 	if lowercase {
 		return strings.ToLower(key)
@@ -38,10 +36,10 @@ func normalizeRoutingKey(key string, lowercase bool) string {
 	return key
 }
 
-// routingGateBlocks returns true when an EnableGate has been configured
-// and its value is missing or not truthy. Callers short-circuit Load on
-// true so a half-configured deployment cannot leak routing labels.
-func routingGateBlocks(pairs []mappath.LabelPair, gate string) bool {
+// routingGateBlocks returns true when an EnableGate has been configured and its value is missing
+// or not truthy. Callers short-circuit Load on true so a half-configured deployment cannot leak
+// routing labels.
+func routingGateBlocks(pairs []confmap.LabelPair, gate string) bool {
 	if gate == "" {
 		return false
 	}
@@ -58,8 +56,8 @@ func routingGateBlocks(pairs []mappath.LabelPair, gate string) bool {
 	return found && !routingTruthy(value)
 }
 
-// routingTruthy mirrors Traefik / Docker label truthy semantics — case
-// insensitive, surrounding whitespace tolerated.
+// routingTruthy mirrors Traefik / Docker label truthy semantics — case insensitive, surrounding
+// whitespace tolerated.
 func routingTruthy(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "true", "1", "yes", "on":

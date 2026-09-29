@@ -1,4 +1,4 @@
-// Package migration lets FastConf rewrite the merged map from one
+// Migration lets FastConf rewrite the merged map from one
 // schema version to another before it is decoded into the strongly
 // typed snapshot. It addresses the "long-lived config + evolving
 // struct" pain point: instead of forcing every operator to hand-edit
@@ -9,12 +9,17 @@
 // chain runs after merge but before transform/decode; the final version
 // is written back into _meta.schemaVersion so subsequent reloads
 // fast-skip already-migrated input.
+
 package transform
 
 import (
+	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"math"
+	"slices"
+	"strconv"
 )
 
 // Migration upgrades a merged configuration map from From to To.
@@ -24,19 +29,18 @@ type Migration struct {
 	Apply func(m map[string]any) error
 }
 
-// Chain is an ordered, validated set of Migrations that can be applied
-// in sequence. Use New(...) to construct one.
+// Chain is an ordered, validated set of Migrations that can be applied in sequence. Use New(...)
+// to construct one.
 type Chain struct {
 	target int
 	byFrom map[int]Migration
 }
 
-// New builds a Chain ensuring every migration's From == previous.To
-// (gap- and dup-free). target is the highest schemaVersion the chain
-// can reach; clients should set it to the latest version their typed
-// struct understands.
+// New builds a Chain ensuring every migration's From == previous.To (gap- and dup-free). target is
+// the highest schemaVersion the chain can reach; clients should set it to the latest version their
+// typed struct understands.
 func New(target int, migrations ...Migration) (*Chain, error) {
-	sort.SliceStable(migrations, func(i, j int) bool { return migrations[i].From < migrations[j].From })
+	slices.SortStableFunc(migrations, func(a, b Migration) int { return cmp.Compare(a.From, b.From) })
 	byFrom := map[int]Migration{}
 	for i, m := range migrations {
 		if m.Apply == nil {
@@ -53,29 +57,50 @@ func New(target int, migrations ...Migration) (*Chain, error) {
 	return &Chain{target: target, byFrom: byFrom}, nil
 }
 
-// MetaKey is the conventional path inside the merged map storing the
-// current schema version: _meta.schemaVersion.
+// MetaKey is the conventional path inside the merged map storing the current schema version:
+// _meta.schemaVersion.
 const MetaKey = "_meta"
 
 // FieldKey is the field inside MetaKey holding an int.
 const FieldKey = "schemaVersion"
 
-// CurrentVersion reads m._meta.schemaVersion. Missing or non-int
-// values are treated as version 0 (assume the oldest schema).
+// CurrentVersion reads m._meta.schemaVersion. Missing values, and values that are not an integer
+// representable as int, are treated as version 0 (assume the oldest schema). Integers arrive as
+// json.Number from the JSON codec, int from YAML and int64 from TOML.
 func CurrentVersion(m map[string]any) int {
 	meta, _ := m[MetaKey].(map[string]any)
 	if meta == nil {
 		return 0
 	}
+	var n int64
 	switch v := meta[FieldKey].(type) {
 	case int:
 		return v
 	case int64:
-		return int(v)
+		n = v
+	case uint64:
+		if v > math.MaxInt64 {
+			return 0
+		}
+		n = int64(v)
 	case float64:
-		return int(v)
+		if v != math.Trunc(v) || v < math.MinInt64 || v >= math.MaxInt64 {
+			return 0
+		}
+		n = int64(v)
+	case json.Number:
+		i, err := strconv.ParseInt(string(v), 10, 64)
+		if err != nil {
+			return 0
+		}
+		n = i
+	default:
+		return 0
 	}
-	return 0
+	if n < math.MinInt || n > math.MaxInt {
+		return 0
+	}
+	return int(n)
 }
 
 // SetVersion writes m._meta.schemaVersion = v, creating _meta if absent.
@@ -88,10 +113,9 @@ func SetVersion(m map[string]any, v int) {
 	meta[FieldKey] = v
 }
 
-// Run upgrades m to c.target, returning the final version. It is a
-// no-op when m is already at or above target. Returns an error if the
-// chain has a gap or any Apply fails (m may be partially mutated; the
-// caller should discard m and roll back on error).
+// Run upgrades m to c.target, returning the final version. It is a no-op when m is already at or
+// above target. Returns an error if the chain has a gap or any Apply fails (m may be partially
+// mutated; the caller should discard m and roll back on error).
 func (c *Chain) Run(m map[string]any) (int, error) {
 	if c == nil {
 		return 0, errors.New("migration: nil chain")

@@ -11,19 +11,18 @@ front of you, then follow the related recipes when the deployment gets deeper.
 | [sidecar](sidecar.md) | Run `fastconfd` for non-Go workloads |
 | [env-replacer](env-replacer.md) | Env key conventions, `At()` namespacing, coercion |
 | [labels](labels.md) | Metadata labels, dotted config labels, routing DSL labels |
-| [migration v0.19](migration-v0.19.md) | Update `Subscribe` callbacks for diff-aware defaults |
+| [migration v1](migration-v1.md) | Move a v0 codebase to the v1 API, entry point by entry point |
+| [migration v0](migration-v0.md) | Archived notes for moves between v0 releases |
 
 ## Operations — observe, inspect, and run safely
 
 | Recipe | Use it for |
 |---|---|
-| [observability](observability.md) | Prometheus rules, OTel correlation, and reload triage |
-| [otel](otel.md) | Wire OpenTelemetry tracing for reload spans |
+| [observability](observability.md) | Prometheus rules, OpenTelemetry tracing, and reload triage |
 | [log](log.md) | JSON / zerolog / phuslu/log adapter wiring |
-| [diff-reporter](diff-reporter.md) | Push reload diffs to Slack / PagerDuty / GitHub |
-| [dump](dump.md) | Marshal current state to deterministic YAML |
-| [introspect](introspect.md) | `state.Introspect().Keys / Settings / At` |
-| [reload-policy](reload-policy.md) | `m.Errors()` consumer pattern + `WithSourceOverride` |
+| [observer](observer.md) | Audit lines, metrics and pushing reload diffs to Slack / PagerDuty / GitHub |
+| [introspect](introspect.md) | `state.Map / Dump / Explain`, `Unredacted()`, deterministic dumps |
+| [reload-policy](reload-policy.md) | `m.Errors()` consumer pattern + `WithOverride` |
 | [provider-timeouts](provider-timeouts.md) | HTTP-client `Timeout` vs `ctx` guarantees |
 | [vault](vault.md) | Pull from Vault KV-v2, leases, and rotation |
 | [consul](consul.md) | Consul KV with watcher prefix + ACL |
@@ -42,4 +41,3 @@ front of you, then follow the related recipes when the deployment gets deeper.
 | [field-meta](field-meta.md) | `fc:"required,min=,max=,oneof=,desc="` metadata |
 | [secrets](secrets.md) | SOPS / age / KMS / Vault transit decryption hooks |
 | [features](features.md) | Feature flags, targeting, percentage rollouts |
-| [openfeature](openfeature.md) | Adapt FastConf as an OpenFeature provider |

@@ -1,0 +1,51 @@
+name: Resource soak
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: resource-soak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  soak:
+    name: soak / ${{ matrix.os }} / go ${{ matrix.go }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      GOWORK: "off"
+      GOMAXPROCS: "4"
+      FASTCONF_SOAK_DURATION: 5m
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go: ["1.26.x"]
+        include:
+          - os: ubuntu-latest
+            go: "1.24.x"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+      - name: Mixed workload and resource recovery (race)
+        run: |
+          {
+            go version
+            go env GOOS GOARCH
+            echo "GOMAXPROCS=$GOMAXPROCS FASTCONF_SOAK_DURATION=$FASTCONF_SOAK_DURATION"
+            go test -mod=readonly -race -count=1 -timeout=10m -run '^TestResourceSoak$' -v .
+          } 2>&1 | tee "$RUNNER_TEMP/resource-soak.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: resource-soak-${{ matrix.os }}-${{ matrix.go }}
+          path: ${{ runner.temp }}/resource-soak.log

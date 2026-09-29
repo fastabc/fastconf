@@ -8,54 +8,68 @@ import (
 	"strconv"
 
 	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/internal/providerutil"
 )
 
-// FileSource reads a single auxiliary file (yaml/json/toml/...) at
-// load time. Watching is handled by the global file-watcher subsystem
-// rather than the Source; Watch returns (nil, nil).
-//
-// The content-type returned by Read is the lowercase file extension
-// without the leading dot ("yaml", "json", "toml"). Bind uses this
-// hint to auto-select a Parser when WithSource is called with nil.
+// FileSource reads a single auxiliary file (yaml/json/toml/...) at load time and decodes it by
+// extension. Change detection is handled by the manager's shared file watcher
+// (Describe().WatchPaths); Watch returns (nil, nil).
 type FileSource struct {
-	path     string
-	priority int
+	path         string
+	priority     int
+	maxBodyBytes int64
 }
 
-// NewFile constructs a FileSource. Default priority is
-// contracts.BandProvider (above generator layers, below
-// provider/CLI). Override via WithPriority.
+// NewFile constructs a FileSource. Default priority is contracts.PriorityStatic, so env and CLI
+// providers override it. Override via WithPriority.
 func NewFile(path string) *FileSource {
-	return &FileSource{path: path, priority: contracts.BandProvider}
+	return &FileSource{path: path, priority: contracts.PriorityStatic, maxBodyBytes: contracts.DefaultMaxBodyBytes}
 }
 
 // WithPriority overrides the default priority.
 func (f *FileSource) WithPriority(p int) *FileSource { f.priority = p; return f }
 
-// Name implements contracts.Source. Returns "file:<path>".
+// WithMaxBodyBytes limits the file payload before it is decoded. Zero restores the 4 MiB default.
+func (f *FileSource) WithMaxBodyBytes(n int64) *FileSource { f.maxBodyBytes = n; return f }
+
+// Name implements contracts.Provider. Returns "file:<path>".
 func (f *FileSource) Name() string { return "file:" + f.path }
 
-// Priority implements contracts.Source.
-func (f *FileSource) Priority() int { return f.priority }
+// Describe implements contracts.Describer. The manager's shared file watcher observes the parent
+// directory so atomic symlink swaps are covered.
+func (f *FileSource) Describe() contracts.ProviderInfo {
+	return contracts.ProviderInfo{Priority: f.priority, WatchPaths: []string{f.path}}
+}
 
-// Read implements contracts.Source. A missing file is reported as an
-// empty payload + empty rev (and no error) so the layer can be
+// Load implements contracts.Provider. A missing file is an empty layer.
+func (f *FileSource) Load(ctx context.Context) (contracts.Snapshot, error) {
+	data, ct, rev, err := f.Read(ctx)
+	return decode(f.Name(), data, ct, rev, err)
+}
+
+// Read returns the raw file, its extension as content-type hint and a stat-based revision. A
+// missing file is reported as an empty payload + empty rev (and no error) so the layer can be
 // optional. Any other I/O error is propagated.
 func (f *FileSource) Read(_ context.Context) ([]byte, string, string, error) {
-	data, err := os.ReadFile(f.path)
+	file, err := os.Open(f.path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, contentTypeForPath(f.path), "", nil
 		}
 		return nil, "", "", fmt.Errorf("file source: %w", err)
 	}
+	defer func() { _ = file.Close() }()
+	data, err := providerutil.ReadAllMax(file, f.maxBodyBytes)
+	if err != nil {
+		return nil, contentTypeForPath(f.path), "", fmt.Errorf("file source: %w", err)
+	}
 	rev := fileRevision(f.path)
 	return data, contentTypeForPath(f.path), rev, nil
 }
 
-// Watch implements contracts.Source. The global file-watcher handles
-// file changes; the Source itself does not subscribe.
-func (f *FileSource) Watch(_ context.Context) (<-chan contracts.Event, error) {
+// Watch implements contracts.Provider. The shared file watcher handles file changes; the provider
+// itself does not subscribe.
+func (f *FileSource) Watch(context.Context, string) (<-chan contracts.Event, error) {
 	return nil, nil
 }
 
@@ -67,9 +81,7 @@ func contentTypeForPath(p string) string {
 	return ext // ".yaml" / ".json" / ...
 }
 
-// fileRevision returns a cheap stable fingerprint based on the file's
-// stat. Identical inode+size+mtime ⇒ identical revision. Missing file
-// returns "".
+// fileRevision returns a size+mtime hint, not a content hash. Missing files return "".
 func fileRevision(path string) string {
 	st, err := os.Stat(path)
 	if err != nil {

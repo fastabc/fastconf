@@ -17,9 +17,11 @@ p, err := consul.New(
 )
 mgr, err := fastconf.New[MyApp](ctx,
     fastconf.WithProvider(p),
-    fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
 )
 ```
+
+Provider watches start automatically; `WithWatch` only controls the file
+watcher for `WithDir` layers.
 
 The provider uses Consul's blocking-query API (`?index=N`) so updates
 are pushed within ~100ms of the KV write. Omit `consul.WithWait` to use

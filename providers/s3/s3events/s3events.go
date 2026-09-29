@@ -1,5 +1,3 @@
-//go:build !no_provider_s3events
-
 // Package s3events translates S3 → EventBridge → SQS object-mutation
 // events into FastConf contracts.Event values, providing the watch
 // half of the S3 configuration story.
@@ -166,39 +164,42 @@ func newProvider(cfg Config, client API) (*Provider, error) {
 // Name implements contracts.Provider.
 func (p *Provider) Name() string { return p.name }
 
-// Priority implements contracts.Provider.
-func (p *Provider) Priority() int { return p.priority }
+// Describe implements contracts.Describer.
+func (p *Provider) Describe() contracts.ProviderInfo {
+	return contracts.ProviderInfo{Priority: p.priority}
+}
 
 // Load implements contracts.Provider. The watch-only provider
 // contributes no configuration of its own — pair with providers/s3 for
 // the actual data. Returning an empty map (rather than nil) ensures
 // downstream stages always receive a non-nil layer.
-func (p *Provider) Load(_ context.Context) (map[string]any, error) {
-	return map[string]any{}, nil
+func (p *Provider) Load(_ context.Context) (contracts.Snapshot, error) {
+	return contracts.Snapshot{Map: map[string]any{}}, nil
 }
 
 // Watch implements contracts.Provider. The returned channel is closed
 // when ctx is done. Events arrive at most once per matched SQS message
-// after the message is successfully ACKed (deleted from the queue).
-func (p *Provider) Watch(ctx context.Context) (<-chan contracts.Event, error) {
+// before ACK (deletion); failed ACKs may cause redelivery. A non-empty
+// from cannot be resumed, so the first event reports Gap.
+func (p *Provider) Watch(ctx context.Context, from string) (<-chan contracts.Event, error) {
 	out := make(chan contracts.Event, 16)
 	go func() {
 		defer close(out)
+		gap := from != ""
 		for {
 			if err := ctx.Err(); err != nil {
 				return
 			}
-			p.poll(ctx, out)
+			p.poll(ctx, out, &gap)
 		}
 	}()
 	return out, nil
 }
 
 // poll executes one ReceiveMessage cycle and forwards matching events
-// to out. Transient errors are swallowed (logging is left to the
-// caller's MetricsSink); the loop keeps the watch alive through
-// network blips.
-func (p *Provider) poll(ctx context.Context, out chan<- contracts.Event) {
+// to out. Transient errors are swallowed; the loop keeps the watch alive
+// through network blips.
+func (p *Provider) poll(ctx context.Context, out chan<- contracts.Event, gap *bool) {
 	in := &sqs.ReceiveMessageInput{
 		QueueUrl:            aws.String(p.queueURL),
 		MaxNumberOfMessages: p.maxMsgs,
@@ -222,8 +223,10 @@ func (p *Provider) poll(ctx context.Context, out chan<- contracts.Event) {
 		if !ok {
 			continue
 		}
+		ev.Gap = *gap
 		select {
 		case out <- ev:
+			*gap = false
 		case <-ctx.Done():
 			return
 		}
@@ -330,3 +333,4 @@ func isObjectMutation(detailType string) bool {
 
 // Compile-time interface assertion.
 var _ contracts.Provider = (*Provider)(nil)
+var _ contracts.Describer = (*Provider)(nil)

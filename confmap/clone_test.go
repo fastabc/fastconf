@@ -1,6 +1,7 @@
 package confmap
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -32,5 +33,39 @@ func TestDeepClone_Independence(t *testing.T) {
 func TestDeepClone_Nil(t *testing.T) {
 	if DeepClone(nil) != nil {
 		t.Errorf("nil input must yield nil")
+	}
+}
+
+func TestDeepClone_PreservesNullAndEmptyContainers(t *testing.T) {
+	orig := map[string]any{
+		"nil_map": map[string]any(nil), "empty_map": map[string]any{},
+		"nil_slice": []any(nil), "empty_slice": []any{},
+	}
+	got := DeepClone(orig)
+	if !reflect.DeepEqual(got, orig) {
+		t.Fatalf("clone = %#v; want %#v", got, orig)
+	}
+	before, err := json.Marshal(orig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("clone changed JSON: %s -> %s", before, after)
+	}
+}
+
+func TestCloneValue_DetachesNestedContainers(t *testing.T) {
+	orig := []any{map[string]any{"k": []any{"a"}}}
+	got := CloneValue(orig).([]any)
+	got[0].(map[string]any)["k"].([]any)[0] = "b"
+	if orig[0].(map[string]any)["k"].([]any)[0] != "a" {
+		t.Fatal("CloneValue aliased a nested container")
+	}
+	if CloneValue("s") != "s" || CloneValue(nil) != nil {
+		t.Fatal("CloneValue must return scalars unchanged")
 	}
 }

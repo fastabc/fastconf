@@ -1,6 +1,6 @@
-// Package cuelang provides a default cuelang.org/go-backed implementation
-// of contracts.Schema. It compiles a CUE source string once at
-// construction and unifies every JSON-encoded snapshot against it.
+// Package cuelang provides a cuelang.org/go-backed schema validator. It
+// compiles a CUE source string once at construction and unifies every
+// JSON-encoded snapshot against it.
 //
 // The package lives in its own go.mod so projects that don't need CUE
 // keep the cuelang.org/go transitive closure out of their build.
@@ -9,11 +9,12 @@
 //
 //	sch, _ := cuelang.Compile("{ port: int & >0 & <65536 }")
 //	mgr, _ := fastconf.New[Cfg](ctx,
-//	    fastconf.WithValidator(fastconf.NewValidator[Cfg](sch)),
+//	    fastconf.WithValidate(cuelang.Validate[Cfg](sch)),
 //	)
 package cuelang
 
 import (
+	gojson "encoding/json"
 	"errors"
 	"fmt"
 
@@ -22,7 +23,7 @@ import (
 	"cuelang.org/go/encoding/json"
 )
 
-// Schema is the cuelang.org/go-backed contracts.Schema.
+// Schema is a compiled CUE schema.
 type Schema struct {
 	ctx    *cue.Context
 	schema cue.Value
@@ -59,4 +60,20 @@ func (s *Schema) ValidateJSON(data []byte) error {
 		return fmt.Errorf("cuelang: validate: %w", err)
 	}
 	return nil
+}
+
+// Validate adapts s into a typed validator for fastconf.WithValidate:
+// the decoded *T is JSON-encoded (so json tags govern field names) and
+// unified with the schema.
+func Validate[T any](s *Schema) func(*T) error {
+	return func(t *T) error {
+		if t == nil {
+			return errors.New("cuelang: nil config")
+		}
+		data, err := gojson.Marshal(t)
+		if err != nil {
+			return fmt.Errorf("cuelang: marshal: %w", err)
+		}
+		return s.ValidateJSON(data)
+	}
 }

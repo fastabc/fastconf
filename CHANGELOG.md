@@ -1,140 +1,114 @@
 # Changelog
 
-All notable changes to FastConf are documented here.
-See [`docs/cookbook/migration-v0.18.md`](docs/cookbook/migration-v0.18.md)
-for the step-by-step migration guide.
+User-visible release changes are recorded here. See the
+[v1 migration guide](docs/cookbook/migration-v1.md) for v0 → v1 API changes
+and the [v0 migration guide](docs/cookbook/migration-v0.md) for older releases.
 
-## [Unreleased]
+## [Unreleased] — v1.0.0
 
-### Breaking changes (API)
+### Changed
 
-- **`State.Lookup` removed.** Use `State.Explain(path)` for the same
-  provenance chain. `LookupStrict` is unchanged.
+- Kept Prometheus and OTel in separate leaf modules with their original import
+  paths. Logging adapters remain independent; their dependency-free shared
+  implementation is now root-versioned (eleven modules overall).
+- Modules release together at one version and are discovered from `go.mod`;
+  removed the manual inventory and changed-only/force/delete release modes.
+  Pinned upstream `gorelease` replaces the custom API snapshot generator.
+- Subscriber callbacks run in registration order. Vault rejects empty tokens
+  even with unrelated options; S3 size errors wrap `ErrConfigTooLarge`.
+  Custom overlay parent directories are watched, including metadata updates.
+  Render HTTP hooks have a 20-second timeout and do not follow redirects.
+- Documented unsupported defaults/validation on collection elements; removed
+  unused traversal branches. Removed provider build tags and dotenv's copied
+  replacer exports (use `providers/env`); shared provider helpers and codec
+  lookup now have one implementation.
+- Moved NATS and Redis Streams providers to examples; removed the SDK-free
+  OpenFeature imitation. Sidecar routes remain unchanged.
+- Removed `source.HTTPSource` / `source.NewHTTP`; `providers/http` now supports
+  Content-Type codec selection, revision snapshots and disabling polling.
+- Commit and plan share pipeline execution; tracing and stage events share
+  timing code. README files are the single user-manual source.
 
-- **Provider / generator failures have dedicated sentinels.** Errors from
-  `Provider.Load` now satisfy `errors.Is(err, fastconf.ErrProvider)`;
-  generator execution failures satisfy `errors.Is(err, fastconf.ErrGenerator)`.
-  These failures no longer classify as `ErrDecode`.
+- Root source files and tests are organized by runtime responsibility. Shared
+  initialization and direct callback functions reduce internal wrappers;
+  public migrations are listed below and in the migration guide.
+- The root module requires Go 1.24. Independent modules retain their own Go
+  floors, tested separately in CI.
+- Providers use `Load(ctx) (contracts.Snapshot, error)` and `Watch(ctx, from)`;
+  optional `Describe()` supplies priority and watch paths. S3 and S3 Events
+  implement this contract and require the matching root candidate.
+- `Profile`, `Axis`, `Watch`, variadic provider/generator/transform/validator
+  options, direct `Plan`, `History`, and `Pause/Resume` form the v1 API.
+  Removed v0 names and replacements are listed in the migration guide.
+- `Observer` unifies lifecycle notifications, metrics, audit and change feeds.
+  Callbacks are synchronous unless wrapped in caller-owned `observe.Async`.
+  Deadlines cancel callback contexts; callbacks must cooperate.
+- `State.Map`, `Dump`, `Diff`, `Explain`, plan diffs and sidecar views mask
+  secrets by default. Explicit plaintext views use `Unredacted`; the sidecar
+  additionally requires its configured token.
+- Struct-tag defaults always run. Unknown fields warn by default, with
+  `UnknownError` and `UnknownIgnore` alternatives. Transforms include schema
+  migrations; `WithTenant` labels a manager without a framework registry.
+- File-layer caching and input fingerprints reduce unchanged reload work.
+  RFC 6902 patches operate directly on copied maps. Snapshot diagnostics
+  lazily retain a JSON tree while returned views remain detached.
 
-- **`pkg/flog` moved internal.** FastConf's fluent logging wrapper is now
-  an implementation detail under `internal/flog`; applications should keep
-  using their own logger and pass it with `WithLogger`.
+- `PolicyError` is now defined in the root package, keeping its fields and
+  error matching behavior while removing policy dependencies from contracts.
+- Removed `SourceRef.Band`; source diagnostics retain `Kind`, `Priority`,
+  `Profile` and `Path` without exposing internal priority-band names.
 
-- **Public helper packages moved out of `pkg/`.** The old import paths remain
-  as deprecated forwarding shims for the v0.20 migration window. Update new
-  code to import the domain packages directly:
+### Fixed
 
-  | Old import path | New import path |
-  |---|---|
-  | `github.com/fastabc/fastconf/pkg/decoder` | `github.com/fastabc/fastconf/codec` |
-  | `github.com/fastabc/fastconf/pkg/parser` | `github.com/fastabc/fastconf/codec` |
-  | `github.com/fastabc/fastconf/pkg/merger` | `github.com/fastabc/fastconf/confmap` |
-  | `github.com/fastabc/fastconf/pkg/mappath` | `github.com/fastabc/fastconf/confmap` |
-  | `github.com/fastabc/fastconf/pkg/typed` | `github.com/fastabc/fastconf/confmap` |
-  | `github.com/fastabc/fastconf/pkg/discovery` | `github.com/fastabc/fastconf/overlay` |
-  | `github.com/fastabc/fastconf/pkg/profile` | `github.com/fastabc/fastconf/overlay` |
-  | `github.com/fastabc/fastconf/pkg/transform` | `github.com/fastabc/fastconf/transform` |
-  | `github.com/fastabc/fastconf/pkg/migration` | `github.com/fastabc/fastconf/transform` |
-  | `github.com/fastabc/fastconf/pkg/feature` | `github.com/fastabc/fastconf/feature` |
-  | `github.com/fastabc/fastconf/pkg/provider` | `github.com/fastabc/fastconf/providers/{env,cliflag,dotenv,labels}` |
-  | `github.com/fastabc/fastconf/pkg/cliadapter` | `github.com/fastabc/fastconf/providers/cliflag` |
-  | `github.com/fastabc/fastconf/pkg/source` | `github.com/fastabc/fastconf/providers/source` |
-  | `github.com/fastabc/fastconf/pkg/validate` | `contracts.Schema` + `fastconf.NewValidator` |
+- Removed `transform.MergeByKey`, which could not merge across source layers;
+  use `WithMergeKeys` for keyed list merging during assembly.
+- Negative `WithHistory` capacities now return an option error from `New`
+  instead of silently disabling history.
 
-- **`pkg/generator` removed.** Keep using the stable `contracts.Generator`
-  interface and return `contracts.RawLayer` values from your own generator
-  implementations.
-
-- **`WithProfile(ProfileOptions{Multi: ...})` is last-write-wins.** Multiple
-  calls replace the active multi-profile set instead of appending. To activate
-  a union, pass the full list in one `Multi` value.
-
-- **FastConf struct metadata now uses `fc:"..."`.** The previous
-  project-name tag key is removed with no compatibility fallback. Update
-  field defaults, field metadata, and secret redaction markers:
-
-  ```go
-  Addr string `json:"addr" fc:"default=:8080"`
-  DSN  string `json:"dsn"  fc:"secret"`
-  Port int    `json:"port" fc:"required,min=1,max=65535"`
-  ```
-
-- **`Subscribe` is now diff-aware by default.** The callback fires only
-  when the value extracted by `extract` actually changes between two
-  consecutive reloads. Equality is determined by `reflect.DeepEqual` on
-  the dereferenced values. Two-nil transitions do not fire; nil ↔
-  non-nil transitions always fire.
-
-  ```go
-  // v0.18: callback ran on every reload, you wrote the filter yourself
-  fastconf.Subscribe(mgr, extract, func(old, new *T) {
-      if old != nil && *old == *new { return }
-      reconnect(new)
-  })
-
-  // v0.19: framework owns the diff
-  fastconf.Subscribe(mgr, extract, func(old, new *T) {
-      reconnect(new) // guaranteed: value actually changed
-  })
-  ```
-
-  **Quiet hazard.** A v0.18 subscriber whose side effect ran on every
-  reload (audit, mirror, heartbeat) without a caller-side filter will
-  see fewer invocations after upgrading. To restore the v0.18 semantics,
-  pass `WithEqual(func(_, _ *T) bool { return false })`.
-
-### Fixed (Wave K — before the first v0.20.0 tag)
-
-- **Provider-owned maps are no longer mutated by the pipeline** (fixed
-  before first v0.20.0 tag). Provider snapshots are deep-cloned at the
-  assembly boundary, so typed-hook / secret-resolve / merge writes can no
-  longer reach a provider's (or the caller's) long-lived map — closing a
-  secret-plaintext leak path.
-- **`Close()` is now genuinely idempotent** (fixed before first v0.20.0
-  tag). A second `Close()` no longer panics on a double channel close, and
-  the caller-side error-publish path is fenced against a send-on-closed
-  race with `Close`.
-- **`WithProviderOrdered` no longer strips `SnapshotProvider`.** Ordered
-  providers keep their `Revision`/`Stale` metadata (audit + Watch resume).
-- **Patch-layer provenance** now attributes only the paths a patch names,
-  not the entire merged tree, so `Explain`/`LookupStrict` and audit
-  attribution are correct.
-- **`Plan().Run()` runs on the single-writer goroutine,** so a dry-run can
-  no longer invoke user hooks concurrently with a reload; failing Plans
-  are now published on `Errors()` as the godoc always claimed.
-- **`_meta.yaml` read errors fail loud.** A permission/IO error (as
-  opposed to "not found") now fails the reload instead of silently
-  degrading merge semantics.
-- **`WithTransformers(nil)` is rejected at construction** instead of
-  panicking on the reload goroutine.
-- **Overlay/base directories that overflow their priority band fail the
-  scan** instead of silently interleaving layers across directories.
-- `provenance.Origin.Value` matches its doc (Full-level only; slice
-  leaves cloned). Feature `Eval` no longer clones the whole rule table per
-  call (0 allocs/op).
-
-### Changed (pre-tag public surface)
-
-- **`overlay.MetaSpec` drops the never-read `Ordering` and `RedactEnvKeys`
-  fields.** They were silently accepted and ignored; removed in the last
-  pre-tag window to avoid carrying dead schema into SemVer.
-
-### Added
-
-- **`WithEqual[M any](equal func(old, new *M) bool) SubscribeOption[M]`** —
-  replaces the default `reflect.DeepEqual` comparator with a custom
-  function. Used to ignore noisy fields, hash-compare large structs, or
-  restore the fire-on-every-reload idiom.
-
-See [`docs/cookbook/migration-v0.19.md`](docs/cookbook/migration-v0.19.md)
-for focused examples.
-
-### Migration
-
-| v0.18 call                                                | v0.19 replacement                                                       |
-| --------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `Subscribe(m, ex, fn)` (callback expected every reload)   | `Subscribe(m, ex, fn, WithEqual(func(_,_ *T) bool { return false }))`   |
-| `Subscribe(m, ex, fn)` with inline `*old == *new` filter  | `Subscribe(m, ex, fn)` — delete the filter                              |
+- Axis priority takes precedence over file count: higher-priority axes always
+  win, and excess axes or files cannot cross into another priority band.
+- Secret provenance uses dotted numeric list paths, matching `Explain` and
+  secret-path patterns.
+- HTTP document providers reject redirects by default so custom credential
+  headers cannot be forwarded to another server.
+- Release selection orders stable versions above their prereleases, ignores
+  documentation-only module changes, and checks unpublished root dependencies.
+- Historical provenance values cannot expose tagged or pattern-matched secrets
+  inside lists, or secrets removed from the final configuration.
+- `State.Cause` returns a detached revisions map.
+- Shutdown cancels in-flight manual reloads and plans, including cooperative
+  provider calls. Cancellation at stage boundaries prevents publication.
+- Unchanged files still run custom JSON/YAML/text encoding hooks in `T`;
+  the input fingerprint no longer skips dynamic decode results.
+- Codec registry changes during assembly no longer attach the new generation
+  to an older decoded result, so the next reload cannot be skipped incorrectly.
+- JSON Patch rejects null documents/paths, invalid pointer escapes, signed
+  array indices and operations beneath null parents without changing input.
+- S3 snapshots preserve revisions and detach cached nested maps; S3 Events
+  reports a resume gap on the first event after a non-empty resume request.
+- `observe.Async` safely handles concurrent `Observe` and `Close`.
+- Release candidate tags publish GitHub prereleases without replacing the
+  latest stable release. Runtime, metadata and release documentation now
+  describe the current API and module layout.
+- Typed hooks support recursive types, embedded structs, pointers, slices and
+  maps, follow the field selection of the configured decoder, and work with
+  `WithDecoder(YAML)`. `DurationHook` now returns a `time.Duration`;
+  `URLHook` fills `url.URL` / `*url.URL` fields.
+- Provider and generator priorities order layers only within their class:
+  files < generators < providers < `WithOverride`, whatever the values.
+- The file watcher follows every scanned directory even when a reload does not
+  publish, and re-registers directories that are removed and recreated.
+- `render.Wire` serializes rendering with reloads so an older snapshot never
+  overwrites a newer one, retries after a failed write and creates the file for
+  an empty first render.
+- Vault Watch re-announces a version until a Load reads it successfully.
+- `transform.CurrentVersion` reads integer `json.Number` schema versions.
+- The zerolog and phuslu slog adapters keep attributes in the group they were
+  added to.
+- Routing labels reject list indexes above `labels.MaxRoutingIndex` with a
+  Load error instead of panicking.
+- fastconfgen no longer emits duplicate field or type names when a generated
+  suffix collides with an input name.
 
 ## [v0.18.0] — 2026-05-19
 
@@ -157,47 +131,24 @@ shared `cuelang.org/go` runtime. `providers/s3events` is now a subpackage of `pr
 
 ### Breaking changes (API)
 
-See [`docs/cookbook/migration-v0.18.md`](docs/cookbook/migration-v0.18.md) for full
+See [`docs/cookbook/migration-v0.md`](docs/cookbook/migration-v0.md) for full
 examples and migration recipes.
 
-- **Bucketed options (SPEC-A1):** 11 flat `With*` setters replaced by
+- **Bucketed options:** 11 flat `With*` setters replaced by
   `WithProfile(ProfileOptions{…})`, `WithWatch(WatchOptions{…})`, and
   `WithCoalesce(CoalesceOptions{…})`. The old names are deleted.
-- **`WithDefaulterFunc` → `WithDefaults` (SPEC-A6).**
-- **`Sub` → `Extract` (SPEC-A8).**
-- **`State[T].Diff` now returns `[]DiffEntry` (SPEC-A4).** Use
+- **`WithDefaulterFunc` → `WithDefaults`.**
+- **`Sub` → `Extract`.**
+- **`State[T].Diff` now returns `[]DiffEntry`.** Use
   `fastconf.FormatDiff(entries)` to get the previous `[]string` line list.
-- **`provider.NewCLIChanged` removed (SPEC-E2).** Use `provider.NewCLI`.
+- **`provider.NewCLIChanged` removed.** Use `provider.NewCLI`.
 - **`OverlayAxis`, `Transformer`, `MigrationApplier`, `MigrationFunc`,
-  `CodecBridge` are now root-native types (SPEC-A3).** Field names are
+  `CodecBridge` are now root-native types.** Field names are
   unchanged; existing struct literals compile without modification.
-
-### Architecture
-
-- Moved `Manager[T]`, the reload pipeline, plan/replay/watch helpers, and
-  receiver-method internals behind `internal/manager`.
-- Moved option storage into `internal/options`, observability contracts into
-  `internal/obs`, tenant registry into `internal/tenant`, and generic
-  `State[T]` implementation into `internal/state`.
-- Root package is now a 12-file public facade of type aliases,
-  constructors, and `With*` wrappers. Public API signatures are unchanged.
-- `go.mod` minimum version lowered to `go 1.22`; all language features in
-  use (`generics`, `atomic.Pointer`) are available since Go 1.18/1.19.
-
-### Compatibility
-
-- `fastconf.Manager[T]`, `State[T]`, `Option`, `TenantManager[T]`,
-  `Replay[T]`, `Watcher[T]`, `PlanResult[T]`, and observability interfaces
-  remain available at the root package through aliases.
-- `Manager.Get` remains zero allocation; bench guard reports 0.4339 ns/op,
-  0 B/op, 0 allocs/op on the local arm64 baseline.
 
 ## [v0.15.0] — 2026-05-16
 
-First numbered pre-public release. Tracks the contract-polish wave that
-collapses every "shape-before-semantics" rough edge surfaced in
-`docs/plans/archive/2026-05-16-project-evaluation.md` and lays the groundwork
-for a 9+/10 publish-readiness score.
+First numbered pre-public release.
 
 ### Reload pipeline
 
@@ -253,12 +204,3 @@ for a 9+/10 publish-readiness score.
   `http.DefaultClient` with an isolated `&http.Client{Timeout: 10s}`
   matching the main vault default. New cookbook page:
   `docs/cookbook/provider-timeouts.md`.
-
-### Baseline reminder
-
-Everything below the v0.15.0 line is the same baseline as
-[Unreleased] v0.14: strongly-typed `*Manager[T]`, lock-free
-`atomic.Pointer.Load` hot read, Kustomize-style overlay merge, opt-in
-extension points, pre-public API (no migration commitments).
-
-For full reference see `README.md` and `docs/design/`.

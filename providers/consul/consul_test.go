@@ -1,5 +1,3 @@
-//go:build !no_provider_consul
-
 package consul
 
 import (
@@ -7,13 +5,20 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	nethttp "net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/fastabc/fastconf/internal/testutil"
 )
+
+type consulDoerFunc func(*nethttp.Request) (*nethttp.Response, error)
+
+func (f consulDoerFunc) Do(r *nethttp.Request) (*nethttp.Response, error) { return f(r) }
 
 type yamlCodec struct{}
 
@@ -53,7 +58,7 @@ func TestProvider_LoadKVTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +83,7 @@ func TestProvider_LoadBlob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +117,7 @@ func TestProvider_WatchEmitsOnIndexChange(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	ch, err := p.Watch(ctx)
+	ch, err := p.Watch(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,11 +147,45 @@ func TestProvider_404IsEmpty(t *testing.T) {
 	}))
 	defer srv.Close()
 	p, _ := New(srv.URL, "missing")
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 0 {
 		t.Fatalf("want empty, got %+v", got)
+	}
+}
+
+func TestProvider_WatchNormalizesZeroIndex(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	requests := make(chan string, 2)
+	var calls atomic.Int64
+	p, err := New("http://consul.invalid", "app", WithClient(consulDoerFunc(func(r *nethttp.Request) (*nethttp.Response, error) {
+		requests <- r.URL.Query().Get("index")
+		if calls.Add(1) == 2 {
+			cancel()
+		}
+		return &nethttp.Response{
+			StatusCode: nethttp.StatusOK,
+			Header:     nethttp.Header{"X-Consul-Index": []string{"0"}},
+			Body:       io.NopCloser(strings.NewReader("[]")),
+		}, nil
+	})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Watch(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case index := <-requests:
+			if i == 1 && index != "1" {
+				t.Fatalf("zero index was not normalized: next index=%q", index)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("missing watch request")
+		}
 	}
 }

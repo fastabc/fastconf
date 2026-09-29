@@ -11,8 +11,8 @@ layer 叠加成一个强类型 Go 结构体，并在热更新时用单写者 rel
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-> **Status**: public beta。当前 API 仍以"把语义收准"为第一目标；
-> [`pkg.go.dev`](https://pkg.go.dev/github.com/fastabc/fastconf) 与本文档描述的是当前真相。
+> **状态**：v1.0.0 本文描述候选版 API；
+> 从已发布 v0 升级请参阅 [v1 迁移指南](docs/cookbook/migration-v1.md)。
 
 ---
 
@@ -23,19 +23,19 @@ layer 叠加成一个强类型 Go 结构体，并在热更新时用单写者 rel
 3. [安装](#安装)
 4. [核心模型](#核心模型)
 5. [Manager API](#manager-api)
-6. [Option 参考](#option-参考)
-7. [Reload Pipeline](#reload-pipeline)
-8. [Profile 与 Overlay](#profile-与-overlay)
-9. [Provider 系统](#provider-系统)
-10. [Transformer 与迁移](#transformer-与迁移)
-11. [Watch、Subscribe 与 Plan](#watchsubscribe-与-plan)
-12. [来源追溯、历史与回滚](#来源追溯历史与回滚)
-13. [可观测性](#可观测性)
-14. [多租户与预设](#多租户与预设)
-15. [子模块生态](#子模块生态)
-16. [CLI 工具](#cli-工具)
-17. [性能](#性能)
-18. [本地开发](#本地开发)
+6. [Reload Pipeline](#reload-pipeline)
+7. [Profile 与 Overlay](#profile-与-overlay)
+8. [Provider 系统](#provider-系统)
+9. [Transformer 与迁移](#transformer-与迁移)
+10. [Watch、Subscribe 与 Plan](#watchsubscribe-与-plan)
+11. [来源追溯、历史与回滚](#来源追溯历史与回滚)
+12. [可观测性](#可观测性)
+13. [多租户与常用组合](#多租户与常用组合)
+14. [子模块生态](#子模块生态)
+15. [CLI 工具](#cli-工具)
+16. [性能](#性能)
+17. [本地开发](#本地开发)
+18. [文档](#文档)
 19. [License](#license)
 
 ---
@@ -66,12 +66,12 @@ type AppConfig struct {
 func main() {
     mgr, err := fastconf.New[AppConfig](context.Background(),
         fastconf.WithDir("conf.d"),
-        fastconf.WithProfile(fastconf.ProfileOptions{
-            EnvVar:  "APP_PROFILE",
+        fastconf.WithProfile(fastconf.Profile{
+            Env:     "APP_PROFILE",
             Default: "dev",
         }),
         fastconf.WithProvider(env.NewEnv("APP_")),
-        fastconf.WithWatch(fastconf.WatchOptions{Enabled: true}),
+        fastconf.WithWatch(fastconf.Watch{}),
     )
     if err != nil {
         log.Fatal(err)
@@ -92,7 +92,7 @@ conf.d/
   overlays/
     prod/
       50-overrides.yaml
-      _patch.json
+      90-fix.patch.json
 ```
 
 ```yaml
@@ -113,14 +113,6 @@ APP_PROFILE=prod APP_DATABASE_POOL=20 go run .
 `APP_DATABASE_POOL=20` 映射到 `database.pool`（单下划线分隔符，Viper/Spring Boot 风格）。
 设置 `APP_PROFILE=prod` 后，FastConf 先合并 `base/*`，再合并 `overlays/prod/*`。
 
-### 推荐入口
-
-| 场景 | 推荐组合 | 深入阅读 | 可运行示例 |
-|---|---|---|---|
-| 本地文件配置 | `New + WithDir + Get` | [Quickstart](docs/readme/zh/01-quickstart.md) | [`examples/basic`](examples/basic/example_test.go) |
-| Kubernetes 热更新 | `PresetK8s + Subscribe + Errors` | [k8s cookbook](docs/cookbook/k8s.md) | [`examples/sidecar`](examples/sidecar/example_test.go) |
-| 远程配置 / GitOps | `WithProvider + Plan + Provenance` | [Vault](docs/cookbook/vault.md) / [Consul](docs/cookbook/consul.md) | [`examples/external_source`](examples/external_source/example_test.go) |
-
 ---
 
 ## 为什么选 FastConf
@@ -135,51 +127,25 @@ APP_PROFILE=prod APP_DATABASE_POOL=20 go run .
 
 ## 安装
 
-```bash
-go get github.com/fastabc/fastconf@latest
-
-# 可选子模块：
-go get github.com/fastabc/fastconf/observability/otel@latest
-go get github.com/fastabc/fastconf/observability/metrics/prometheus@latest
-go get github.com/fastabc/fastconf/cue@latest
-go get github.com/fastabc/fastconf/policy/opa@latest
-go get github.com/fastabc/fastconf/providers/s3@latest
-```
-
-命令行工具（需要 Go ≥ 1.22）：
+根模块要求 Go 1.24+。子模块最低为 Go 1.24；依赖需要更高版本时，在各自的 go.mod 中声明。
+**v1.0.0 已准备，尚未打 tag**。目前使用本地 checkout 构建：
 
 ```bash
-go install github.com/fastabc/fastconf/cmd/fastconfd@latest
-go install github.com/fastabc/fastconf/cmd/fastconfctl@latest
-go install github.com/fastabc/fastconf/cmd/fastconfgen@latest
+go build ./...
+go build ./cmd/fastconfctl ./cmd/fastconfd
 ```
 
-### 兼容性
+发布后可安装：
 
-| 项目 | 支持范围 |
-|---|---|
-| Go 工具链 | 1.22, 1.23, 1.24, 1.25, 1.26（`go.mod` 不再固定 toolchain） |
-| 操作系统 / 架构 | linux/amd64、linux/arm64、darwin/amd64、darwin/arm64、windows/amd64（每个 tag 都会发布二进制） |
-| 模块形态 | 一个根模块 + 独立子模块（`cue`、`policy/opa`、`validate/playground`、`observability/{otel,metrics/prometheus}`、`providers/s3`、`integrations/{cli/pflag,log/phuslu,log/zerolog}`） |
-| 预发布约定 | 语义化版本 `vMAJOR.MINOR.PATCH`。当前公开线为 `v0.19`；跨版本 API 变化记录在 [CHANGELOG.md](CHANGELOG.md)，重点迁移配方位于 `docs/cookbook/`。 |
+```bash
+go get github.com/fastabc/fastconf@v1.0.0
+go get github.com/fastabc/fastconf/integrations/log/zerolog@v1.0.0  # 或 .../log/phuslu
+go get github.com/fastabc/fastconf/observability/metrics/prometheus@v1.0.0
+go get github.com/fastabc/fastconf/observability/otel@v1.0.0
+```
 
-### 版本策略
-
-- Tag 形式 `vMAJOR.MINOR.PATCH`。根模块与所有子模块通过
-  `tools/tag-release.sh vX.Y.Z` 一次性打上相同 tag。
-- 主版本号 `0` 保留给 pre-1.0 阶段。v1.0 之前的 minor 版本之间仍可能出现
-  不兼容变更，但每次都会附带 `docs/cookbook/` 下的迁移指南，让调用点的
-  改动保持机械可执行。
-- `internal/*` 下的包属于实现细节，不在 SemVer 契约内 —— 根包的
-  re-export（type alias 或 wrapper）才是稳定的对外面。
-- 可复用原语位于领域包：`codec`、`confmap`、`overlay`、`transform`、
-  `feature` 和 `providers/*`。旧 `pkg/*` 导入路径已在 v0.20 移除。
-- 子模块独立打 tag 时尾后缀使用模块路径名，例如 `cue/vX.Y.Z` —— 在
-  README 主表中通常不必关心，因为同一发版统一推送同一版本号。
-- 发版前会运行 `make test` + `tools/{check-layout,
-  check-doc-symbols,audit-phase-comments,check-cjk-comments,
-  loc-budget}.sh` 共 5 个 guard 脚本，保证目录布局、
-  对外符号、注释考古与体积红线全部满足约束。
+根模块 tag 为 `vX.Y.Z`，独立模块为 `<module>/vX.Y.Z`，所有模块统一发布同一版本。
+详见[发布流程](RELEASING.md)。
 
 ---
 
@@ -192,14 +158,14 @@ sources / generators / providers
        assemble preflight
               │
               ▼
- merge → migration → transform → secret → typed-hooks
+ merge → transform → secret → typed-hooks
       → decode → field-meta → validate → policy
               │
       fail ───┴─── keep old State[T]
               │
            success
               ▼
- canonical hash → atomic swap → history → audit → subscribers
+ canonical hash → atomic swap → history → observers → subscribers
 ```
 
 | 设计 | 含义 |
@@ -214,75 +180,11 @@ sources / generators / providers
 
 ## Manager API
 
-```go
-// 构造（首次 reload 同步完成）
-func New[T any](ctx context.Context, opts ...Option) (*Manager[T], error)
-
-// 读路径 — 无锁，O(1)，零分配
-func (m *Manager[T]) Get() *T
-
-// 触发一次 reload；ctx 贯穿整个 pipeline
-func (m *Manager[T]) Reload(ctx context.Context, opts ...ReloadOption) error
-
-// 预演（dry-run）— 不更新 atomic pointer
-func (m *Manager[T]) Plan() *PlanBuilder[T]
-
-// 当前快照（State[T] + Sources + Origins）
-func (m *Manager[T]) Snapshot() *State[T]
-
-// 异步错误流 — 缓冲 16，满则丢弃，Close() 时关闭
-func (m *Manager[T]) Errors() <-chan ReloadError
-
-func (m *Manager[T]) Watcher() *Watcher[T]  // .Pause() / .Resume()
-func (m *Manager[T]) Replay()  *Replay[T]   // .List() / .Rollback(*State[T])
-func (m *Manager[T]) Close() error
-```
-
-包级泛型函数：
-
-```go
-// 字段级订阅；仅在提取出的值实际发生变化时触发。
-// 传入 WithEqual(eq) 可替换默认的 reflect.DeepEqual 比较器。
-func Subscribe[T, M any](m *Manager[T], extract func(*T) *M, fn func(old, new *M), opts ...SubscribeOption[M]) (cancel func())
-func WithEqual[M any](equal func(old, new *M) bool) SubscribeOption[M]
-
-// 类型安全的 feature flag 求值
-func Eval[T, V any](m *Manager[T], key string, ctx feature.EvalContext, def V) V
-```
-
-`State[T]` 包含 `Value *T`、`Hash [32]byte`、`Generation uint64`、
-`Sources []SourceRef`，以及来源追溯辅助方法（`Explain`、`Diff`、`Redacted`）。
-
----
-
-## Option 参考
-
-所有 `WithXxx` 选项返回 `Option`，可按任意顺序传给 `New[T]`。
-完整参考请见 [docs/readme/zh/02-core-model.md](docs/readme/zh/02-core-model.md)。
-
-### 常用 Option
-
-| Option | 用途 | 默认值 |
-|---|---|---|
-| `WithDir(dir)` | 配置根目录 | `"conf.d"` |
-| `WithFS(fs.FS)` | 替代 `fs.FS`（用于测试） | — |
-| `WithWatch(WatchOptions{...})` | 启用 fsnotify；桶式字段 `Enabled` / `Paths` / `Coalesce` / `CoalesceProfile` | `Enabled:false` |
-| `WithProfile(ProfileOptions{...})` | profile 选择桶：`Single` / `Multi` / `Expr` / `EnvVar` / `Default` | — |
-| `WithCoalesce(CoalesceOptions{...})` | 仅微调 watcher 的 `Quiet` / `MaxLag` / `SwapHint`，不改动 `WithWatch` | — |
-| `WithProvider(p)` | 注册结构化 provider | — |
-| `WithSource(src, parser)` | 字节流 source + parser | — |
-| `WithMigrations(fn)` | schema 迁移回调 | — |
-| `WithTransformers(t...)` | 合并后变换链 | — |
-| `WithSecretResolver(r)` | decode 前解密 leaf | — |
-| `WithValidator[T](fn)` | decode 后类型校验 | — |
-| `WithPolicy[T](p)` | 校验后策略求值 | — |
-| `WithHistory(n)` | 保留最近 `n` 个成功状态 | — |
-| `WithProvenance(level)` | `Off` / `TopLevel` / `Full` | `Off` |
-| `WithMetrics(sink)` | 指标 sink | — |
-| `WithAuditSink(sink)` | 每次成功 reload 审计回调 | — |
-| `WithTracer(tracer)` | OTel 兼容 tracer | — |
-| `WithLogger(*slog.Logger)` | 注入 logger | `io.Discard` |
-| `WithStructDefaults[T]()` | 通过 `fc:"default=…"` tag 填充零值 | — |
+`New[T]` 同步加载后启动监听；`Load[T]` 只加载一次。`Get()` 返回只读的 `*T`，
+`Snapshot()` 提供诊断视图。`Reload(ctx)` 与 `Plan(ctx)` 共享单写者队列；
+Plan 保留所有验证结果（包括成功项）及策略发现，不发布状态。
+使用完毕调用 `Close()`；需要限制等待时间时使用 `Shutdown(ctx)`。
+完整签名见 [API 文档](https://pkg.go.dev/github.com/fastabc/fastconf)。
 
 ---
 
@@ -292,65 +194,34 @@ func Eval[T, V any](m *Manager[T], key string, ctx feature.EvalContext, def V) V
 
 ```
 reloadCh.recv(req)
-  ├─ stageMerge:      overlay.Scan(dir) → 解码文件 → confmap merge(layers)
-  │                   应用 _meta.yaml（appendSlices / profileEnv / match）
-  │                   应用 _patch.json（RFC 6902）
-  ├─ stageAssemble:   各 provider: Load(ctx) → 按 Priority 合并
-  ├─ stageMigrate:    opts.migrationRun(merged)
-  ├─ stageTransform:  各 transformer: t.Transform(merged)
-  ├─ stageDecode:     json.Marshal(merged) → json.Unmarshal(→ *T)
-  ├─ stageFieldMeta:  range / enum / required 检查
-  ├─ stageValidate:   各 validator: v(*T)
-  ├─ stagePolicy:     各 policy: p.Evaluate(ctx, *T, reason, tenant)
-  └─ commit:
-       canonical SHA-256 去重
-       atomic.Pointer.Store(newState) → history → audit → subscribers
+  ├─ assemble:     scan files → generators → provider.Load(ctx) → sort layers
+  ├─ merge:        deep / strategic merge + RFC 6902 patches
+  ├─ transform:    registered map functions (including schema migrations)
+  ├─ secret:       resolve recognized secret references
+  ├─ typed-hooks:  rewrite duration and custom scalar values
+  ├─ decode:       JSON (or YAML) → *T → tag defaults → Defaulter
+  ├─ field-meta:   required / range / enum checks
+  ├─ validate:     registered validators
+  ├─ policy:       evaluate policies; errors reject the candidate
+  └─ commit:       hash final *T → skip identical hash → atomic swap
+                   retain previous snapshot → observers → subscribers
 ```
 
 任一阶段报错时：`atomic.Pointer` **不**更新，`Generation` **不**递增，
-错误通过 `Errors()` 异步广播，`AuditSink` **不**触发。
+错误通过 `Errors()` 异步广播，observer 收到 `ReloadFinished{Err}`，**没有** `Committed`。
 
 ---
 
 ## Profile 与 Overlay
 
-```text
-conf.d/
-  base/                     # 所有 profile 均应用
-    00-defaults.yaml
-  overlays/
-    prod/
-      50-prod.yaml
-      _meta.yaml            # profile 匹配表达式
-      _patch.json           # RFC 6902 patch
-```
+先应用 `base/`，再应用匹配的 `overlays/<profile>/`。
+`WithProfile(Profile{Names: []string{"prod", "eu-west"}})` 选择多个 profile；
+各 overlay 的 `_meta.yaml.match` 支持 `&`、`|`、`!` 与括号。
+根 `_meta.yaml` 配置默认项和合并行为，`.patch.json` 文件应用 RFC 6902 操作。
 
-### `_meta.yaml`
-
-```yaml
-schemaVersion: "1"
-profileEnv: "APP_PROFILE"
-defaultProfile: "dev"
-appendSlices: true
-match: "prod | staging"     # 支持 &、|、!、()
-```
-
-### RFC 6902 JSON Patch
-
-```json
-[
-  { "op": "replace", "path": "/server/addr",      "value": ":8443" },
-  { "op": "add",     "path": "/feature/darkMode", "value": true    },
-  { "op": "remove",  "path": "/obsolete/key"                       }
-]
-```
-
-多 profile 模式：`WithProfile(ProfileOptions{Multi: []string{"prod", "eu-west", "canary"}})`
-—— 每个 overlay 的 `_meta.yaml.match` 决定是否应用。
-
-> **单目录文件数上限。** 每个 overlay 目录最多 **< 100** 个配置文件，`base/`
-> 最多 **< 1000** 个，以保证文件优先级落在各自 band 内。超过上限时扫描会
-> 直接报错，而不是静默地让不同目录的层交错合并。
+`WithAxes` 添加独立维度，较高 `Axis.Priority` 的整个目录优先；相同优先级按声明顺序，
+目录内按文件名排序。最多支持 40 个 axis，每个 overlay 100 个文件，base 1000 个文件。
+详见[运行时契约](docs/design/spec.md)。
 
 ---
 
@@ -363,244 +234,102 @@ match: "prod | staging"     # 支持 &、|、!、()
 | Env | `env.NewEnv("APP_")`（`providers/env`） | `APP_FOO_BAR` → `foo.bar`；支持 `.WithReplacer`、`.At`、`.WithCoerce` |
 | CLI | `cliflag.NewCLI(map)`（`providers/cliflag`） | 仅传入用户显式设置的 flag，文件/env 保持权威 |
 | DotEnv | `dotenv.NewDotEnv("APP_", paths...)`（`providers/dotenv`） | `.env` 兜底；进程环境变量优先 |
-| Labels | `labels.NewDottedLabels(labels, opts)` / `NewRoutingLabels(labels, opts)`（`providers/labels`） | 配置标签与路由 DSL 标签 |
+| Labels | `labels.New(labels, labels.Options{})`（`providers/labels`） | dotted 配置标签；`Options.Routing` 开启路由 DSL |
 | K8s Downward | `k8s.NewDefault()` | 读取 `/etc/podinfo/{labels,annotations}` |
 
-根模块 KV Provider（可通过 build tag 裁剪）：
+根模块 KV Provider（仅链接实际导入的包）：
 
 ```go
 vp, _ := vault.New("https://vault.svc", "kv/data/myapp", os.Getenv("VAULT_TOKEN"))
 cp, _ := consul.New("http://consul.svc:8500", "config/myapp")
 hp, _ := httpprov.New("remote", "https://example.com/cfg.yaml", yamlCodec{})
-// 裁剪：-tags no_provider_vault,no_provider_consul,no_provider_http
 ```
 
-随根模块发布的事件 Provider：NATS（`providers/nats`）和 Redis Streams
-（`providers/redisstream`）。独立 Provider 子模块（按需 `go get`）：
+NATS 与 Redis Streams 参考实现已移至 `examples/nats` 和 `examples/redisstream`，
+可复制后接入真实客户端。HTTP 的 nil codec 按 Content-Type 解码，`WithInterval(0)` 关闭轮询。
+独立 Provider 子模块（按需 `go get`）：
 S3（`providers/s3`）。
 
-### 优先级常量
-
-合并顺序按 `Priority()` 升序——值越大越后覆盖：
-
-| 常量 | 值 | 用途 |
-|---|---:|---|
-| `PriorityDotEnv` | 5 | `.env` 兜底 |
-| `PriorityStatic` | 10 | 静态 / 文件层 |
-| `PriorityKV` | 30 | Vault / Consul / HTTP / S3 |
-| `PriorityK8s` | 40 | Kubernetes ConfigMap / Secret |
-| `PriorityEnv` | 50 | 进程环境变量 |
-| `PriorityCLI` | 60 | 命令行参数（最高） |
-| `contracts.PriorityOrderedBase` | 160 | `WithProviderOrdered` 使用的保留基址 |
-
-使用 `WithProviderOrdered(p1, p2, p3)` 可按调用顺序自动分配优先级。
-
-### `contracts.Provider` 接口
-
-```go
-type Provider interface {
-    Name()     string
-    Priority() int
-    Load(ctx context.Context) (map[string]any, error)
-    Watch(ctx context.Context) (<-chan Event, error)
-}
-```
+Provider 优先级从低到高：DotEnv (5)、Static (10)、KV (30)、K8s (40)、Env (50)、CLI (60)。
+同优先级按注册顺序。自定义实现 `contracts.Provider`（`Name`、`Load`、`Watch`），
+可选的 `contracts.Describer` 提供优先级与文件监听路径。
 
 ---
 
 ## Transformer 与迁移
 
-### 内置 Transformer（`transform`）
-
 ```go
-fastconf.WithTransformers(
-    transform.Defaults(map[string]any{"server": map[string]any{"timeout": "30s"}}),
-    transform.SetIfAbsent("server.timeout", "30s"),
-    transform.EnvSubst(),                           // ${VAR} / ${VAR:-default}
+fastconf.WithTransform(
+    transform.EnvSubst(),
     transform.DeletePaths("internal.debug"),
     transform.Aliases(map[string]string{"db.url": "database.dsn"}),
 )
+fastconf.WithMergeKeys(map[string]string{"listeners": "name"})
 ```
 
-### Struct Tag
-
-```go
-type AppConfig struct {
-    Server struct {
-        Addr    string        `json:"addr"    fc:"default=:8080"`
-        Timeout time.Duration `json:"timeout" fc:"default=30s"`
-    } `json:"server"`
-    Database struct {
-        DSN string `json:"dsn" fc:"secret"` // 在日志/快照中脱敏
-    } `json:"database"`
-}
-```
-
-### 迁移
-
-```go
-fastconf.WithMigrations(func(root map[string]any) error {
-    if v, ok := root["db_url"]; ok {
-        db, _ := root["database"].(map[string]any)
-        if db == nil { db = map[string]any{}; root["database"] = db }
-        if _, has := db["dsn"]; !has { db["dsn"] = v }
-        delete(root, "db_url")
-    }
-    return nil
-})
-```
-
-多步 schema 迁移请使用 `transform.New`。
+Transform 在合并后运行。跨层按键合并列表使用 `WithMergeKeys` 或 `_meta.yaml`。
+默认值使用 `fc:"default=…"` 或 `Defaulter.Defaults`；`fc:"secret"` 标记敏感字段。
+`transform.New` 构造迁移链。参阅[迁移](docs/cookbook/migration-v1.md)与
+[密钥](docs/cookbook/secrets.md)。
 
 ---
 
 ## Watch、Subscribe 与 Plan
 
-### 字段级订阅
-
-`Subscribe` 仅在提取出的值真正发生变化时触发回调（默认按 DeepEqual 对解
-引用后的值比较）。通过 `WithEqual` 传入自定义比较器，可忽略噪声字段、对
-大结构体走哈希比较，或强制某个副作用在每次成功 reload 后执行。
-
 ```go
 cancel := fastconf.Subscribe(mgr,
-    func(app *AppConfig) *DatabaseConfig { return &app.Database },
-    func(old, neu *DatabaseConfig) {
-        reconnect(neu.DSN) // 框架保证：DB 配置确实变了
-    },
+    func(c *AppConfig) *string { return &c.Database.DSN },
+    func(old, next *string) { reconnect(*next) },
 )
 defer cancel()
 
-// 自定义比较（忽略 Pool 字段）。
-fastconf.Subscribe(mgr,
-    func(app *AppConfig) *DatabaseConfig { return &app.Database },
-    func(_, neu *DatabaseConfig) { warmCache(neu) },
-    fastconf.WithEqual(func(a, b *DatabaseConfig) bool { return a.DSN == b.DSN }),
-)
-
-// 无论值是否变化，每次 reload 都触发。
-fastconf.Subscribe(mgr,
-    func(app *AppConfig) *AppConfig { return app },
-    func(_, neu *AppConfig) { auditEveryReload(neu) },
-    fastconf.WithEqual(func(_, _ *AppConfig) bool { return false }),
-)
+err := mgr.Reload(ctx, fastconf.WithReason("admin"),
+    fastconf.WithOverride(map[string]any{"enabled": true}))
+result, err := mgr.Plan(ctx, fastconf.WithPlanHostname("prod-1"))
 ```
 
-### 手动 Reload 与一次性覆盖
-
-```go
-err := mgr.Reload(ctx,
-    fastconf.WithReloadReason("admin-cli"),
-    fastconf.WithSourceOverride(map[string]any{
-        "server": map[string]any{"addr": ":9999"},
-    }),
-)
-```
-
-### Plan（预演）
-
-```go
-result, err := mgr.Plan().WithHostname("ci-runner-7").Run(ctx)
-// result.Validators — 校验错误
-// result.Policies   — 策略违规（预演中 SeverityError 降级为 warning）
-```
-
-### 暂停 / 恢复
-
-```go
-mgr.Watcher().Pause()
-applyBatchUpdate()
-mgr.Watcher().Resume()
-```
+Subscribe 比较提取的值，`WithEqual` 可自定义相等规则。Override 只作用于当次 reload。
+Plan 返回候选状态、diff、验证结果和策略发现。`Pause()` 忽略文件和 Provider
+变更事件；`Resume()` 恢复监听，不重放暂停期间忽略的事件。批量更新结束后，
+显式调用 `Reload(ctx)` 加载最终状态。
+参阅[订阅](docs/cookbook/observer.md)与[预览](docs/cookbook/plan.md)。
 
 ---
 
 ## 来源追溯、历史与回滚
 
-### 来源追溯
+使用 `WithProvenance(ProvenanceFull)` 后，`mgr.Snapshot().Explain("server.addr")`
+返回叶子路径的来源链。`ProvenanceTopLevel` 仅记录顶层键，`ProvenanceOff` 关闭记录。
+列表密钥使用 `items.0` 格式的路径。
 
-```go
-mgr, _ := fastconf.New[AppConfig](ctx,
-    fastconf.WithDir("conf.d"),
-    fastconf.WithProvenance(fastconf.ProvenanceFull),
-)
-
-origins := mgr.Snapshot().Explain("server.addr")
-// 每条 Origin：Source.Name、Source.Priority、Value
-```
-
-| 级别 | 开销 | 可追溯范围 |
-|---|---|---|
-| `ProvenanceOff` | 零 | 无 |
-| `ProvenanceTopLevel` | O(顶级 key 数) | 每个顶级字段由哪一层设置 |
-| `ProvenanceFull` | O(叶子节点数) | 每个叶子的完整覆盖链 |
-
-### 历史与回滚
-
-```go
-mgr, _ := fastconf.New[AppConfig](ctx,
-    fastconf.WithHistory(10),
-)
-history := mgr.Replay().List()     // []*State[T]，从旧到新
-_ = mgr.Replay().Rollback(history[len(history)-2])
-```
-
-### 错误流
-
-```go
-go func() {
-    for re := range mgr.Errors() {
-        slog.Error("reload failed", "reason", re.Reason, "err", re.Err)
-    }
-}()
-```
+`WithHistory(10)` 保留旧快照，`mgr.History().List()` 按时间由旧到新排列，
+将保留的快照传给 `Rollback` 即可回滚。零关闭历史，负数报错。失败重载进入 `mgr.Errors()`。
+快照的 `Map`、`Dump`、`Diff`、`Explain` 默认脱敏，明确需要明文时使用 `Unredacted()`。
+详见[历史](docs/cookbook/introspect.md)。
 
 ---
 
 ## 可观测性
 
-```go
-// 每次成功 reload 输出 JSON 审计行
-mgr, _ := fastconf.New[AppConfig](ctx,
-    fastconf.WithAuditSink(fastconf.NewJSONAuditSink(os.Stderr)),
-    fastconf.WithDiffReporter(fastconf.DiffReporterFunc(
-        func(ctx context.Context, ev fastconf.DiffEvent) error {
-            return slack.Post(ctx, ev.Diff) // 异步，不阻塞 reload
-        },
-    )),
-)
-```
+`WithObserver` 接收 reload、stage、provider 错误、事件丢弃和 commit 通知。
+通过 `observe.Multi`、`observe.JSONLines`、`observe.Metrics`、`observe.Func` 组合行为。
+慢回调使用 `observe.Async`，先关闭 manager，再关闭异步 observer 以排空队列。
 
-Prometheus 指标与 OpenTelemetry 追踪在独立子模块中：
-
-```go
-import prommetrics "github.com/fastabc/fastconf/observability/metrics/prometheus"
-import fastconfotel "github.com/fastabc/fastconf/observability/otel"
-
-fastconf.WithMetrics(prommetrics.New())
-fastconf.WithTracer(fastconfotel.NewTracer(otel.GetTracerProvider()))
-```
-
-策略违规在 `SeverityError` 时中止 reload；`SeverityWarning` 仅记录日志后继续。
-CUE 与 OPA 实现分别在 `cue/policy` 和 `policy/opa`。
+Prometheus（`observability/metrics/prometheus`）和 OpenTelemetry（`observability/otel`）
+分别保留独立模块。日志适配包 `integrations/log/phuslu`、`integrations/log/zerolog`
+各自是独立模块，共享随根模块发布的零依赖 logging 核心，只引入各自的后端。参阅[观测](docs/cookbook/observability.md)与[日志](docs/cookbook/log.md)。
 
 ---
 
-## 多租户与预设
+## 多租户与常用组合
 
 ```go
-// 多租户：每个租户是完全隔离的 Manager[T]
-tm := fastconf.NewTenantManager[AppConfig]()
-mgrA, _ := tm.Add(ctx, "tenant-a", fastconf.WithDir("/etc/config/tenant-a"))
-app, err := tm.Get("tenant-a")  // 不存在返回 fastconf.ErrUnknownTenant
-tm.Close()
-```
-
-```go
-// 预设
-fastconf.PresetK8s(fastconf.K8sOpts{Dir: "/etc/config", Watch: true})
-fastconf.PresetSidecar(fastconf.SidecarOpts{Dir: "/etc/fastconfd", HistoryN: 16})
-fastconf.PresetTesting(fastconf.TestingOpts{FS: memFS, Profile: "testing"})
+// 多租户：每个租户是带 id 标签、完全隔离的 Manager[T]；
+// 用你自己的注册表管理它们（见 docs/cookbook/tenant.md）。
+mgrA, err := fastconf.New[AppConfig](ctx,
+    fastconf.WithDir("/etc/config/tenant-a"),
+    fastconf.WithTenant("tenant-a"),
+)
 ```
 
 ---
@@ -612,27 +341,29 @@ fastconf.PresetTesting(fastconf.TestingOpts{FS: memFS, Profile: "testing"})
 | 包 | 路径 |
 |---|---|
 | contracts | `contracts` — 公开接口 |
-| 可复用原语 | `codec`、`confmap`、`overlay`、`transform`、`feature`、`providers/{env,cliflag,dotenv,labels,source}` |
-| http / vault / consul | `providers/{http,vault,consul}` — build tag：`no_provider_{http,vault,consul}` |
-| nats / redis-streams | `providers/{nats,redisstream}` — 调用方注入传输客户端 |
+| 可复用原语 | `codec`、`confmap`、`transform`、`feature`、`providers/{env,cliflag,dotenv,labels,source}` |
+| http / vault / consul | `providers/{http,vault,consul}` |
 | policy | `policy` — `Func` 适配器 |
 | sidecar 服务 | `cmd/fastconfd` |
-| CLI 工具 | `cmd/{fastconfctl,fastconfgen}` |
-| integrations | `integrations/{bus,openfeature,render}` |
+| CLI 工具 | `cmd/fastconfctl`（根模块）、`cmd/fastconfgen`（独立 module） |
+| integrations | `integrations/render` |
 
 ### 独立子模块（按需 `go get`）
 
 | 子模块 | 路径 | 主要依赖 |
 |---|---|---|
 | validate/playground | `validate/playground` | go-playground/validator |
-| prometheus | `observability/metrics/prometheus` | prometheus/client_golang |
-| otel | `observability/otel` | OpenTelemetry SDK |
+| Prometheus | `observability/metrics/prometheus` | Prometheus |
+| OpenTelemetry | `observability/otel` | OpenTelemetry |
+| phuslu adapter | `integrations/log/phuslu` | phuslu/log |
+| zerolog adapter | `integrations/log/zerolog` | zerolog |
+| generator | `cmd/fastconfgen` | yaml.v3 |
 | cue（校验 + 策略） | `cue` | cuelang.org/go |
 | opa-policy | `policy/opa` | open-policy-agent/opa |
 | cli/pflag | `integrations/cli/pflag` | spf13/pflag |
 | s3 provider | `providers/s3` | AWS SDK v2 |
 
-一次性打所有子模块 tag：`./tools/tag-release.sh vX.Y.Z [--push]`
+统一为所有模块发布同一版本：`./tools/tag-release.sh vX.Y.Z [--push]`
 
 ---
 
@@ -641,17 +372,22 @@ fastconf.PresetTesting(fastconf.TestingOpts{FS: memFS, Profile: "testing"})
 ### `fastconfd` — sidecar 服务
 
 ```bash
-fastconfd --dir=/etc/config --profile=prod --addr=:8081
+fastconfd --dir=/etc/config --profile=prod --addr=127.0.0.1:8081 \
+  --read-token="$FASTCONFD_READ_TOKEN" --reload-token="$FASTCONFD_RELOAD_TOKEN"
 ```
 
 | 端点 | 方法 | 说明 |
 |---|---|---|
 | `/healthz` | GET  | 首次加载成功后返回纯文本 `ok` |
 | `/version` | GET  | 版本、generation、hash、加载时间、原因 |
-| `/config`  | GET  | 当前配置 JSON；传 `?redact=true` 才脱敏 |
+| `/config`  | GET  | 当前配置 JSON，默认脱敏；明文需 `?unredacted=true` + `X-Unredacted-Token` |
 | `/dump`    | GET  | 确定性 YAML（`?format=json` 输出 JSON） |
 | `/reload`  | POST | 触发手动 reload |
-| `/events`  | GET  | 每次成功 reload 的 SSE 事件流 |
+| `/events`  | GET  | 新快照提交时发送的 SSE 事件流 |
+
+`FASTCONFD_READ_TOKEN` 和 `FASTCONFD_RELOAD_TOKEN` 必须非空。
+`/config`、`/dump`、`/events` 需要 `X-Config-Token`；`/reload` 需要
+`X-Reload-Token`。详见 [sidecar 配方](docs/cookbook/sidecar.md)。
 
 ### `fastconfctl` — 管理 CLI
 
@@ -672,16 +408,8 @@ fastconfgen -in conf.d/base/00-app.yaml -pkg config -type Config -out config/con
 
 ## 性能
 
-最新 benchmark：**Apple M2 / darwin-arm64 / Go 1.26.2**。
-
-| Benchmark | 中位数 |
-|---|---:|
-| `BenchmarkGet` | 0.52 ns/op |
-| `BenchmarkReloadNoop` | 15.1 µs/op |
-| `BenchmarkReloadCommitSmall` | 16.5 µs/op |
-| `BenchmarkReloadManySubscribers/50` | 17.5 µs/op |
-
-完整基准：[`docs/design/perf.md`](docs/design/perf.md)。
+性能约束和可复现的测量命令记录在 [Performance Notes](docs/design/perf.md)。
+使用 `tools/profile-reload.sh` 在目标机器上复测；`tools/bench-guard.sh` 检查热读延迟和零分配约束。
 
 ---
 
@@ -691,8 +419,10 @@ fastconfgen -in conf.d/base/00-app.yaml -pkg config -type Config -out config/con
 go mod tidy
 make build
 make test        # go test -race -count=1 ./...
-make test-all    # 包含子模块
+make test-workspace # 所有模块使用当前 checkout
+make test-candidate # 发布前验证独立依赖解析
 make lint        # 需要 golangci-lint
+make check       # 发布工具回归测试
 
 go test ./... -run '^Example' -v
 go test -bench=BenchmarkGet -benchmem ./...
@@ -704,17 +434,17 @@ go test -bench=BenchmarkGet -benchmem ./...
 
 | 文档 | 用途 |
 |---|---|
-| [docs/readme/zh/](docs/readme/zh/) | 深度章节：核心模型、pipeline、扩展机制、生产运维 |
 | [docs/cookbook/README.md](docs/cookbook/README.md) | 按使用旅程整理的实战配方 |
 | [docs/design/spec.md](docs/design/spec.md) | 运行时模型、并发、模块边界 |
-| [docs/cookbook/migration-v0.19.md](docs/cookbook/migration-v0.19.md) | v0.19 `Subscribe` diff-aware 迁移说明 |
+| [docs/cookbook/migration-v1.md](docs/cookbook/migration-v1.md) | v0 → v1 迁移指南 |
+| [docs/cookbook/migration-v0.md](docs/cookbook/migration-v0.md) | v0 版本之间的迁移归档 |
 | [GitHub Releases](https://github.com/fastabc/fastconf/releases) | 版本发布说明与预编译 CLI 二进制 |
 | [pkg.go.dev](https://pkg.go.dev/github.com/fastabc/fastconf) | godoc 与可运行示例 |
 
 常用 recipe：[k8s](docs/cookbook/k8s.md) · [vault](docs/cookbook/vault.md) ·
 [consul](docs/cookbook/consul.md) · [secrets](docs/cookbook/secrets.md) ·
 [features](docs/cookbook/features.md) · [policy](docs/cookbook/policy.md) ·
-[otel](docs/cookbook/otel.md) · [tenant](docs/cookbook/tenant.md) ·
+[otel](docs/cookbook/observability.md#opentelemetry) · [tenant](docs/cookbook/tenant.md) ·
 [sidecar](docs/cookbook/sidecar.md) · [plan](docs/cookbook/plan.md)
 
 ---

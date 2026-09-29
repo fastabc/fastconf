@@ -1,18 +1,18 @@
 # Plan / dry-run
 
-`mgr.Plan().Run(ctx)` executes the same assemble + pipeline stages as a reload,
+`mgr.Plan(ctx)` executes the same assemble + pipeline stages as a reload,
 but it does **not** swap the live `State[T]`. Use it in CI, operator tooling, or
 deployment approval flows when you want to inspect the proposed state first.
 
 ```go
-result, err := mgr.Plan().
-    WithHostname("prod-eu-1"). // optional: pin host overlays on CI runners
-    Run(ctx)
+result, err := mgr.Plan(ctx,
+    fastconf.WithPlanHostname("prod-eu-1"), // optional: pin host overlays on CI runners
+)
 if err != nil {
     log.Fatal(err)
 }
 
-for _, line := range result.Diff {
+for _, line := range fastconf.FormatDiff(result.Diff) {
     fmt.Println(line)
 }
 for _, report := range result.Validators {
@@ -33,7 +33,7 @@ if len(result.Diff) > 0 && approveInteractively(result) {
 | Field | Meaning |
 |---|---|
 | `Proposed *State[T]` | The candidate state that would be published by a real reload |
-| `Diff []string` | Stable dotted-path diff against the current live state |
+| `Diff []DiffEntry` | Structured dotted-path changes against the current live state; use `FormatDiff` for text |
 | `Validators []ValidatorReport` | Validator findings collected during the dry-run |
 | `Policies []policy.Violation` | Policy warnings and denials collected for inspection |
 

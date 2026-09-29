@@ -6,42 +6,15 @@ import (
 	"github.com/fastabc/fastconf/contracts"
 )
 
-// CLIProvider exposes a pre-parsed map (typically built by the user from
-// command-line flags) as the highest-priority static provider. Users wire it
-// up in main() after their flag parsing completes — fastconf does not own the
-// flag set. The map should contain only explicitly provided flags; parser
-// defaults belong in lower-priority layers or they will override file config
-// even when the user never typed the flag.
+// CLIProvider exposes explicitly set flags at PriorityCLI. Exclude parser defaults so they cannot
+// override configured file or environment values.
 type CLIProvider struct {
 	data     map[string]any
 	priority int
 }
 
-// NewCLI wraps a map as the CLI layer at [contracts.PriorityCLI].
-//
-// # Footgun: pass only flags the user explicitly typed
-//
-// Spreading every defined flag — including those whose value is still the
-// default — into the map causes the default to silently override values
-// already set in YAML / env / KV layers. This is the same trap that
-// spf13/viper's BindPFlag is known for; fastconf does not insulate you from
-// it.
-//
-//	// WRONG: defaults leak into CLI layer
-//	all := map[string]any{}
-//	cmd.Flags().VisitAll(func(f *pflag.Flag) {
-//	    all[f.Name] = f.Value.String() // includes untouched defaults!
-//	})
-//	mgr.Add(provider.NewCLI(all)) // app.yaml: server.port=9090 → overridden by default 8080
-//
-//	// RIGHT: only flags the user explicitly typed
-//	import cliflag "github.com/fastabc/fastconf/integrations/cli/pflag"
-//	mgr.Add(provider.NewCLI(cliflag.FromChanged(cmd.Flags())))
-//
-// See [github.com/fastabc/fastconf/providers/cliflag] and
-// [github.com/fastabc/fastconf/integrations/cli/pflag] for ready-made helpers
-// that extract the "changed" subset for stdlib flag and spf13/pflag
-// respectively.
+// NewCLI wraps explicitly set flags at [contracts.PriorityCLI]. Use FromStdFlag or
+// integrations/cli/pflag.FromChanged to exclude defaults.
 func NewCLI(data map[string]any) *CLIProvider {
 	if data == nil {
 		data = map[string]any{}
@@ -55,12 +28,20 @@ func (p *CLIProvider) WithPriority(prio int) *CLIProvider { p.priority = prio; r
 // Name implements Provider.
 func (p *CLIProvider) Name() string { return "cli" }
 
-// Priority implements Provider.
-func (p *CLIProvider) Priority() int { return p.priority }
+// Describe implements contracts.Describer.
+func (p *CLIProvider) Describe() contracts.ProviderInfo {
+	return contracts.ProviderInfo{Priority: p.priority}
+}
 
-// Load implements Provider.
-func (p *CLIProvider) Load(_ context.Context) (map[string]any, error) { return p.data, nil }
+// Load implements contracts.Provider.
+func (p *CLIProvider) Load(ctx context.Context) (contracts.Snapshot, error) {
+	m, err := p.loadMap(ctx)
+	return contracts.Snapshot{Map: m}, err
+}
 
-// Watch implements Provider. CLI is fundamentally static for the process
-// lifetime.
-func (p *CLIProvider) Watch(_ context.Context) (<-chan contracts.Event, error) { return nil, nil }
+func (p *CLIProvider) loadMap(_ context.Context) (map[string]any, error) { return p.data, nil }
+
+// Watch implements Provider. CLI is fundamentally static for the process lifetime.
+func (p *CLIProvider) Watch(_ context.Context, _ string) (<-chan contracts.Event, error) {
+	return nil, nil
+}

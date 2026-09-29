@@ -1,43 +1,55 @@
 package fastconf
 
 import (
-	"reflect"
-
-	"github.com/fastabc/fastconf/codec"
-	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/internal/pipeline"
+	iobs "github.com/fastabc/fastconf/internal/obs"
+	"github.com/fastabc/fastconf/internal/provenance"
 	"github.com/fastabc/fastconf/internal/secret"
-	discovery "github.com/fastabc/fastconf/overlay"
 )
 
-func init() {
-	discovery.CodecExtFunc = codec.LookupExt
-}
+// Public aliases preserve the domain types used by snapshot diagnostics.
+type (
+	// Origin records one source contribution.
+	Origin = provenance.Origin
+	// ProvenanceLevel controls the granularity of source tracking.
+	ProvenanceLevel = provenance.Level
+)
 
-func RegisterCodec(name string, c contracts.Codec) {
-	codec.Register(name, c)
-}
+const (
+	ProvenanceOff      = provenance.Off
+	ProvenanceTopLevel = provenance.TopLevel
+	ProvenanceFull     = provenance.Full
+)
 
-func RegisterCodecExt(ext, codecName string) {
-	codec.RegisterExt(ext, codecName)
-}
+// SourceRef identifies a merged source layer.
+type SourceRef = provenance.SourceRef
 
-func LookupCodec(name string) (contracts.Codec, bool) {
-	return codec.Lookup(name)
-}
+// LayerKind classifies a source layer.
+type LayerKind = provenance.LayerKind
 
+const (
+	LayerUnknown   = provenance.LayerUnknown
+	LayerMerge     = provenance.LayerMerge
+	LayerPatch     = provenance.LayerPatch
+	LayerProvider  = provenance.LayerProvider
+	LayerSecret    = provenance.LayerSecret
+	LayerGenerator = provenance.LayerGenerator
+	LayerOverride  = provenance.LayerOverride
+)
+
+// SecretRedactor converts secret values into display values.
 type SecretRedactor = secret.Redactor
 
-func DefaultSecretRedactor(path string, value any) any {
-	return secret.DefaultRedactor(path, value)
-}
-
+// SecretRef identifies an opaque secret reference.
 type SecretRef = secret.Ref
+
+// SecretResolver recognizes and resolves secret references.
 type SecretResolver = secret.Resolver
+
+// SecretResolverFunc adapts functions to SecretResolver.
 type SecretResolverFunc = secret.ResolverFunc
 
-type FieldSpec = pipeline.FieldSpec
+// Tracer starts reload and pipeline spans.
+type Tracer = iobs.Tracer
 
-func ParseFieldTag(tag string) FieldSpec { return pipeline.ParseFieldTag(tag) }
-
-func FieldMetaFor(t reflect.Type) []FieldSpec { return pipeline.FieldMetaFor(t) }
+// Span records stage attributes, errors and completion.
+type Span = iobs.Span

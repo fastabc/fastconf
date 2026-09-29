@@ -80,7 +80,7 @@ logs/CHANGELOG.md
 /fastconfgen
 /fastconfctl
 
-# Built CLI binaries inside per-binary sub-modules (Phase 83 SPEC-83)
+# Built CLI binaries inside per-binary sub-modules
 cmd/fastconfctl/fastconfctl
 cmd/fastconfgen/fastconfgen
 

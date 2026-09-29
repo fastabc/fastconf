@@ -1,5 +1,3 @@
-//go:build !no_provider_s3events
-
 package s3events_test
 
 import (
@@ -13,7 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
-	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/contracts/providertest"
 	s3events "github.com/fastabc/fastconf/providers/s3/s3events"
 )
@@ -145,7 +142,7 @@ func TestProvider_LoadIsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m) != 0 {
+	if len(m.Map) != 0 {
 		t.Errorf("expected empty map, got %v", m)
 	}
 }
@@ -174,6 +171,31 @@ const eventBridgeObjectCreated = `{
   }
 }`
 
+func TestProvider_WatchReportsResumeGapOnce(t *testing.T) {
+	c := newFakeSQS()
+	p, err := s3events.NewWithClient(s3events.Config{QueueURL: "q", Bucket: "my-configs"}, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ch, err := p.Watch(ctx, "previous-etag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		c.Push(eventBridgeObjectCreated)
+		select {
+		case ev := <-ch:
+			if ev.Gap != (i == 0) {
+				t.Fatalf("event %d: Gap = %v", i, ev.Gap)
+			}
+		case <-ctx.Done():
+			t.Fatal("no event")
+		}
+	}
+}
+
 func TestProvider_WatchEmitsOnMatch(t *testing.T) {
 	c := newFakeSQS()
 	p, err := s3events.NewWithClient(s3events.Config{
@@ -187,7 +209,7 @@ func TestProvider_WatchEmitsOnMatch(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	ch, err := p.Watch(ctx)
+	ch, err := p.Watch(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +244,7 @@ func TestProvider_WatchSkipsWrongBucket(t *testing.T) {
 	}, c)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	ch, _ := p.Watch(ctx)
+	ch, _ := p.Watch(ctx, "")
 	c.Push(eventBridgeObjectCreated)
 	select {
 	case ev := <-ch:
@@ -245,7 +267,7 @@ func TestProvider_WatchSkipsWrongPrefix(t *testing.T) {
 	}, c)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	ch, _ := p.Watch(ctx)
+	ch, _ := p.Watch(ctx, "")
 	c.Push(eventBridgeObjectCreated)
 	select {
 	case ev := <-ch:
@@ -264,7 +286,7 @@ func TestProvider_WatchEmptyPrefixMatchesAll(t *testing.T) {
 	}, c)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	ch, _ := p.Watch(ctx)
+	ch, _ := p.Watch(ctx, "")
 	c.Push(eventBridgeObjectCreated)
 	select {
 	case ev := <-ch:
@@ -285,7 +307,7 @@ func TestProvider_WatchSkipsNonS3Source(t *testing.T) {
 	}, c)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	ch, _ := p.Watch(ctx)
+	ch, _ := p.Watch(ctx, "")
 	c.Push(`{"source":"aws.ec2","detail-type":"Object Created","detail":{"bucket":{"name":"my-configs"},"object":{"key":"x"}}}`)
 	select {
 	case ev := <-ch:
@@ -304,7 +326,7 @@ func TestProvider_WatchHandlesGarbageBody(t *testing.T) {
 	}, c)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	ch, _ := p.Watch(ctx)
+	ch, _ := p.Watch(ctx, "")
 	c.Push("not-json-at-all")
 	select {
 	case ev := <-ch:
@@ -318,7 +340,7 @@ func TestProvider_WatchHandlesGarbageBody(t *testing.T) {
 	defer cancel2()
 	_ = ctx2
 	// New Watch needed because ctx of previous expired
-	ch2, _ := p.Watch(ctx2)
+	ch2, _ := p.Watch(ctx2, "")
 	select {
 	case ev := <-ch2:
 		if ev.Revision != "e" {
@@ -338,7 +360,7 @@ func TestProvider_WatchDeleteEventEmits(t *testing.T) {
 	}, c)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	ch, _ := p.Watch(ctx)
+	ch, _ := p.Watch(ctx, "")
 	c.Push(`{"source":"aws.s3","detail-type":"Object Deleted","detail":{"bucket":{"name":"b"},"object":{"key":"k.yaml"}}}`)
 	select {
 	case ev := <-ch:
@@ -352,12 +374,6 @@ func TestProvider_WatchDeleteEventEmits(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("no event for delete")
 	}
-}
-
-func TestProvider_ImplementsContracts(t *testing.T) {
-	c := newFakeSQS()
-	p, _ := s3events.NewWithClient(s3events.Config{QueueURL: "q", Bucket: "b"}, c)
-	var _ contracts.Provider = p
 }
 
 func TestProvider_NewBuildsRealClient(t *testing.T) {

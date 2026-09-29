@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/internal/testutil"
 )
 
@@ -51,21 +52,21 @@ func TestFakeProvider_LoadReturnsData(t *testing.T) {
 	if p.Name() != "fp" {
 		t.Errorf("name: got %q want fp", p.Name())
 	}
-	if p.Priority() != 100 {
-		t.Errorf("priority: got %d want 100", p.Priority())
+	if contracts.Describe(p).Priority != 100 {
+		t.Errorf("priority: got %d want 100", contracts.Describe(p).Priority)
 	}
-	data, err := p.Load(context.Background())
+	snap, err := p.Load(context.Background())
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if data["key"] != "val" {
+	if data := snap.Map; data["key"] != "val" {
 		t.Errorf("key: got %v want val", data["key"])
 	}
 }
 
 func TestFakeProvider_WatchReturnsNil(t *testing.T) {
 	p := testutil.NewFakeProvider("fp", 100, nil)
-	ch, err := p.Watch(context.Background())
+	ch, err := p.Watch(context.Background(), "")
 	if err != nil {
 		t.Fatalf("Watch: %v", err)
 	}
@@ -86,11 +87,11 @@ func TestFakeProvider_LoadReturnsError(t *testing.T) {
 func TestFakeProvider_LoadReturnsCopy(t *testing.T) {
 	orig := map[string]any{"k": "v"}
 	p := testutil.NewFakeProvider("fp", 100, orig)
-	data, _ := p.Load(context.Background())
-	data["k"] = "tampered"
-	data2, _ := p.Load(context.Background())
-	if data2["k"] != "v" {
-		t.Errorf("Load must return a copy; got %q after mutation", data2["k"])
+	snap, _ := p.Load(context.Background())
+	snap.Map["k"] = "tampered"
+	snap2, _ := p.Load(context.Background())
+	if snap2.Map["k"] != "v" {
+		t.Errorf("Load must return a copy; got %q after mutation", snap2.Map["k"])
 	}
 }
 

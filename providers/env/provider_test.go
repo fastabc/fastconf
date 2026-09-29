@@ -4,6 +4,8 @@ import (
 	"context"
 	"reflect"
 	"testing"
+
+	"github.com/fastabc/fastconf/internal/testutil"
 )
 
 // Default DotReplacer (single "_" → "."): values stay as strings; the
@@ -23,7 +25,7 @@ func TestEnvProvider_DotReplacerDefault(t *testing.T) {
 			"APP_=skip-empty",
 		}
 	})
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +52,7 @@ func TestEnvProvider_DoubleUnderscoreReplacer(t *testing.T) {
 			"APP_FEATURE_FLAGS=on,off", // single "_" preserved
 		}
 	})
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +74,7 @@ func TestEnvProvider_WithCoerceTrue(t *testing.T) {
 			"APP_RATE=1.5",
 		}
 	})
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +90,7 @@ func TestEnvProvider_WithCoerceTrue(t *testing.T) {
 
 func TestEnvProvider_NoPrefix(t *testing.T) {
 	p := NewEnv("").withEnviron(func() []string { return []string{"X=1"} })
-	got, _ := p.Load(context.Background())
+	got, _ := testutil.Map(p.Load(context.Background()))
 	if got["x"] != "1" {
 		t.Errorf("got %#v", got)
 	}
@@ -99,7 +101,7 @@ func TestEnvProvider_AtNamespaces(t *testing.T) {
 	p := NewEnv("APP_").At("config.runtime").withEnviron(func() []string {
 		return []string{"APP_DATABASE_DSN=postgres://x"}
 	})
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}

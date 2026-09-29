@@ -44,7 +44,7 @@ Any `env.EnvKeyReplacer` works — useful for bespoke conventions:
 
 ```go
 custom := env.EnvKeyReplacerFunc(func(s string) string {
-    // FOO-Xbar → foo.bar
+    // FOOXbar → foo.bar
     return strings.ToLower(strings.ReplaceAll(s, "X", "."))
 })
 fastconf.WithProvider(env.NewEnv("APP_").WithReplacer(custom))
@@ -71,12 +71,16 @@ wins, not non-emptiness: if the deployment environment explicitly sets
 from `.env`.
 
 ```go
-fastconf.WithProvider(dotenv.NewDotEnv("APP_", ".env"))
+fastconf.WithProvider(
+    dotenv.NewDotEnv("APP_", ".env"),
+    env.NewEnv("APP_"),
+)
 // APP_PORT="" in the real process env suppresses APP_PORT=8080 from .env
 ```
 
-That keeps `.env` aligned with the usual "local fallback" role while process
-env remains the deploy-time override surface.
+The dotenv provider only suppresses keys already present in the process
+environment; the env provider loads those process values. Register both to
+combine the fallback with deployment overrides.
 
 ## Coercion (off by default)
 

@@ -1,20 +1,19 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
-	"flag"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
 
 	"github.com/fastabc/fastconf"
-	"github.com/fastabc/fastconf/cmd/internal/cli"
 )
 
 func newTestServer(t *testing.T) (*server, func()) {
@@ -25,7 +24,7 @@ func newTestServer(t *testing.T) (*server, func()) {
 	bus := newEventBus()
 	mgr, err := fastconf.New[map[string]any](context.Background(),
 		fastconf.WithFS(mfs),
-		fastconf.WithAuditSink(bus),
+		fastconf.WithObserver(bus),
 	)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -73,111 +72,222 @@ func TestServer_HealthVersionConfig(t *testing.T) {
 func TestServer_ReloadAuth(t *testing.T) {
 	s, done := newTestServer(t)
 	defer done()
-	s.token = "secret"
+	s.token = "the-correct-secret"
 	mux := s.routes()
-	req := httptest.NewRequest(http.MethodPost, "/reload", nil)
-	rr := httptest.NewRecorder()
-	mux.ServeHTTP(rr, req)
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", rr.Code)
-	}
-	req.Header.Set("X-Reload-Token", "secret")
-	rr = httptest.NewRecorder()
-	mux.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 with token, got %d %s", rr.Code, rr.Body.String())
+	for _, tc := range []struct {
+		name, token string
+		want        int
+	}{
+		{"missing", "", http.StatusUnauthorized},
+		{"short", "x", http.StatusUnauthorized},
+		{"long", "the-correct-secret-extra", http.StatusUnauthorized},
+		{"last byte differs", "the-correct-secrey", http.StatusUnauthorized},
+		{"all bytes differ", strings.Repeat("x", len(s.token)), http.StatusUnauthorized},
+		{"valid", s.token, http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/reload", nil)
+			req.Header.Set("X-Reload-Token", tc.token)
+			rr := httptest.NewRecorder()
+			mux.ServeHTTP(rr, req)
+			if rr.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, tc.want, rr.Body)
+			}
+		})
 	}
 }
 
-// TestServer_ReloadAuth_ConstantTimeCompare guards against a regression
-// to byte-by-byte string comparison on the reload token. The test
-// verifies the wrong-token paths still return 401; the timing-attack
-// resistance itself is covered by the use of subtle.ConstantTimeCompare.
-func TestServer_ReloadAuth_ConstantTimeCompare(t *testing.T) {
+func TestServer_ReadAuth(t *testing.T) {
 	s, done := newTestServer(t)
 	defer done()
-	s.token = "the-correct-secret"
+	s.readToken = "read-secret"
 	mux := s.routes()
-	cases := []string{
-		"",                          // empty header
-		"x",                         // length mismatch (shorter)
-		"the-correct-secret-extra",  // length mismatch (longer)
-		"the-correct-secrey",        // same length, last byte wrong
-		"a-completely-wrong-secret", // same length, every byte wrong
-	}
-	for _, tok := range cases {
-		req := httptest.NewRequest(http.MethodPost, "/reload", nil)
-		req.Header.Set("X-Reload-Token", tok)
+	for _, path := range []string{"/config", "/dump", "/events"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rr := httptest.NewRecorder()
 		mux.ServeHTTP(rr, req)
 		if rr.Code != http.StatusUnauthorized {
-			t.Fatalf("token=%q: expected 401, got %d", tok, rr.Code)
+			t.Fatalf("%s without token: got %d", path, rr.Code)
+		}
+		if path == "/events" {
+			continue
+		}
+		req.Header.Set("X-Config-Token", "read-secret")
+		rr = httptest.NewRecorder()
+		mux.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s with token: got %d", path, rr.Code)
 		}
 	}
-	// Verify it does not contain literal byte-by-byte comparison.
-	if packageSourceContains(t, "X-Reload-Token\") != s.token") {
-		t.Fatal("reload-token compare uses raw != ; must use subtle.ConstantTimeCompare")
+}
+
+func TestAuthGateRequiresBothTokens(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		token     string
+		readToken string
+		wantErr   bool
+	}{
+		{"both present", "r", "c", false},
+		{"reload token missing", "", "c", true},
+		{"read token missing", "r", "", true},
+		{"both missing", "", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := authGate(tc.token, tc.readToken)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("authGate(%q, %q) = %v, wantErr %v", tc.token, tc.readToken, err, tc.wantErr)
+			}
+		})
 	}
 }
 
 func TestServer_EventsSSE(t *testing.T) {
 	s, done := newTestServer(t)
 	defer done()
+	s.readToken = "read-secret"
 	srv := httptest.NewServer(s.routes())
 	defer srv.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/events", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Config-Token", s.readToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		// Connection may be cancelled by ctx deadline; that's also fine —
-		// the only thing this smoke test verifies is that /events is wired.
-		return
+		t.Fatalf("SSE headers must arrive before the first commit: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
 	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
 		t.Fatalf("content-type: %q", got)
 	}
-	_, _ = io.CopyN(io.Discard, resp.Body, 1)
+	if err := s.mgr.Reload(ctx, fastconf.WithOverride(map[string]any{"a": 2})); err != nil {
+		t.Fatal(err)
+	}
+	scanner := bufio.NewScanner(resp.Body)
+	if !scanner.Scan() || scanner.Text() != "event: reload" {
+		t.Fatalf("event line = %q, err = %v", scanner.Text(), scanner.Err())
+	}
+	if !scanner.Scan() || !strings.HasPrefix(scanner.Text(), "data: ") {
+		t.Fatalf("data line = %q, err = %v", scanner.Text(), scanner.Err())
+	}
+	var cause fastconf.ReloadCause
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(scanner.Text(), "data: ")), &cause); err != nil {
+		t.Fatal(err)
+	}
+	if cause.Reason != "override" || cause.At != s.mgr.Snapshot().Cause().At {
+		t.Fatalf("unexpected commit cause: %+v", cause)
+	}
+	if !scanner.Scan() || scanner.Text() != "" {
+		t.Fatalf("missing SSE frame terminator: %q, err = %v", scanner.Text(), scanner.Err())
+	}
 }
 
-func TestMainFlagSetUsesFastconfDefaultDir(t *testing.T) {
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	var f cli.Flags
-	cli.RegisterFlags(fs, &f)
-	if err := fs.Parse(nil); err != nil {
-		t.Fatalf("parse: %v", err)
+type failingSSEWriter struct {
+	header  http.Header
+	writes  int
+	flushes int
+}
+
+func (w *failingSSEWriter) Header() http.Header { return w.header }
+func (w *failingSSEWriter) Write([]byte) (int, error) {
+	w.writes++
+	return 0, io.ErrClosedPipe
+}
+func (w *failingSSEWriter) WriteHeader(int) {}
+func (w *failingSSEWriter) Flush()          { w.flushes++ }
+
+func TestServer_EventsStopsWhenClientWriteFails(t *testing.T) {
+	s, done := newTestServer(t)
+	defer done()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/events", nil)
+	w := &failingSSEWriter{header: make(http.Header)}
+	finished := make(chan struct{})
+	go func() {
+		s.handleEvents(w, req)
+		close(finished)
+	}()
+
+	ready := false
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		s.bus.mu.Lock()
+		ready = len(s.bus.subs) == 1
+		s.bus.mu.Unlock()
+		if ready {
+			break
+		}
+		runtime.Gosched()
 	}
-	if f.Dir != fastconf.DefaultDir {
-		t.Fatalf("dir default = %q, want %q", f.Dir, fastconf.DefaultDir)
+	if !ready {
+		t.Fatal("SSE handler did not subscribe")
+	}
+	s.bus.publish(fastconf.ReloadCause{})
+
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("SSE handler did not stop after a client write failure")
+	}
+	if w.writes != 1 || w.flushes != 1 {
+		t.Fatalf("writes=%d flushes=%d, want one failed write and only the initial header flush", w.writes, w.flushes)
 	}
 }
 
-func TestMainDoesNotDefineLocalLookupPath(t *testing.T) {
-	if packageSourceContains(t, "func lookupPath(") {
-		t.Fatal("fastconfd must use confmap.GetDotted instead of a local lookupPath")
+// TestServer_ConfigRedactsByDefault verifies: /config and /dump mask
+// secrets unless the request asks for ?unredacted=true and carries the
+// separate unredacted token.
+func TestServer_ConfigRedactsByDefault(t *testing.T) {
+	mfs := fstest.MapFS{
+		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("db:\n  host: h\n  password: hunter2\n")},
 	}
-}
-
-func packageSourceContains(t *testing.T, needle string) bool {
-	t.Helper()
-	entries, err := os.ReadDir(".")
+	mgr, err := fastconf.New[map[string]any](context.Background(),
+		fastconf.WithFS(mfs), fastconf.WithSecretPaths(defaultSecretPaths...))
 	if err != nil {
-		t.Fatalf("read package dir: %v", err)
+		t.Fatal(err)
 	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
+	defer func() { _ = mgr.Close() }()
+	s := newServer(mgr, newEventBus(), "", nil)
+	s.unredactedToken = "plain-secret"
+	mux := s.routes()
+	get := func(target, token string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		if token != "" {
+			req.Header.Set("X-Unredacted-Token", token)
 		}
-		src, err := os.ReadFile(name)
-		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
-		}
-		if strings.Contains(string(src), needle) {
-			return true
-		}
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, req)
+		return rr
 	}
-	return false
+	for _, target := range []string{"/config", "/config?path=db", "/dump", "/dump?format=json"} {
+		t.Run(target, func(t *testing.T) {
+			for _, token := range []string{"", "plain-secret"} {
+				rr := get(target, token)
+				if rr.Code != http.StatusOK || strings.Contains(rr.Body.String(), "hunter2") || !strings.Contains(rr.Body.String(), "REDACTED") {
+					t.Fatalf("default: %d %s; want 200 with masked secret", rr.Code, rr.Body)
+				}
+			}
+			sep := "?"
+			if strings.Contains(target, "?") {
+				sep = "&"
+			}
+			plainTarget := target + sep + "unredacted=true"
+			for _, token := range []string{"", "wrong"} {
+				if rr := get(plainTarget, token); rr.Code != http.StatusUnauthorized {
+					t.Fatalf("unredacted with token %q: %d; want 401", token, rr.Code)
+				}
+			}
+			if rr := get(plainTarget, "plain-secret"); rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "hunter2") {
+				t.Fatalf("unredacted with token: %d %s; want plaintext", rr.Code, rr.Body)
+			}
+		})
+	}
 }

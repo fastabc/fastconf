@@ -6,8 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/fastabc/fastconf/internal/testutil"
+
+	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/contracts"
-	mappath "github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/providers/k8s"
 )
 
@@ -34,7 +36,7 @@ description="line1\nline2"
 		LabelsPath:      labelsPath,
 		AnnotationsPath: annPath,
 	})
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -64,7 +66,7 @@ func TestDownwardProvider_MissingFilesSilent(t *testing.T) {
 		LabelsPath:      "/nonexistent/labels",
 		AnnotationsPath: "/nonexistent/annotations",
 	})
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatalf("Load with missing files: %v", err)
 	}
@@ -93,10 +95,10 @@ func TestDownwardProvider_NewDefaultPaths(t *testing.T) {
 	if p.Name() != "k8s-downward" {
 		t.Errorf("Name() = %q", p.Name())
 	}
-	if p.Priority() != contracts.PriorityK8s {
-		t.Errorf("Priority() = %d want PriorityK8s %d", p.Priority(), contracts.PriorityK8s)
+	if contracts.Describe(p).Priority != contracts.PriorityK8s {
+		t.Errorf("Priority() = %d want PriorityK8s %d", contracts.Describe(p).Priority, contracts.PriorityK8s)
 	}
-	got := p.WatchPaths()
+	got := p.Describe().WatchPaths
 	want := []string{k8s.DefaultLabelsPath, k8s.DefaultAnnotationsPath}
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("WatchPaths() = %v want %v", got, want)
@@ -115,23 +117,23 @@ func TestDownwardProvider_NewDefaultPreservesRawKeysAndNamespacesMetadata(t *tes
 		AnnotationsPath: annPath,
 		At:              "k8s.metadata",
 	})
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	labelsMap, _ := mappath.GetDotted(got, "k8s.metadata.labels")
+	labelsMap, _ := confmap.GetDotted(got, "k8s.metadata.labels")
 	labelsRaw, _ := labelsMap.(map[string]any)
 	if labelsRaw["app.kubernetes.io/name"] != "web" {
 		t.Fatalf("raw labels lost: %#v", got)
 	}
-	annotationsMap, _ := mappath.GetDotted(got, "k8s.metadata.annotations")
+	annotationsMap, _ := confmap.GetDotted(got, "k8s.metadata.annotations")
 	annotationsRaw, _ := annotationsMap.(map[string]any)
 	if annotationsRaw["example.com/a.b"] != "v" {
 		t.Fatalf("raw annotations lost: %#v", got)
 	}
 }
 
-func TestDownwardProvider_ExpandedModeLegacyShape(t *testing.T) {
+func TestDownwardProvider_ExpandedModeRootPaths(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "labels")
 	mustWrite(t, path, `app.kubernetes.io/name="web"`+"\n")
@@ -140,11 +142,11 @@ func TestDownwardProvider_ExpandedModeLegacyShape(t *testing.T) {
 		LabelsPath: path,
 		LabelsMode: k8s.MetadataExpanded,
 	})
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := mappath.GetDotted(got, "labels.app.kubernetes.io.name"); v != "web" {
+	if v, _ := confmap.GetDotted(got, "labels.app.kubernetes.io.name"); v != "web" {
 		t.Fatalf("expanded label = %v want web", v)
 	}
 }
@@ -155,7 +157,7 @@ func TestDownwardProvider_RawModeAvoidsSeparatorCollision(t *testing.T) {
 	mustWrite(t, path, "a.b/c=\"left\"\na/b.c=\"right\"\n")
 
 	p := k8s.New(k8s.Options{LabelsPath: path})
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +172,7 @@ func TestDownwardProvider_WatchPaths(t *testing.T) {
 		LabelsPath:      "/etc/podinfo/labels",
 		AnnotationsPath: "/etc/podinfo/annotations",
 	})
-	got := p.WatchPaths()
+	got := p.Describe().WatchPaths
 	want := []string{"/etc/podinfo/labels", "/etc/podinfo/annotations"}
 	if len(got) != len(want) {
 		t.Fatalf("WatchPaths() = %v want %v", got, want)
@@ -187,13 +189,13 @@ func TestDownwardProvider_WatchPathsSkipsDisabledBucketsAndDuplicates(t *testing
 		LabelsPath:      "/etc/podinfo/labels",
 		AnnotationsPath: "/etc/podinfo/labels",
 	})
-	got := p.WatchPaths()
+	got := p.Describe().WatchPaths
 	if len(got) != 1 || got[0] != "/etc/podinfo/labels" {
 		t.Fatalf("WatchPaths() = %v want [/etc/podinfo/labels]", got)
 	}
 
 	disabled := k8s.New(k8s.Options{})
-	if got := disabled.WatchPaths(); len(got) != 0 {
+	if got := disabled.Describe().WatchPaths; len(got) != 0 {
 		t.Fatalf("disabled WatchPaths() = %v want empty", got)
 	}
 }
@@ -208,11 +210,11 @@ func TestDownwardProvider_AtNamespaces(t *testing.T) {
 		LabelsPath: labelsPath,
 		At:         "k8s.metadata",
 	})
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := mappath.GetDotted(got, "k8s.metadata.labels.app"); v != "web" {
+	if v, _ := confmap.GetDotted(got, "k8s.metadata.labels.app"); v != "web" {
 		t.Errorf("expected k8s.metadata.labels.app=\"web\", got %#v", got)
 	}
 }
@@ -253,26 +255,26 @@ func TestDownwardProvider_CustomSeparators(t *testing.T) {
 		Separators: []string{":"},
 		LabelsMode: k8s.MetadataExpanded,
 	})
-	got, err := p.Load(context.Background())
+	got, err := testutil.Map(p.Load(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := mappath.Get(got, "labels", "foo", "bar", "baz"); v != "v" {
+	if v, _ := confmap.Get(got, "labels", "foo", "bar", "baz"); v != "v" {
 		t.Errorf("got %#v", got)
 	}
 }
 
 func TestDownwardProvider_NewExpandedDefaultRetainsExpandedPreset(t *testing.T) {
 	p := k8s.NewExpandedDefault()
-	if got := p.WatchPaths(); len(got) != 2 {
+	if got := p.Describe().WatchPaths; len(got) != 2 {
 		t.Fatalf("WatchPaths() = %v want default mounted paths", got)
 	}
 }
 
-// Watch returns (nil, nil); Manager's shared file watcher follows WatchPaths.
+// Watch returns (nil, nil); Manager's shared file watcher follows Describe().WatchPaths.
 func TestDownwardProvider_WatchReturnsNil(t *testing.T) {
 	p := k8s.NewDefault()
-	ch, err := p.Watch(context.Background())
+	ch, err := p.Watch(context.Background(), "")
 	if err != nil || ch != nil {
 		t.Fatalf("Watch should be (nil, nil); got ch=%v err=%v", ch, err)
 	}
