@@ -7,7 +7,7 @@ go 1.26.0
 
 require (
 	cuelang.org/go v0.17.1
-	github.com/fastabc/fastconf v1.0.0
+	github.com/fastabc/fastconf v1.1.0
 )
 
 require (

@@ -1,13 +1,13 @@
-# Migration: v0.20.0 → v1.0.0
+# Migration: v0.20.0 → v1.1.0
 
-Upgrade directly from v0.20.0 to the stable v1.0.0 API. The tables below use
+Upgrade directly from v0.20.0 to the stable v1.1.0 API. The tables below use
 v0.20.0 as the source baseline; intermediate development APIs are not migration
-steps. Update the root module and every optional module you use to v1.0.0:
+steps. Update the root module and every optional module you use to v1.1.0:
 
 ```sh
-go get github.com/fastabc/fastconf@v1.0.0
+go get github.com/fastabc/fastconf@v1.1.0
 # Example optional module; update the adapters your application imports.
-go get github.com/fastabc/fastconf/providers/s3@v1.0.0
+go get github.com/fastabc/fastconf/providers/s3@v1.1.0
 go mod tidy
 ```
 
@@ -17,7 +17,7 @@ a newer toolchain; check their `go.mod` files. Import paths remain under
 
 ## Constructors and options
 
-| v0.20.0 | v1.0.0 |
+| v0.20.0 | v1.1.0 |
 |---|---|
 | `env.NewEnv(prefix)` / `env.NewEnvReplacer(prefix, r)` | `env.New(prefix)` / `env.New(prefix).WithReplacer(r)` |
 | `dotenv.NewDotEnv(prefix, paths...)` | `dotenv.New(prefix, paths...)` |
@@ -65,7 +65,7 @@ Omit `WithWatch` when the old `WatchOptions.Enabled` was false. A zero
 
 ## Providers and document decoding
 
-| v0.20.0 | v1.0.0 |
+| v0.20.0 | v1.1.0 |
 |---|---|
 | `WithSource(src, parser)` / `Bind(src, parser)` | `WithProvider(src)`; file/byte sources decode their own documents |
 | `contracts.Codec`, `codec.Decoder` | `contracts.Decoder` |
@@ -106,7 +106,7 @@ Multi-document YAML is rejected rather than silently truncated.
 
 ## Manager and snapshot APIs
 
-| v0.20.0 | v1.0.0 |
+| v0.20.0 | v1.1.0 |
 |---|---|
 | `MustNew(ctx, opts...)` | `New` and explicit error handling |
 | `mgr.Plan().WithHostname(h).Run(ctx)` | `mgr.Plan(ctx, WithPlanHostname(h))` |
@@ -142,7 +142,7 @@ in `/version.loaded_at` and SSE causes are RFC 3339 strings rather than numbers.
 
 ## Transforms and observation
 
-| v0.20.0 | v1.0.0 |
+| v0.20.0 | v1.1.0 |
 |---|---|
 | `WithTransformers(t...)`, `transform.Transformer` | `WithTransform(fns...)`, plain `func(map[string]any) error` values |
 | `transform.New(target, migrations...)` | `transform.NewChain(target, migrations...)` |
@@ -183,10 +183,10 @@ extracted value changes. Callbacks now follow registration order.
   `examples/redisstream`; copy and adapt them. `integrations/bus` and the
   OpenFeature imitation are removed; the rule evaluator is not an SDK provider.
 - `cmd/fastconfgen` is an independent module. Logging adapters, Prometheus and
-  OTel retain their leaf module paths; all eleven modules use v1.0.0.
+  OTel retain their leaf module paths; all eleven modules use v1.1.0.
 - Remove `no_provider_*` build tags; Go links only imported packages. Replace
   dotenv replacer exports with `providers/env` equivalents.
 
 Run `go test ./...` in the application and exercise its reload/rollback paths.
 Use the [runtime contract](../design/spec.md) and [examples](../../examples/README.md)
-for complete v1.0.0 behavior and configuration.
+for complete v1.1.0 behavior and configuration.

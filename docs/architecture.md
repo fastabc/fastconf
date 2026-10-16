@@ -1,6 +1,6 @@
 # FastConf Architecture
 
-This page describes the FastConf v1.0.0 source layout and dependency direction.
+This page describes the FastConf v1.1.0 source layout and dependency direction.
 
 ## Directory Layout
 

@@ -1,6 +1,6 @@
 # FastConf Cookbook — Recipes by Journey
 
-Recipes target the FastConf v1.0.0 API. Unless marked as a
+Recipes target the FastConf v1.1.0 API. Unless marked as a
 complete program, Go blocks are integration fragments: supply your own config
 type, imports, context, error handling and manager shutdown.
 
@@ -24,7 +24,7 @@ decoding, metadata file layout and configuration ownership for all recipes.
 | [sidecar](sidecar.md) | Run `fastconfd` for non-Go workloads |
 | [env-replacer](env-replacer.md) | Env key conventions, `At()` namespacing, coercion |
 | [labels](labels.md) | Metadata labels, dotted config labels, routing DSL labels |
-| [migration v1](migration-v1.md) | Upgrade directly from v0.20.0 to v1.0.0 |
+| [migration v1](migration-v1.md) | Upgrade directly from v0.20.0 to v1.1.0 |
 
 ## Operations — observe, inspect, and run safely
 

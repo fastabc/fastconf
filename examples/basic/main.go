@@ -39,8 +39,8 @@ func run(out io.Writer) error {
 		return err
 	}
 	cfg := state.Value()
-	fmt.Fprintf(out, "port=%d timeout=%s pool=%d\n", cfg.Server.Port, cfg.Server.Timeout, cfg.Database.Pool)
-	return nil
+	_, err = fmt.Fprintf(out, "port=%d timeout=%s pool=%d\n", cfg.Server.Port, cfg.Server.Timeout, cfg.Database.Pool)
+	return err
 }
 
 func main() {

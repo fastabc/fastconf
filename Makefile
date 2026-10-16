@@ -6,7 +6,7 @@ SHELL := /bin/bash
 # Ignore personal workspaces and never update dependencies during checks.
 export GOWORK := off
 export GOFLAGS := $(GOFLAGS) -mod=readonly
-VERSION ?= v1.0.0
+VERSION ?= v1.1.0
 BASE ?= latest
 MODULES ?=
 TARGETS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
@@ -63,6 +63,7 @@ tools-check:
 
 check: fmt-check deps-check
 	bash tools/check-repo-test.sh
+	bash tools/check-candidate-test.sh
 	bash tools/tag-release-test.sh
 	bash tools/bench-guard-test.sh
 

@@ -37,13 +37,15 @@ func run(out io.Writer) error {
 	} {
 		attrs := feature.EvalContext{"user.id": user.id, "tier": user.tier}
 		value := feature.Eval(rules, "newCheckout", attrs, false)
-		fmt.Fprintf(out, "%s checkout=%v stable=%t\n", user.id, value,
-			value == feature.Eval(rules, "newCheckout", attrs, false))
+		if _, err := fmt.Fprintf(out, "%s checkout=%v stable=%t\n", user.id, value,
+			value == feature.Eval(rules, "newCheckout", attrs, false)); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(out, "missing flag=%v missing anchor=%v\n",
+	_, err = fmt.Fprintf(out, "missing flag=%v missing anchor=%v\n",
 		feature.Eval(rules, "missing", nil, false),
 		feature.Eval(rules, "newCheckout", nil, false))
-	return nil
+	return err
 }
 
 func main() {

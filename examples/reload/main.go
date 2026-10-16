@@ -28,7 +28,7 @@ func run(out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	path := filepath.Join(dir, "app.yaml")
 	write := func(name string) error {
 		data, err := files.ReadFile("config/" + name + ".yaml")
@@ -49,7 +49,7 @@ func run(out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 	initial := mgr.Snapshot()
 	if err := write("invalid"); err != nil {
 		return err
@@ -64,11 +64,15 @@ func run(out io.Writer) error {
 			violations++
 		}
 	}
-	fmt.Fprintf(out, "invalid preview: violations=%d live=%d\n", violations, mgr.Get().Port)
+	if _, err := fmt.Fprintf(out, "invalid preview: violations=%d live=%d\n", violations, mgr.Get().Port); err != nil {
+		return err
+	}
 	if err := mgr.Reload(ctx); !errors.Is(err, fastconf.ErrInvalid) {
 		return fmt.Errorf("expected validation failure, got %v", err)
 	}
-	fmt.Fprintf(out, "rejected: preserved=%t\n", mgr.Snapshot() == initial)
+	if _, err := fmt.Fprintf(out, "rejected: preserved=%t\n", mgr.Snapshot() == initial); err != nil {
+		return err
+	}
 	if err := write("proposed"); err != nil {
 		return err
 	}
@@ -76,16 +80,20 @@ func run(out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "valid preview: proposed=%d live=%d changes=%d\n", preview.Proposed.Value().Port, mgr.Get().Port, len(preview.Diff))
+	if _, err := fmt.Fprintf(out, "valid preview: proposed=%d live=%d changes=%d\n", preview.Proposed.Value().Port, mgr.Get().Port, len(preview.Diff)); err != nil {
+		return err
+	}
 	if err := mgr.Reload(ctx); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "committed: port=%d generation=%d\n", mgr.Get().Port, mgr.Snapshot().Generation())
+	if _, err := fmt.Fprintf(out, "committed: port=%d generation=%d\n", mgr.Get().Port, mgr.Snapshot().Generation()); err != nil {
+		return err
+	}
 	if err := mgr.History().Rollback(initial); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "rollback: port=%d generation=%d\n", mgr.Get().Port, mgr.Snapshot().Generation())
-	return nil
+	_, err = fmt.Fprintf(out, "rollback: port=%d generation=%d\n", mgr.Get().Port, mgr.Snapshot().Generation())
+	return err
 }
 
 func main() {

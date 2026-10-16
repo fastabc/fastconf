@@ -1,8 +1,10 @@
 # Releasing FastConf
 
-FastConf v1.0.0 defines the stable API. Optional integrations live in separate
-Go modules; all modules use the same release version. Discover modules and
-minimum Go versions directly from their manifests:
+FastConf v1.1.0 establishes the current stable API baseline. The public v1.0.0
+proxy content conflicts with its immutable Go checksum record, so that version
+cannot be corrected. Optional integrations live in separate Go modules; all
+modules use the same release version. Discover modules and minimum Go versions
+directly from their manifests:
 
 ```sh
 bash tools/modules.sh list
@@ -15,7 +17,7 @@ Prometheus and OpenTelemetry retain separate leaf modules.
 
 ## Prepare and verify
 
-For the next patch release, the commands below use `v1.0.1`:
+The new stable release prepared here is `v1.1.0`:
 
 1. Update the changelog and any relevant migration notes.
 2. Align in-repository module requirements to the release version. Do not
@@ -26,9 +28,9 @@ For the next patch release, the commands below use `v1.0.1`:
 ```sh
 make check
 make test-workspace
-make test-candidate VERSION=v1.0.1
-make api-check VERSION=v1.0.1 BASE=v1.0.0
-VERSION=v1.0.1 bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
+make test-candidate VERSION=v1.1.0
+make api-check VERSION=v1.1.0 BASE=none
+VERSION=v1.1.0 bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
 ```
 
 `test-workspace` tests all modules against local source. `test-candidate` serves
@@ -38,7 +40,7 @@ commits remain in its disposable checkout. This verifies a source combination
 without publishing it. To test one candidate module:
 
 ```sh
-VERSION=v1.0.1 bash tools/check-candidate.sh bash tools/modules.sh test providers/s3
+VERSION=v1.1.0 bash tools/check-candidate.sh bash tools/modules.sh test providers/s3
 ```
 
 After publication, `make test-all` checks independent resolution of the published
@@ -52,8 +54,9 @@ module requirements. Commit downloaded checksums as normal maintenance. Personal
 module and its subpackages. Patch releases preserve the public API; compatible
 additions require a minor release. Breaking changes require a new major module
 path and migration notes. Tests and review must also cover behavioral changes.
-`BASE=none` is only for deliberately establishing a new baseline; it skips
-compatibility comparison and is not the normal check after v1.0.0.
+`BASE=none` skips compatibility comparison. The v1.1.0 release deliberately
+establishes a new baseline because public v1.0.0 proxy content conflicts with its
+immutable checksum record. Future checks use `BASE=v1.1.0`.
 
 ## Go versions and vulnerabilities
 
@@ -72,8 +75,8 @@ Historical scans do not validate a later source or dependency set.
 Preview and publish the complete module tag set from a clean release commit:
 
 ```sh
-bash tools/tag-release.sh v1.0.1 --dry-run
-bash tools/tag-release.sh v1.0.1 --push
+bash tools/tag-release.sh v1.1.0 --dry-run
+bash tools/tag-release.sh v1.1.0 --push
 ```
 
 The script validates all version pins before creating tags at one commit. It
@@ -100,7 +103,7 @@ the binary, LICENSE and README.md. Builds disable CGO, use `-trimpath`, and embe
 the tag through `-X main.version=<tag>`.
 
 ```sh
-make dist VERSION=v1.0.0
+make dist VERSION=v1.1.0
 make dist-verify
 ```
 

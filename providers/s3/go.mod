@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.3
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.4
 	github.com/aws/smithy-go v1.28.5
-	github.com/fastabc/fastconf v1.0.0
+	github.com/fastabc/fastconf v1.1.0
 )
 
 require (
@@ -22,5 +22,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.6 // indirect
 	github.com/kr/text v0.2.0 // indirect
+	gopkg.in/ini.v1 v1.67.3 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

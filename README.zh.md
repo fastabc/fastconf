@@ -15,7 +15,7 @@ strategic merge 协议。参阅[按键合并列表示例](docs/cookbook/strategi
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-> **版本**：v1.0.0 正式版。本文描述该版本的稳定 API。
+> **版本**：v1.1.0 正式版。本文描述该版本的稳定 API。
 > 从 v0.20.0 升级请参阅[迁移指南](docs/cookbook/migration-v1.md)。
 
 ---
@@ -150,10 +150,10 @@ go run ./examples/features
 根模块要求 Go 1.24+。子模块最低为 Go 1.24；依赖需要更高版本时，在各自的 go.mod 中声明。
 
 ```bash
-go get github.com/fastabc/fastconf@v1.0.0
-go get github.com/fastabc/fastconf/integrations/log/zerolog@v1.0.0  # 或 .../log/phuslu
-go get github.com/fastabc/fastconf/observability/metrics/prometheus@v1.0.0
-go get github.com/fastabc/fastconf/observability/otel@v1.0.0
+go get github.com/fastabc/fastconf@v1.1.0
+go get github.com/fastabc/fastconf/integrations/log/zerolog@v1.1.0  # 或 .../log/phuslu
+go get github.com/fastabc/fastconf/observability/metrics/prometheus@v1.1.0
+go get github.com/fastabc/fastconf/observability/otel@v1.1.0
 ```
 
 根模块 tag 为 `vX.Y.Z`，独立模块为 `<module>/vX.Y.Z`，所有模块统一发布同一版本。
@@ -466,7 +466,7 @@ go test -bench=BenchmarkGet -benchmem ./...
 | [docs/design/README.md](docs/design/README.md) | 设计文档索引与历史验证记录 |
 | [docs/cookbook/README.md](docs/cookbook/README.md) | 按使用旅程整理的实战配方 |
 | [docs/design/spec.md](docs/design/spec.md) | 运行时模型、并发、模块边界 |
-| [docs/cookbook/migration-v1.md](docs/cookbook/migration-v1.md) | v0.20.0 → v1.0.0 迁移指南 |
+| [docs/cookbook/migration-v1.md](docs/cookbook/migration-v1.md) | v0.20.0 → v1.1.0 迁移指南 |
 | [GitHub Releases](https://github.com/fastabc/fastconf/releases) | 版本发布说明与预编译 CLI 二进制 |
 | [pkg.go.dev](https://pkg.go.dev/github.com/fastabc/fastconf) | godoc 与可运行示例 |
 

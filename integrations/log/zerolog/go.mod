@@ -5,7 +5,7 @@ module github.com/fastabc/fastconf/integrations/log/zerolog
 go 1.26.0
 
 require (
-	github.com/fastabc/fastconf v1.0.0
+	github.com/fastabc/fastconf v1.1.0
 	github.com/rs/zerolog v1.35.1
 )
 

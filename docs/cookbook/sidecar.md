@@ -5,7 +5,7 @@
 ## Run
 
 ```bash
-go run github.com/fastabc/fastconf/cmd/fastconfd@v1.0.0 \
+go run github.com/fastabc/fastconf/cmd/fastconfd@v1.1.0 \
   -dir /etc/myapp/conf.d \
   -addr 127.0.0.1:8650 \
   -read-token "$(cat /var/run/secrets/read-token)" \
@@ -82,7 +82,7 @@ spec:
             - name: FASTCONFD_ADDR
               value: http://127.0.0.1:8650
         - name: fastconfd
-          image: example/fastconfd:v1.0.0
+          image: example/fastconfd:v1.1.0
           args:
             - -dir=/etc/myapp/conf.d
             - -addr=127.0.0.1:8650

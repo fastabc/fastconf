@@ -117,7 +117,10 @@ jobs:
       - run: make test-workspace
       - name: Run core and optional examples
         run: make example
-      - run: make api-check BASE=v1.0.0
+      # The public v1.0.0 proxy content conflicts with its immutable checksum
+      # record, so v1.1.0 establishes a fresh baseline; later releases use it.
+      - name: Validate initial stable API baseline
+        run: make api-check BASE=none
 
   # Lint the root module; all modules participate in formatting and race tests.
   lint:

@@ -1,6 +1,6 @@
 # Design documents
 
-These documents describe FastConf v1.0.0.
+These documents describe FastConf v1.1.0.
 
 | Document | Purpose |
 |---|---|

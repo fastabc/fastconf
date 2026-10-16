@@ -34,13 +34,19 @@ and release tools require a Git checkout; `make test` also works in source archi
 
 ## Release validation
 
-`VERSION` defaults to `v1.0.0`. Candidate checks copy current tracked and unignored
+`VERSION` defaults to `v1.1.0`. Candidate checks copy current tracked and unignored
 files into a disposable repository and serve that version through a local Go
 module proxy. Dependencies and generated sums stay in the disposable copy.
+Only checksum entries for discovered modules at the candidate version are
+regenerated in that copy and its proxy archives. Third-party checksums, other
+versions and the source checkout's `go.sum` files remain unchanged. This checks
+local candidate content; it does not replace a version cached by public Go proxies.
 
 - `make test-candidate VERSION=vX.Y.Z`: test candidate modules.
 - `make api-check VERSION=vX.Y.Z BASE=latest`: compare the candidate to published APIs.
-  Use `BASE=none` only when establishing the first stable API.
+  Use `BASE=none` only when intentionally establishing a new stable API baseline;
+  v1.1.0 does so because public v1.0.0 proxy content conflicts with its immutable
+  checksum record. Subsequent checks use `BASE=v1.1.0`.
 - `make vulnerabilities`: scan declared dependencies with pinned govulncheck.
 - `bash tools/check-candidate.sh make vulnerabilities`: scan candidate dependencies.
 - `bash tools/tag-release.sh vX.Y.Z --dry-run`: validate and list coordinated tags.
@@ -66,3 +72,6 @@ CI reuses these Make targets, tests each submodule at its declared minimum Go
 version and runs the root module on Linux, macOS and Windows. The release workflow
 verifies that every module tag exists at the same commit, tests candidates, then
 builds and publishes archives. Resource soak remains a separate manual workflow.
+The v1.1.0 CI uses `BASE=none` for its new API baseline because public v1.0.0
+proxy content conflicts with its immutable checksum record. Subsequent release
+checks compare against `BASE=v1.1.0`.

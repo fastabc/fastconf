@@ -1,6 +1,6 @@
 # FastConf Runtime Contract
 
-This document defines the FastConf v1.0.0 runtime contract.
+This document defines the FastConf v1.1.0 runtime contract.
 The root module requires Go 1.24; independent modules declare their own
 minimum versions. See [architecture.md](../architecture.md) for package
 ownership and [RELEASING.md](../../RELEASING.md) for release checks.

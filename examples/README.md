@@ -1,7 +1,7 @@
 # Examples
 
 Run the following complete programs from the repository root with Go 1.24+.
-These examples need no external services or credentials and target the v1.0.0 API.
+These examples need no external services or credentials and target the v1.1.0 API.
 Each directory includes configuration files, expected output and scenario tests.
 
 | Example | Demonstrates | Command |
@@ -56,7 +56,7 @@ the local adapter modules; naming `main.go` bypasses the build constraint.
 No AWS account, external service, or real credentials are needed. Both pflag
 and S3 print a configuration map containing port 9090.
 
-Both adapters require the v1.0.0 root module. To run them against local source
+Both adapters require the v1.1.0 root module. To run them against local source
 rather than the released dependency, use a temporary workspace:
 
 ```sh

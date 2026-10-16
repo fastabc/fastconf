@@ -3,7 +3,7 @@ module github.com/fastabc/fastconf/policy/opa
 go 1.26.0
 
 require (
-	github.com/fastabc/fastconf v1.0.0
+	github.com/fastabc/fastconf v1.1.0
 	github.com/open-policy-agent/opa v1.21.2
 )
 

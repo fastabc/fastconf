@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Validate the unpublished v1.0.0 modules through the module protocol. All synthetic
+# Validate candidate modules through the module protocol. All synthetic
 # archives, downloaded modules and generated sums live in a disposable checkout.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'chmod -R u+w "$TMP"; rm -rf "$TMP"' EXIT
-VERSION="${VERSION:-v1.0.0}"
+VERSION="${VERSION:-v1.1.0}"
 
 python3 - "$ROOT" "$TMP" "$VERSION" <<'PYTHON'
 import json
@@ -20,6 +20,10 @@ version = sys.argv[3]
 checkout = temp / "checkout"
 modules = subprocess.check_output(["bash", str(root / "tools/modules.sh"), "list"], text=True).splitlines()
 nested = [m for m in modules if m != "."]
+candidate_sums = {
+    ("github.com/fastabc/fastconf" + ("" if m == "." else "/" + m), v)
+    for m in modules for v in (version, version + "/go.mod")
+}
 files = subprocess.check_output([
     "git", "-C", str(root), "ls-files", "--cached", "--others",
     "--exclude-standard", "-z",
@@ -40,13 +44,21 @@ for name in sorted(set(files)):
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, target)
     module = owner(name)
+    if name == ("go.sum" if module == "." else module + "/go.sum"):
+        # Published sums describe different archives from this synthetic proxy.
+        # Regenerate only the discovered candidates, in the disposable copy;
+        # retain third-party checksums and other versions for verification.
+        target.write_text("".join(
+            line for line in target.read_text().splitlines(keepends=True)
+            if tuple(line.split()[:2]) not in candidate_sums
+        ))
     path = "github.com/fastabc/fastconf" + ("" if module == "." else "/" + module)
     if path not in archives:
         proxy = temp / "proxy" / path / "@v"
         proxy.mkdir(parents=True)
         archives[path] = (zipfile.ZipFile(proxy / (version + ".zip"), "w", zipfile.ZIP_DEFLATED), proxy, module)
     rel = name if module == "." else name[len(module) + 1:]
-    archives[path][0].write(source, path + "@" + version + "/" + rel)
+    archives[path][0].write(target, path + "@" + version + "/" + rel)
 for path, (archive, proxy, module) in archives.items():
     archive.close()
     shutil.copy2(root / module / "go.mod", proxy / (version + ".mod"))

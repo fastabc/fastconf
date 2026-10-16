@@ -16,7 +16,7 @@ Kubernetes resource and strategic-merge protocols. See the
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-> **Version**: v1.0.0, the stable API described by this documentation.
+> **Version**: v1.1.0, the stable API described by this documentation.
 > Upgrading from v0.20.0? See the [migration guide](docs/cookbook/migration-v1.md).
 
 ---
@@ -159,10 +159,10 @@ Requires Go 1.24+ for the root module. Submodules require at least Go 1.24;
 those with newer dependencies declare a higher minimum in their go.mod.
 
 ```bash
-go get github.com/fastabc/fastconf@v1.0.0
-go get github.com/fastabc/fastconf/integrations/log/zerolog@v1.0.0  # or .../log/phuslu
-go get github.com/fastabc/fastconf/observability/metrics/prometheus@v1.0.0
-go get github.com/fastabc/fastconf/observability/otel@v1.0.0
+go get github.com/fastabc/fastconf@v1.1.0
+go get github.com/fastabc/fastconf/integrations/log/zerolog@v1.1.0  # or .../log/phuslu
+go get github.com/fastabc/fastconf/observability/metrics/prometheus@v1.1.0
+go get github.com/fastabc/fastconf/observability/otel@v1.1.0
 ```
 
 Root tags use `vX.Y.Z`; independent modules use `<module>/vX.Y.Z`.
@@ -477,7 +477,7 @@ Start with the [documentation index](docs/README.md) for guides grouped by purpo
 | [docs/design/README.md](docs/design/README.md) | Design index and historical validation records |
 | [docs/cookbook/README.md](docs/cookbook/README.md) | Ready recipes ordered by user journey |
 | [docs/design/spec.md](docs/design/spec.md) | Runtime model, concurrency, module boundaries |
-| [docs/cookbook/migration-v1.md](docs/cookbook/migration-v1.md) | v0.20.0 → v1.0.0 migration guide |
+| [docs/cookbook/migration-v1.md](docs/cookbook/migration-v1.md) | v0.20.0 → v1.1.0 migration guide |
 | [GitHub Releases](https://github.com/fastabc/fastconf/releases) | Release notes and prebuilt CLI binaries |
 | [pkg.go.dev](https://pkg.go.dev/github.com/fastabc/fastconf) | godoc and runnable examples |
 

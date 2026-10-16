@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 export GOWORK=off
 export GOFLAGS="${GOFLAGS:-} -mod=readonly"
-VERSION="${VERSION:-v1.0.0}"
+VERSION="${VERSION:-v1.1.0}"
 COMMAND="${1:-}"
 [[ $# == 0 ]] || shift
 

@@ -66,9 +66,13 @@ func run(ctx context.Context, dir string, out io.Writer) error {
 		}
 		tenants[tenant.id] = mgr
 		cfg := mgr.Get()
-		fmt.Fprintf(out, "%s addr=%s timeout=%s pool=%d rps=%d\n",
-			mgr.Snapshot().Cause().Tenant, cfg.Server.Addr, cfg.Server.Timeout, cfg.Database.Pool, cfg.Limits.RPS)
-		fmt.Fprintf(out, "%s dsn=%v\n", tenant.id, mgr.Snapshot().Map()["database"].(map[string]any)["dsn"])
+		if _, err := fmt.Fprintf(out, "%s addr=%s timeout=%s pool=%d rps=%d\n",
+			mgr.Snapshot().Cause().Tenant, cfg.Server.Addr, cfg.Server.Timeout, cfg.Database.Pool, cfg.Limits.RPS); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(out, "%s dsn=%v\n", tenant.id, mgr.Snapshot().Map()["database"].(map[string]any)["dsn"]); err != nil {
+			return err
+		}
 	}
 
 	a, b := tenants["tenant-a"], tenants["tenant-b"]
@@ -79,15 +83,17 @@ func run(ctx context.Context, dir string, out io.Writer) error {
 	if !errors.Is(err, fastconf.ErrInvalid) {
 		return fmt.Errorf("expected tenant-a validation failure, got %v", err)
 	}
-	fmt.Fprintf(out, "tenant-a rejected=%t preserved=%t tenant-b untouched=%t\n",
-		err != nil, a.Snapshot() == beforeA, b.Snapshot() == beforeB)
+	if _, err := fmt.Fprintf(out, "tenant-a rejected=%t preserved=%t tenant-b untouched=%t\n",
+		err != nil, a.Snapshot() == beforeA, b.Snapshot() == beforeB); err != nil {
+		return err
+	}
 	if err := b.Reload(ctx, fastconf.WithOverride(map[string]any{
 		"limits": map[string]any{"rps": 250},
 	})); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "tenant-b updated rps=%d tenant-a rps=%d\n", b.Get().Limits.RPS, a.Get().Limits.RPS)
-	return nil
+	_, err = fmt.Fprintf(out, "tenant-b updated rps=%d tenant-a rps=%d\n", b.Get().Limits.RPS, a.Get().Limits.RPS)
+	return err
 }
 
 func main() {

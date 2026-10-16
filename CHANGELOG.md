@@ -1,9 +1,13 @@
 # Changelog
 
 The [migration guide](docs/cookbook/migration-v1.md) covers upgrading from
-v0.20.0 to v1.0.0. Older entries below describe their historical releases.
+v0.20.0 to v1.1.0. Older entries below describe their historical releases.
 
-## [v1.0.0]
+## [v1.1.0]
+
+This release establishes a new stable API baseline. The previously published
+v1.0.0 Go module version remains unchanged; its immutable checksum record cannot
+be rewritten.
 
 ### Added
 
