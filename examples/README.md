@@ -1,7 +1,8 @@
 # Examples
 
 Run the following complete programs from the repository root with Go 1.24+.
-These examples need no external services or credentials and target the v1.1.0 API.
+These examples need no external services or credentials. They target the v1.1.0
+API except `single-file`, which uses the unreleased `LoadFile` entry in this checkout.
 Each directory includes configuration files, expected output and scenario tests.
 
 | Example | Demonstrates | Command |

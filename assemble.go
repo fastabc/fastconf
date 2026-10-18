@@ -101,15 +101,20 @@ func (m *Manager[T]) assemble(ctx context.Context, hostnameOverride string, extr
 	}
 	generation := codec.Generation()
 
-	scanOpt, meta, err := m.buildScanOptions(hostnameOverride)
-	if err != nil {
-		return assemblyResult{}, err
-	}
+	var meta assemblyMeta
+	var staged []stagedLayer
 	var watchDirs []string
-	scanOpt.OnDir = func(dir string) { watchDirs = append(watchDirs, dir) }
-	staged, err := m.assembleFileLayers(scanOpt)
-	if err != nil {
-		return assemblyResult{watchDirs: watchDirs}, err
+	if !m.opts.SkipDiscovery {
+		scanOpt, discovered, err := m.buildScanOptions(hostnameOverride)
+		if err != nil {
+			return assemblyResult{}, err
+		}
+		meta = discovered
+		scanOpt.OnDir = func(dir string) { watchDirs = append(watchDirs, dir) }
+		staged, err = m.assembleFileLayers(scanOpt)
+		if err != nil {
+			return assemblyResult{watchDirs: watchDirs}, err
+		}
 	}
 	generatorLayers, err := m.assembleGeneratorLayers(ctx)
 	if err != nil {

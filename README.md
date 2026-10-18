@@ -49,6 +49,49 @@ Kubernetes resource and strategic-merge protocols. See the
 
 Choose a path: [load one file](docs/getting-started/load.md) · [dynamic management](docs/getting-started/dynamic.md) · [extensions](docs/getting-started/extensions.md).
 
+### One file at startup
+
+`LoadFile` is available in the current checkout; it is not included in v1.1.0.
+Create `app.yaml`:
+
+```yaml
+port: 8080
+```
+
+```go
+package main
+
+import (
+    "log"
+
+    "github.com/fastabc/fastconf"
+)
+
+type Config struct {
+    Port int `json:"port" fc:"default=8080,min=1,max=65535"`
+}
+
+func main() {
+    cfg, err := fastconf.LoadFile[Config]("app.yaml")
+    if err != nil {
+        log.Fatal(err)
+    }
+    log.Println(cfg.Port)
+}
+```
+
+Only the named file is loaded; no `conf.d` scanning or background workers.
+Missing files, unknown keys and invalid values return errors. The extension
+selects YAML, JSON, TOML or INI parsing; `json` tags name the struct fields.
+`fc` defaults and validation run automatically. The caller owns the returned
+`*Config`; no `Close()` is needed. Files are limited to 4 MiB.
+
+Run the bundled example: `go run ./examples/single-file`.
+See the [single-file guide](docs/getting-started/load.md) and
+[`fc` tag reference](docs/cookbook/field-meta.md).
+
+### Layered configuration and runtime updates
+
 ```go
 package main
 
@@ -202,6 +245,8 @@ sources / generators / providers
 
 ## Manager API
 
+`LoadFile[T](path)` loads one file and returns a caller-owned `*T` (new in this
+checkout, not v1.1.0); it needs no Manager lifecycle.
 `New[T]` loads synchronously and starts configured watchers; `Load[T]` loads
 once and returns `*State[T]`.
 `Get()` returns a read-only `*T`, while `Snapshot()` adds diagnostics.

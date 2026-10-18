@@ -8,17 +8,15 @@ go run ./examples/single-file -file /path/to/app.yaml
 ```
 
 The bundled [app.yaml](app.yaml) prints `port=8080`. [main.go](main.go) is the
-complete program: `Load` returns a State, `Value` returns the typed configuration,
-and there is no Manager to close. Unknown keys and ports outside 1–65535 fail.
-A missing source file is an empty layer, so the port check also rejects it.
+complete program: `LoadFile` directly returns the typed configuration, and there
+is no Manager to close. Unknown keys, ports outside 1–65535 and missing files fail.
+`LoadFile` is new in the current checkout and is not part of the v1.1.0 release.
 
-The file extension selects the parser. JSON struct tags work with YAML input;
-select `WithDecodeFormat(fastconf.YAML)` if the struct uses only YAML tags.
-Keep the value and reachable objects read-only.
+The file extension selects the parser; JSON struct tags map fields even with
+YAML input. The file size limit is 4 MiB. The caller owns the returned value.
 
-The default directory loader also looks for `conf.d` in the working directory.
-This repository-root example has no such directory. In an application with
-existing layers, choose its directory explicitly with `WithDir`, or run from a
-dedicated directory to keep this a single-source example.
+Only the named file is loaded; `conf.d` and profiles do not participate.
+Use `Load` with options when you need a YAML struct bridge, additional providers,
+custom validation or diagnostic snapshots; use `New` for runtime updates.
 
 See [the loading guide](../../docs/getting-started/load.md).

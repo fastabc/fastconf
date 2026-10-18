@@ -3,6 +3,9 @@
 //
 // # Start here
 //
+// For a single file at startup, call LoadFile[Config]("app.yaml") to obtain
+// *Config directly. Use Load for configurable loading and diagnostic snapshots.
+//
 // A typical application reads FastConf in this order:
 //
 //   - Build a Manager[T] with New.
@@ -34,7 +37,7 @@
 //
 // # Reading by need
 //
-//   - Constructors: New, Load.
+//   - Constructors: LoadFile, Load, New.
 //   - Loading and overlays: Option, WithProvider, WithProfile, WithWatch,
 //     WithAxes, WithDir, WithFS.
 //   - Runtime reaction: Subscribe, WithEqual, Manager.Errors,

@@ -17,6 +17,13 @@ background work retains context values and runs until `Close` or `Shutdown`.
 `Load` shares option resolution, typed-hook setup and the initial pipeline
 with `New`, without starting background workers.
 
+The unreleased `LoadFile[T](path)` convenience entry reads exactly one required
+file (up to 4 MiB), skips directory/profile discovery, rejects unknown fields
+and returns a caller-owned `*T`. It uses the extension's input codec and the JSON
+struct bridge, with the same typed hooks, defaults and field metadata checks.
+It starts no workers and needs no Close. Use `Load` for configurable options and
+diagnostics, or `New` for live snapshots.
+
 All later reloads, plans and rollbacks run on one writer goroutine. A caller's
 context controls its queued and in-flight work; manager shutdown also cancels
 that work. Stages check cancellation at their boundaries. User functions that

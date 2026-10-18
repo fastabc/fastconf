@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,7 +25,7 @@ func TestSingleFile(t *testing.T) {
 				}
 			}
 			var out bytes.Buffer
-			err := run(context.Background(), path, &out)
+			err := run(path, &out)
 			if (err != nil) != tc.fail {
 				t.Fatalf("error=%v", err)
 			}

@@ -1,7 +1,8 @@
 # 一次加载：单个配置文件
 
-适合启动时读取配置、之后随部署重启的程序。最短路径是 `Load[T]` →
-`State.Value()`，无需管理后台任务或调用 Close。
+适合启动时读取配置、之后随部署重启的程序。调用 `LoadFile[T](path)`，
+直接得到 `*T`，无需 context、Provider、State 或 Close。
+这个入口已加入当前源码，尚未包含在 v1.1.0 发布版中。
 
 ```yaml
 # app.yaml
@@ -12,45 +13,61 @@ port: 8080
 package main
 
 import (
-    "context"
     "log"
 
     "github.com/fastabc/fastconf"
-    "github.com/fastabc/fastconf/providers/source"
 )
 
 type Config struct {
-    Port int `json:"port" yaml:"port" fc:"min=1,max=65535"`
+    Port int `json:"port" fc:"min=1,max=65535"`
 }
 
 func main() {
-    state, err := fastconf.Load[Config](context.Background(),
-        fastconf.WithProvider(source.NewFile("app.yaml")),
-        fastconf.WithUnknownFields(fastconf.UnknownError),
-    )
+    cfg, err := fastconf.LoadFile[Config]("app.yaml")
     if err != nil {
         log.Fatal(err)
     }
-    cfg := state.Value()
     log.Printf("port=%d", cfg.Port)
 }
 ```
 
-完整受测试程序：[examples/single-file](../../examples/single-file/README.md)。
+完整程序：[examples/single-file](../../examples/single-file/README.md)。
 Go 1.24+，仓库根目录执行：
 
 ```sh
 go run ./examples/single-file
 ```
 
-预期 `port=8080`。将键写为 `prot` 或值改成 0 会失败。文件不存在时，
-source Provider 返回空层，端口范围校验拒绝零值。
+预期 `port=8080`。将键写为 `prot` 或值改成 0 会失败。文件不存在直接报错，
+不会当作可选配置跳过。未知扩展名、解析失败和超过 4 MiB 的文件也会报错。
 
-YAML 扩展名决定输入解析器；默认结构体 bridge 使用 JSON 标签。只有 YAML
-标签的已有结构体需增加 `WithDecodeFormat(fastconf.YAML)`。例程工作目录没有
-`conf.d`；若应用目录存在该目录，其 base/overlay 层也会参与加载，需显式规划
-`WithDir` 或使用独立工作目录。
+## 默认行为
 
-`Value()` 及其 map、slice、pointer 只读。默认值需要保留显式 false、0、空字符串时，
-采用 [base 默认层](../cookbook/field-meta.md#missing-zero-and-null)。
+- 只读取指定文件，不扫描 `conf.d`，不合并 profile 或环境变量。
+- 扩展名选择 YAML / JSON / TOML / INI 解析器；结构体统一使用 `json` 标签。
+- 默认拒绝未知字段，自动执行 typed hooks、`fc` 默认值、`Defaults()` 和 `fc` 校验。
+- 不启动后台任务；返回值由调用方拥有，不涉及共享快照或关闭操作。
+
+例如 `fc:"default=8080,min=1,max=65535"` 会在字段为零时先填充 8080，
+再执行范围校验，因此显式输入 0 也会变成 8080。需要保留 false、0 或空字符串时，
+不要在对应字段使用 `default` 标签；把默认值写入配置文件。
+详见 [`fc` 标签说明](../cookbook/field-meta.md)。
+
+## 需要更多控制时
+
+`LoadFile` 不接受选项。已有的 `Load[T](ctx, opts...)` 返回 `*State[T]`，
+适合多源合并、诊断、自定义校验或只有 YAML 标签的结构体。例如：
+
+```go
+state, err := fastconf.Load[Config](ctx,
+    fastconf.WithProvider(source.NewFile("app.yaml")),
+    fastconf.WithUnknownFields(fastconf.UnknownError),
+    fastconf.WithDecodeFormat(fastconf.YAML),
+)
+```
+
+此片段需导入 `github.com/fastabc/fastconf/providers/source` 并处理 `err`。
+`Load` 保持原有语义：默认还会扫描 `conf.d`，`source.NewFile` 将缺失文件视为
+空层，`state.Value()` 及其可达对象须保持只读。多层默认值可使用
+[base 默认层](../cookbook/field-meta.md#missing-zero-and-null)。
 运行期间需要更新时转到[动态管理](dynamic.md)。

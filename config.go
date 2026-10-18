@@ -38,6 +38,8 @@ func (o *options) addProvider(p contracts.Provider) {
 type options struct {
 	Dir string
 	FS  fs.FS
+	// LoadFile bypasses directory metadata, profiles and layer discovery.
+	SkipDiscovery bool
 	// ProfileNames, when non-empty, is the active profile set; otherwise
 	// the set comes from $ProfileEnv (comma-separated), then DefaultProf.
 	ProfileNames []string

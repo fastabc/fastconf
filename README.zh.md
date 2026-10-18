@@ -48,6 +48,46 @@ strategic merge 协议。参阅[按键合并列表示例](docs/cookbook/strategi
 
 按任务选择：[单文件一次加载](docs/getting-started/load.md) · [动态管理](docs/getting-started/dynamic.md) · [扩展](docs/getting-started/extensions.md)。
 
+### 启动时读取一个文件
+
+`LoadFile` 已加入当前源码，尚未包含在 v1.1.0 发布版中。创建 `app.yaml`：
+
+```yaml
+port: 8080
+```
+
+```go
+package main
+
+import (
+    "log"
+
+    "github.com/fastabc/fastconf"
+)
+
+type Config struct {
+    Port int `json:"port" fc:"default=8080,min=1,max=65535"`
+}
+
+func main() {
+    cfg, err := fastconf.LoadFile[Config]("app.yaml")
+    if err != nil {
+        log.Fatal(err)
+    }
+    log.Println(cfg.Port)
+}
+```
+
+只加载指定文件，不扫描 `conf.d`，不启动后台任务。文件缺失、未知字段或校验失败
+都会返回错误。扩展名决定 YAML / JSON / TOML / INI 解析器，`json` 标签映射字段，
+`fc` 默认值与校验自动生效。直接返回调用方拥有的 `*Config`，无需 `Close()`。
+文件大小上限为 4 MiB。
+
+运行仓库示例：`go run ./examples/single-file`。
+详见[单文件指南](docs/getting-started/load.md)和 [`fc` 标签说明](docs/cookbook/field-meta.md)。
+
+### 分层配置与动态更新
+
 ```go
 package main
 
@@ -193,6 +233,8 @@ sources / generators / providers
 
 ## Manager API
 
+`LoadFile[T](path)` 只加载一个文件，返回调用方拥有的 `*T`，无需管理生命周期
+（当前源码新增，尚未发布到 v1.1.0）。
 `New[T]` 同步加载后启动配置的监听；`Load[T]` 只加载一次并返回 `*State[T]`。`Get()` 返回只读的 `*T`，
 `Snapshot()` 提供诊断视图。`Reload(ctx)` 与 `Plan(ctx)` 共享单写者队列；
 Plan 保留所有验证结果（包括成功项）及策略发现，不发布状态。

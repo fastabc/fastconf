@@ -2,7 +2,8 @@
 
 `fc:"…"` adds FastConf metadata to exported struct fields. `json` / `yaml`
 tags name input keys; `fc` describes defaults, constraints and diagnostic
-redaction. It works automatically with `Load[T]` and `New[T]`, without enabling
+redaction. It works automatically with `LoadFile[T]` (new in the current checkout),
+`Load[T]` and `New[T]`, without enabling
 a separate validator. Use matching JSON and YAML names when both bridges are used.
 
 Separate directives with commas and enumeration values with `|`. For example:
