@@ -6,9 +6,12 @@ Each directory includes configuration files, expected output and scenario tests.
 
 | Example | Demonstrates | Command |
 |---|---|---|
+| [single-file](single-file/README.md) | One YAML file, strict keys, startup validation | `go run ./examples/single-file` |
+| [dynamic](dynamic/README.md) | File watching, rejection and shutdown | `go run ./examples/dynamic` |
 | [basic](basic/README.md) | Typed base/prod layering, duration decoding, env override and field validation | `go run ./examples/basic` |
 | [ini](ini/README.md) | INI base/prod layering, typed scalars and preservation of leading zeros | `go run ./examples/ini` |
 | [tenant](tenant/README.md) | Editable local files, shared defaults, isolated tenant files/env, redaction and failed reload isolation | `go run ./examples/tenant` |
+| [resource-update](resource-update/README.md) | Bounded updates, failed connection retention and draining | `go run ./examples/resource-update` |
 | [reload](reload/README.md) | Local file changes, Plan findings, rejection, commit and history rollback | `go run ./examples/reload` |
 | [features](features/README.md) | Ordered targeting, deterministic 30% rollout and fallbacks | `go run ./examples/features` |
 

@@ -15,7 +15,7 @@ BINS := fastconfd fastconfctl fastconfgen
 ALL_TARGETS := $(sort $(TARGETS) $(EXTRA_TARGETS))
 
 .PHONY: all help build test race test-all test-workspace test-candidate \
-        vulnerabilities api-check lint fmt-check deps-check tools-check check tidy \
+        vulnerabilities api-check lint fmt-check deps-check tools-check check tidy tidy-check \
         bench bench-guard cover example module-matrix versions soak \
         dist dist-clean dist-verify $(addprefix dist-,$(BINS)) FORCE
 
@@ -61,14 +61,17 @@ tools-check:
 	shellcheck tools/*.sh
 	actionlint
 
-check: fmt-check deps-check
+check: fmt-check deps-check tidy-check
 	bash tools/check-repo-test.sh
 	bash tools/check-candidate-test.sh
 	bash tools/tag-release-test.sh
 	bash tools/bench-guard-test.sh
 
 tidy:
-	go mod tidy
+	bash tools/modules.sh tidy $(MODULES)
+
+tidy-check:
+	bash tools/modules.sh tidy-check $(MODULES)
 
 bench:
 	go test -run '^$$' -bench . -benchmem ./...

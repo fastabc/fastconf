@@ -18,7 +18,7 @@ type Observer interface {
 | `ReloadFinished{Reason, Dur, Err}` | A reload ends; `Err` is nil on success, including no-op reloads |
 | `StageFinished{Stage, Dur, Err}` | One pipeline stage (assemble, merge, …, commit); `Plan` dry-runs report theirs too |
 | `ProviderError{Provider, Err}` | A provider `Watch` failed or could not resume |
-| `EventDropped{Source}` | A provider change event was dropped because the reload queue was full |
+| `EventDropped{Source}` | A provider trigger overflowed the reload queue; one compensating refresh is retained |
 | `Committed{Prev, Next, Cause, Layers, Diff}` | A new snapshot was published (including the initial load and rollbacks) |
 
 Switch on the concrete type and ignore the rest; new event types may be added.
@@ -89,3 +89,12 @@ drops the event and increments `Dropped()`.
 `fastconfctl diff -from=dev -to=prod` is the offline counterpart — it loads
 two configurations and prints the same dotted-path diff format used by
 `State.Diff`.
+
+Provider overflow retains a capacity-1 refresh notification for the same writer.
+A stable valid source converges once loading and callbacks can complete; failed
+refreshes report through Errors and wait for a new event or explicit Reload.
+Pause discards pending compensation. EventDropped still measures overload.
+See the [runtime contract](../design/spec.md) for the
+full progress conditions and [resource-update](../../examples/resource-update/README.md)
+for bounded business resource changes. Async observer drops are separate and
+do not schedule a resource retry.

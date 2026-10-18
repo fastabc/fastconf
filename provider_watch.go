@@ -4,7 +4,8 @@ package fastconf
 // re-subscribe. Each Provider implementing contracts.Watcher gets one
 // goroutine, which exits if Watch returns a nil channel. Events enter the existing
 // serialized reloadCh (single-writer invariant). If the queue is full
-// the event is DROPPED (counted via metrics) rather than block.
+// the event is dropped (counted via metrics), with one pending compensating
+// refresh retained rather than blocking.
 
 import (
 	"context"
@@ -60,8 +61,8 @@ func (r *resumeState) set(name, rev string) {
 // startProviderWatchers spins up one goroutine per provider implementing
 // contracts.Watcher. Events are coalesced through the
 // existing serialized reloadCh — if the queue is full we DROP the event
-// (counted via metrics) rather than block, preserving the single-writer
-// invariant and bounded memory.
+// (counted via metrics) and retain one compensating refresh, preserving
+// the single-writer invariant and bounded memory.
 //
 // Provider Watch failures are logged and retried with exponential backoff
 // (250ms .. 30s) so a flaky remote source cannot tight-loop the CPU.
@@ -155,6 +156,12 @@ func (m *Manager[T]) consumeProviderEvents(ctx context.Context, p contracts.Prov
 				// Fire-and-forget: doneCh is nil for provider-triggered reloads.
 				// reloadLoop checks doneCh != nil before sending.
 			default:
+				// Coalesce dropped triggers. Taking the token before Load lets
+				// an overflow during that Load schedule another refresh.
+				select {
+				case m.resyncCh <- struct{}{}:
+				default:
+				}
 				m.emit(EventDropped{Source: p.Name()})
 				m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf provider event dropped (queue full)", slog.String("provider", p.Name()), slog.String("reason", ev.Reason))
 			}

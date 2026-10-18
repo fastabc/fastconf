@@ -3,15 +3,19 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+COMMAND="${1:-list}"
+[[ $# == 0 ]] || shift
 MODULES=()
 while IFS= read -r file; do
+  # Benchmark modules also need tidy, but never enter the release inventory.
+  if [[ "$file" == benchmarks/* && "$COMMAND" != tidy && "$COMMAND" != tidy-check ]]; then
+    continue
+  fi
   [[ -f "$file" ]] || continue
   module="${file%/go.mod}"
   [[ "$file" != go.mod ]] || module=.
   MODULES+=("$module")
 done < <(git ls-files --cached --others --exclude-standard -- 'go.mod' '**/go.mod' | LC_ALL=C sort -u)
-COMMAND="${1:-list}"
-[[ $# == 0 ]] || shift
 case "$COMMAND" in
   list) printf '%s\n' "${MODULES[@]}"; exit ;;
   matrix)
@@ -24,9 +28,9 @@ case "$COMMAND" in
       sep=,
     done
     echo ']}'; exit ;;
-  test|workspace) ;;
+  test|workspace|tidy|tidy-check) ;;
   exec) [[ $# -gt 0 ]] || { echo "exec requires a command" >&2; exit 2; } ;;
-  *) echo "usage: $0 list|matrix|test [module ...]|workspace [module ...]|exec command ..." >&2; exit 2 ;;
+  *) echo "usage: $0 list|matrix|test|workspace|tidy|tidy-check [module ...]|exec command ..." >&2; exit 2 ;;
 esac
 SELECTED=("${MODULES[@]}")
 if [[ "$COMMAND" != exec && $# -gt 0 ]]; then SELECTED=("$@"); fi
@@ -36,6 +40,19 @@ for module in "${SELECTED[@]}"; do
   fi
 done
 export GOWORK=off
+if [[ "$COMMAND" == tidy || "$COMMAND" == tidy-check ]]; then
+  ARGS=(mod tidy)
+  [[ "$COMMAND" != tidy-check ]] || ARGS+=(-diff)
+  FAIL=0
+  for module in "${SELECTED[@]}"; do
+    echo "modules: $COMMAND / $module"
+    (cd "$ROOT/$module" && go "${ARGS[@]}") || FAIL=1
+  done
+  if [[ "$FAIL" != 0 && "$COMMAND" == tidy-check ]]; then
+    echo "Resolve any errors above, then run make tidy and commit the dependency metadata." >&2
+  fi
+  exit "$FAIL"
+fi
 if [[ "$COMMAND" == workspace || "$COMMAND" == exec ]]; then
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT

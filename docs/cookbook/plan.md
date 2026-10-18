@@ -9,6 +9,7 @@ other effects in those extensions. It only guarantees no snapshot publication.
 `WithOverride` is a ReloadOption and cannot be passed to Plan.
 
 ```go
+before := mgr.Snapshot()
 result, err := mgr.Plan(ctx,
     fastconf.WithPlanHostname("prod-eu-1"), // optional: pin host overlays on CI runners
 )
@@ -34,7 +35,11 @@ for _, finding := range result.Policies {
     }
 }
 
-if acceptable && len(result.Diff) > 0 && approveInteractively(result) {
+changed := before.Hash() != result.Proposed.Hash()
+if changed && len(result.Diff) == 0 {
+    fmt.Println("configuration changed; no visible JSON field differences")
+}
+if acceptable && changed && approveInteractively(result) {
     if err := mgr.Reload(ctx); err != nil {
         return err
     }
@@ -65,3 +70,18 @@ publish independently of the preview flow.
 [`examples/reload`](../../examples/reload/README.md) supplies local YAML for an
 invalid candidate and a valid replacement, then demonstrates rejection, commit
 and rollback. Run `go run ./examples/reload` from the repository root.
+
+`approveInteractively` above represents the application's approval UI. The
+runnable example implements a deterministic scenario without that placeholder.
+Compare a retained before snapshot with Proposed; an active watcher can change
+the live state independently. Pause does not drain queued work or freeze inputs.
+
+## Recovery
+
+Stop external publishers, choose a retained known-good snapshot, roll back, then
+repair the source and Plan/Reload it before resuming updates. History excludes
+the current snapshot and is oldest-first. Rollback does not revalidate, restore
+expired credentials, repair a source, or undo a connection-pool change. If old
+credentials or policies no longer apply, repair the source and use the normal
+validated reload path. The runnable example demonstrates why an unchanged source
+reapplies the configuration that was rolled back.

@@ -190,3 +190,12 @@ extracted value changes. Callbacks now follow registration order.
 Run `go test ./...` in the application and exercise its reload/rollback paths.
 Use the [runtime contract](../design/spec.md) and [examples](../../examples/README.md)
 for complete v1.1.0 behavior and configuration.
+
+## Preserve explicit zero values
+
+Tag defaults retain their zero-value semantics. When migrating a switch or limit
+that must accept false, 0 or an empty string, remove its default tag and supply
+the default through a lower-priority base layer. Review custom Defaults methods
+as well. See [the missing/zero/null matrix](field-meta.md#missing-zero-and-null).
+Use UnknownError for new struct configurations, or supply WithLogger explicitly
+when retaining UnknownWarn during a migration.

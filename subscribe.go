@@ -58,8 +58,8 @@ func WithEqual[S any](equal func(old, new *S) bool) SubscribeOption[S] {
 // values do not fire.
 //
 // Callbacks run synchronously in registration order on the reload goroutine.
-// They must return quickly; blocking I/O postpones the next reload. Spawn a goroutine
-// inside the callback if needed.
+// They must return quickly; blocking I/O postpones the next reload. Signal a bounded
+// worker that reads the latest snapshot for resource updates (see examples/resource-update).
 // Do not synchronously call Reload, Plan, History.Rollback, Close or Shutdown
 // on this manager from a callback: they wait for the writer that is running it.
 //

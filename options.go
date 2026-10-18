@@ -68,8 +68,9 @@ func WithDecodeFormat(f Format) Option {
 type UnknownFields uint8
 
 const (
-	// UnknownWarn (the default) logs the first unknown key once and keeps
-	// decoding.
+	// UnknownWarn (the default) logs the decoder's unknown-field warning and
+	// keeps decoding. Repeated identical warnings are suppressed. Configure
+	// WithLogger to receive warnings; the default logger discards output.
 	UnknownWarn UnknownFields = iota
 	// UnknownError fails the reload with ErrDecode naming the key.
 	UnknownError
@@ -97,7 +98,8 @@ func WithFS(f fs.FS) Option { return func(o *options) { o.FS = f } }
 // strict handling; passing false here does not override it.
 func WithStrictMerge(strict bool) Option { return func(o *options) { o.Strict = strict } }
 
-// WithLogger overrides the default slog logger. Passing nil records a
+// WithLogger overrides the default silent slog logger, including the destination
+// for UnknownWarn diagnostics. Passing nil records a
 // deferred error so a misconfigured logger fails loudly at New(), rather
 // than silently routing every log line into the default backend.
 func WithLogger(l *slog.Logger) Option {

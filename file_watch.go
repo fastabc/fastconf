@@ -134,10 +134,16 @@ func normalizeWatchPath(p string) string {
 }
 
 // Pause makes the manager ignore file-watcher and provider change events
-// until Resume. Explicit Reload, Plan and History().Rollback still run.
+// until Resume. It discards a pending overflow refresh but does not cancel
+// queued or in-flight requests. Explicit Reload, Plan and History().Rollback
+// still run. After Resume, explicitly Reload to catch changes made while paused.
 func (m *Manager[T]) Pause() {
 	if m != nil {
 		m.watchPaused.Store(true)
+		select {
+		case <-m.resyncCh:
+		default:
+		}
 	}
 }
 

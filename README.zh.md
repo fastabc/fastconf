@@ -46,6 +46,8 @@ strategic merge 协议。参阅[按键合并列表示例](docs/cookbook/strategi
 
 ## 快速上手
 
+按任务选择：[单文件一次加载](docs/getting-started/load.md) · [动态管理](docs/getting-started/dynamic.md) · [扩展](docs/getting-started/extensions.md)。
+
 ```go
 package main
 
@@ -59,11 +61,11 @@ import (
 
 type AppConfig struct {
     Server struct {
-        Addr string `json:"addr" yaml:"addr"`
+        Addr string `json:"addr" yaml:"addr" fc:"required"`
     } `json:"server" yaml:"server"`
     Database struct {
         DSN  string `json:"dsn"  yaml:"dsn"`
-        Pool int    `json:"pool" yaml:"pool"`
+        Pool int    `json:"pool" yaml:"pool" fc:"min=1"`
     } `json:"database" yaml:"database"`
 }
 
@@ -71,10 +73,11 @@ func main() {
     mgr, err := fastconf.New[AppConfig](context.Background(),
         fastconf.WithDir("conf.d"),
         fastconf.WithProfile(fastconf.Profile{
-            Env:     "APP_PROFILE",
+            Env:     "DEPLOY_PROFILE",
             Default: "dev",
         }),
         fastconf.WithProvider(env.New("APP_")),
+        fastconf.WithUnknownFields(fastconf.UnknownError),
         fastconf.WithWatch(fastconf.Watch{}),
     )
     if err != nil {
@@ -86,6 +89,11 @@ func main() {
     log.Println(cfg.Server.Addr, cfg.Database.Pool)
 }
 ```
+
+`cfg` 及其可达的 map、slice、pointer 均须只读；每次业务操作读取一次快照。
+示例使用严格未知字段检查；默认 `UnknownWarn` 需显式 `WithLogger` 才能看到警告。
+`DEPLOY_PROFILE` 使用独立于 `APP_` 的前缀，避免被当作业务配置键。
+参阅[字段语义](docs/cookbook/field-meta.md)。
 
 目录结构示例：
 
@@ -118,11 +126,11 @@ database:
 使用环境变量覆盖运行：
 
 ```bash
-APP_PROFILE=prod APP_DATABASE_POOL=25 go run .
+DEPLOY_PROFILE=prod APP_DATABASE_POOL=25 go run .
 ```
 
 `APP_DATABASE_POOL=25` 映射到 `database.pool`（单下划线分隔符，Viper/Spring Boot 风格）。
-设置 `APP_PROFILE=prod` 后，FastConf 先合并 `base/*`，再合并 `overlays/prod/*`。
+设置 `DEPLOY_PROFILE=prod` 后，FastConf 先合并 `base/*`，再合并 `overlays/prod/*`。
 
 完整可运行示例及配置见 [examples](examples/README.md)。在仓库根目录执行：
 

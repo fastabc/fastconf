@@ -9,9 +9,13 @@ go run ./examples/reload
 ```text
 invalid preview: violations=1 live=8080
 rejected: preserved=true
+policy preview: rejected=true live=8080
+content changed=true warnings=1
 valid preview: proposed=9090 live=8080 changes=1
 committed: port=9090 generation=2
 rollback: port=8080 generation=3
+unchanged source: port=9090 generation=4
+source repaired: port=8080 generation=5
 ```
 
 The program copies [initial.yaml](config/initial.yaml) to a temporary local
@@ -33,3 +37,9 @@ so a later reload would load port 9090 again.
 
 Related: [Plan](../../docs/cookbook/plan.md),
 [diagnostics and history](../../docs/cookbook/introspect.md).
+
+The port policy rejects 7070 and warns for 9090. `checkPlan` checks validator
+errors and error-severity policies; `printChange` compares hashes as well as
+diagnostic entries, so JSON-hidden YAML changes are not labeled unchanged.
+The final steps first demonstrate the unchanged source reapplying 9090, then
+repair it to 8080 and validate before publication.

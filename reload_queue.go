@@ -6,7 +6,7 @@ import (
 	"github.com/fastabc/fastconf/internal/fcerr"
 )
 
-// reloadChanCap bounds pending work. Provider events are dropped when full;
+// reloadChanCap bounds pending work. Provider overflow retains one resync token;
 // manual and coalesced file reloads wait for space or cancellation.
 const reloadChanCap = 16
 
@@ -92,37 +92,60 @@ func (m *Manager[T]) reloadLoop() {
 			return
 		default:
 		}
+		// Prefer an ordinary request when both queues are ready. At most one
+		// compensating reload runs between ordinary requests, avoiding starvation.
 		select {
-		case <-m.lifetime.Done():
-			m.rejectPendingReloads()
-			return
 		case req := <-m.reloadCh:
-			// Use the caller's pipeline context when supplied so a
-			// Reload(ctx) cancellation actually aborts the pipeline.
-			// Triggers without a caller (fsnotify, provider watcher)
-			// leave req.ctx nil — fall back to the manager lifetime.
-			pipeCtx := req.ctx
-			if pipeCtx == nil {
-				pipeCtx = m.lifetime
-			}
-			// Preserve caller values/deadlines while also canceling in-flight
-			// Reload and Plan work when the manager shuts down.
-			pipeCtx, cancel := context.WithCancel(pipeCtx)
-			stop := context.AfterFunc(m.lifetime, cancel)
-			var err error
-			if req.applyFn != nil {
-				err = req.applyFn(pipeCtx)
-			} else {
-				err = m.reload(pipeCtx, req.reason, req.key)
-			}
-			stop()
-			cancel()
-			if err != nil {
-				m.publishReloadError(req.reason, err)
-			}
-			if req.doneCh != nil {
-				req.doneCh <- err
+			m.runReloadRequest(req)
+		default:
+			select {
+			case <-m.lifetime.Done():
+				m.rejectPendingReloads()
+				return
+			case req := <-m.reloadCh:
+				m.runReloadRequest(req)
+			case <-m.resyncCh:
+				m.resyncProvider()
+				continue
 			}
 		}
+		select {
+		case <-m.resyncCh:
+			m.resyncProvider()
+		default:
+		}
+	}
+}
+
+func (m *Manager[T]) resyncProvider() {
+	// A failed refresh preserves the old state and reports through Errors; do
+	// not spin retrying invalid input. Resume requires an explicit Reload.
+	if m.watchPaused.Load() || m.lifetime.Err() != nil {
+		return
+	}
+	m.runReloadRequest(reloadRequest{reason: "provider:resync"})
+}
+
+func (m *Manager[T]) runReloadRequest(req reloadRequest) {
+	pipeCtx := req.ctx
+	if pipeCtx == nil {
+		pipeCtx = m.lifetime
+	}
+	// Preserve caller deadlines/values and cancel in-flight work on shutdown.
+	pipeCtx, cancel := context.WithCancel(pipeCtx)
+	stop := context.AfterFunc(m.lifetime, cancel)
+	var err error
+	if req.applyFn != nil {
+		err = req.applyFn(pipeCtx)
+	} else {
+		err = m.reload(pipeCtx, req.reason, req.key)
+	}
+	stop()
+	cancel()
+	if err != nil {
+		m.publishReloadError(req.reason, err)
+	}
+	if req.doneCh != nil {
+		req.doneCh <- err
 	}
 }

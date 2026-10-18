@@ -17,20 +17,22 @@ Prometheus and OpenTelemetry retain separate leaf modules.
 
 ## Prepare and verify
 
-The new stable release prepared here is `v1.1.0`:
+For the next release, choose a version newer than `v1.1.0`. The commands below
+use `v1.2.0` as an example:
 
 1. Update the changelog and any relevant migration notes.
 2. Align in-repository module requirements to the release version. Do not
-   commit local `replace` directives or synthetic checksums.
+   commit local `replace` directives or synthetic checksums in release modules.
+   The standalone benchmark module is excluded from release inventory.
 3. Run the checks against the final source, then merge the reviewed release
    commit before tagging.
 
 ```sh
 make check
 make test-workspace
-make test-candidate VERSION=v1.1.0
-make api-check VERSION=v1.1.0 BASE=none
-VERSION=v1.1.0 bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
+make test-candidate VERSION=v1.2.0
+make api-check VERSION=v1.2.0 BASE=v1.1.0
+VERSION=v1.2.0 bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
 ```
 
 `test-workspace` tests all modules against local source. `test-candidate` serves
@@ -40,7 +42,7 @@ commits remain in its disposable checkout. This verifies a source combination
 without publishing it. To test one candidate module:
 
 ```sh
-VERSION=v1.1.0 bash tools/check-candidate.sh bash tools/modules.sh test providers/s3
+VERSION=v1.2.0 bash tools/check-candidate.sh bash tools/modules.sh test providers/s3
 ```
 
 After publication, `make test-all` checks independent resolution of the published
@@ -56,7 +58,14 @@ additions require a minor release. Breaking changes require a new major module
 path and migration notes. Tests and review must also cover behavioral changes.
 `BASE=none` skips compatibility comparison. The v1.1.0 release deliberately
 establishes a new baseline because public v1.0.0 proxy content conflicts with its
-immutable checksum record. Future checks use `BASE=v1.1.0`.
+immutable checksum record. Future checks use `BASE=v1.1.0` and a newer candidate, for example:
+
+```sh
+make api-check BASE=v1.1.0 VERSION=v1.2.0
+```
+
+CI uses that explicit comparison. A baseline download failure must fail the check;
+do not fall back to `BASE=none`. API checks do not replace behavior regression tests.
 
 ## Go versions and vulnerabilities
 

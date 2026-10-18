@@ -43,6 +43,10 @@ for name in sorted(set(files)):
     target = checkout / name
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, target)
+    # Retain the standalone comparison workspace, but never ship it inside
+    # the root module's synthetic archive or treat it as a release module.
+    if name.startswith("benchmarks/"):
+        continue
     module = owner(name)
     if name == ("go.sum" if module == "." else module + "/go.sum"):
         # Published sums describe different archives from this synthetic proxy.

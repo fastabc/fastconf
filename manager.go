@@ -60,6 +60,8 @@ type Manager[T any] struct {
 
 	// Serialized external reload trigger; watcher → reloadCh → reload goroutine.
 	reloadCh chan reloadRequest
+	// A single pending refresh survives provider notification overflow.
+	resyncCh chan struct{}
 
 	// errsCh is the drop-on-full ring fed by reloadLoop after every failed
 	// reload attempt; reloadLoop is its only writer. Consumers iterate via
@@ -153,6 +155,7 @@ func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) 
 		closeDone:      make(chan struct{}),
 		subscribers:    map[uint64]subscriber[T]{},
 		reloadCh:       make(chan reloadRequest, reloadChanCap),
+		resyncCh:       make(chan struct{}, 1),
 		errsCh:         make(chan fcerr.ReloadError, fcerr.ErrorChanCap),
 		history:        newRing[State[T]](o.HistoryCap),
 		resume:         newResumeState(),

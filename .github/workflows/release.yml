@@ -43,6 +43,8 @@ jobs:
           done < "$RUNNER_TEMP/release-tags"
       - name: Repository checks
         run: make check
+      - name: Check compatibility with v1.1.0
+        run: make api-check BASE=v1.1.0
       - name: Test candidate modules
         run: make test-candidate
       - name: Build release archives

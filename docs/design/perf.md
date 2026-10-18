@@ -69,3 +69,10 @@ GOWORK=off GOMAXPROCS=4 FASTCONF_SOAK_DURATION=5m \
 The soak covers reloads, plans, file caching, history, observers and shutdown.
 The manual resource-soak workflow runs the platform matrix. Record actual
 platform results for each candidate; earlier runs do not validate a new one.
+
+## Reproducible comparison
+
+The standalone [comparison project](../../benchmarks/compare/README.md) includes
+equivalent validated snapshot adapters, direct struct/atomic baselines, three
+fixture sizes, file/env startup, concurrent reads and separate latency samples.
+Dependencies and raw reports stay outside the released modules.

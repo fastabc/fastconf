@@ -26,8 +26,16 @@ waits for completion.
 
 The writer queue holds 16 requests. Manual operations and coalesced file
 reloads wait for queue space or cancellation. Provider watchers drop a new
-trigger when the queue is full and emit `EventDropped`; this is separate from
-the oldest-error eviction used by `Errors()`.
+trigger when the queue is full and emit `EventDropped`, retaining one pending
+`provider:resync` refresh outside that queue. The same writer reloads current
+sources, with at most one compensating refresh between ordinary requests.
+Overflow during that refresh leaves another token, so stable valid sources
+converge once the writer can make progress. This requires successful Load and
+validation, terminating callbacks, and a running, unpaused Manager. A failed
+refresh reports through Errors and preserves the old snapshot; it does not
+retry forever. New events or an explicit Reload can recover. Pause discards
+a pending token; Resume requires explicit Reload for changes made while paused.
+This is separate from oldest-error eviction in `Errors()`.
 
 ## Layer order
 
@@ -118,6 +126,9 @@ default JSON bridge. `WithDecodeFormat(YAML)` honors YAML tags when loading and
 hashing `T`. Diagnostic views (`Map`, `Dump`, `Diff`, including Plan and commit
 diffs) still use JSON field names and omit `json:"-"` fields. A YAML-only field
 change can therefore publish a new snapshot with an empty diagnostic diff.
+Compare Hash as well as Diff: differing hashes with an empty diff mean content
+changed outside the visible JSON view. Show that fact without exposing hidden
+values. Prefer matching JSON/YAML names; use fc:"secret" for masked diagnostics.
 Map trees are also public through
 provider snapshots, transforms and `State.Map`; they are not solely internal.
 
@@ -138,7 +149,11 @@ Assembly discovers files, invokes generators and loads providers. Merge
 applies deep/strategic merge and RFC 6902 patches in layer order. Transforms
 include optional schema migration functions. Secret resolution precedes typed
 hooks and decode. Decode applies struct-tag defaults and then `Defaulter`.
-Field metadata, user validators and policies run before publication.
+Field metadata, user validators and policies run before publication. Tag defaults
+fill Go zero values, including explicit false, 0 and empty strings. Use lower
+priority base layers to preserve explicit zero overrides; see [field semantics](../cookbook/field-meta.md).
+UnknownWarn uses the configured logger, whose default discards output. Production
+struct examples select UnknownError; permissive callers must supply WithLogger.
 
 Any pipeline failure preserves the current snapshot and generation. Later
 reload and plan failures also go to `Errors()` (capacity 16, oldest error
@@ -177,7 +192,8 @@ as `WithOverride`.
 symlink swaps. The default `ProfileK8s` coalesces per directory with a 30 ms
 quiet window, 250 ms maximum lag and 5 ms swap hint. Provider watchers run
 independently of the file-watch switch. `Pause` suppresses watcher-triggered
-reloads; explicit `Reload`, `Plan` and rollback remain available.
+reloads; explicit `Reload`, `Plan` and rollback remain available. Pause does not
+cancel queued or in-flight work and is not an approval or rollback barrier.
 
 Observers receive reload, stage, provider, drop and commit events. Reload
 and commit callbacks are synchronous; provider notifications may be concurrent.

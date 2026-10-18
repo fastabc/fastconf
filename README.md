@@ -47,6 +47,8 @@ Kubernetes resource and strategic-merge protocols. See the
 
 ## Quick start
 
+Choose a path: [load one file](docs/getting-started/load.md) · [dynamic management](docs/getting-started/dynamic.md) · [extensions](docs/getting-started/extensions.md).
+
 ```go
 package main
 
@@ -60,11 +62,11 @@ import (
 
 type AppConfig struct {
     Server struct {
-        Addr string `json:"addr" yaml:"addr"`
+        Addr string `json:"addr" yaml:"addr" fc:"required"`
     } `json:"server" yaml:"server"`
     Database struct {
         DSN  string `json:"dsn"  yaml:"dsn"`
-        Pool int    `json:"pool" yaml:"pool"`
+        Pool int    `json:"pool" yaml:"pool" fc:"min=1"`
     } `json:"database" yaml:"database"`
 }
 
@@ -72,10 +74,11 @@ func main() {
     mgr, err := fastconf.New[AppConfig](context.Background(),
         fastconf.WithDir("conf.d"),
         fastconf.WithProfile(fastconf.Profile{
-            Env:     "APP_PROFILE",
+            Env:     "DEPLOY_PROFILE",
             Default: "dev",
         }),
         fastconf.WithProvider(env.New("APP_")),
+        fastconf.WithUnknownFields(fastconf.UnknownError),
         fastconf.WithWatch(fastconf.Watch{}),
     )
     if err != nil {
@@ -87,6 +90,11 @@ func main() {
     log.Println(cfg.Server.Addr, cfg.Database.Pool)
 }
 ```
+
+Treat `cfg` and every reachable map, slice and pointer as read-only. Read once per
+business operation. The example rejects unknown fields; the default `UnknownWarn`
+requires `WithLogger` to make warnings visible. `DEPLOY_PROFILE` stays outside the
+`APP_` configuration prefix. See [field semantics](docs/cookbook/field-meta.md).
 
 Directory layout:
 
@@ -119,11 +127,11 @@ database:
 Run with an environment override:
 
 ```bash
-APP_PROFILE=prod APP_DATABASE_POOL=25 go run .
+DEPLOY_PROFILE=prod APP_DATABASE_POOL=25 go run .
 ```
 
 `APP_DATABASE_POOL=25` maps to `database.pool` (single `_` separator,
-Viper/Spring Boot style). With `APP_PROFILE=prod`, FastConf merges `base/*`
+Viper/Spring Boot style). With `DEPLOY_PROFILE=prod`, FastConf merges `base/*`
 first, then `overlays/prod/*`.
 
 Complete programs and fixtures are indexed in [examples](examples/README.md).

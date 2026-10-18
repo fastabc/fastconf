@@ -45,6 +45,10 @@ mkdir testdata
 cp go.sum testdata/go.sum
 cp go.sum "$TMP/original.sum"
 git add .
+# Comparison modules must not enter release discovery or candidate archives.
+mkdir -p benchmarks/compare
+printf 'module example.com/comparison\n\ngo 1.24.0\n' > benchmarks/compare/go.mod
+[[ "$(bash tools/modules.sh list | wc -l | tr -d ' ')" == 2 ]]
 # No network fallback: both candidate modules must resolve from the file proxy.
 GOPROXY=off VERSION=v1.1.0 bash tools/check-candidate.sh bash -c '
   set -euo pipefail
@@ -74,6 +78,7 @@ for module in ("github.com/fastabc/fastconf", "github.com/fastabc/fastconf/sub")
         lines = archive.read(module + "@v1.1.0/go.sum").decode().splitlines()
         assert lines == preserved, (module, lines)
         if module == "github.com/fastabc/fastconf":
+            assert not any("/benchmarks/" in name for name in archive.namelist())
             fixture = archive.read(module + "@v1.1.0/testdata/go.sum").decode()
             assert fixture == Path("testdata/go.sum").read_text()
             assert "h1:AAAAAAAA" in fixture

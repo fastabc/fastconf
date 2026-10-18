@@ -5,6 +5,9 @@ root unless a recipe says otherwise.
 
 | Need | Start here |
 |---|---|
+| Load one file at startup | [Single-file guide](getting-started/load.md) |
+| Manage runtime changes | [Dynamic guide](getting-started/dynamic.md) |
+| Add providers or policies | [Extensions guide](getting-started/extensions.md) |
 | Install and load configuration | [English README](../README.md), [中文 README](../README.zh.md) |
 | Run complete programs | [Examples](../examples/README.md), including S3 and pflag examples |
 | Find a recipe by feature | [Cookbook](cookbook/README.md) |

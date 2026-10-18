@@ -1,6 +1,4 @@
-github.com/fastabc/fastconf v1.0.0 h1:A/DS3LZ5tYq4fOKI1J0W00eLVVROw4ixAe4G3nyaumc=
-github.com/fastabc/fastconf v1.0.0/go.mod h1:YWoM9KN6F4ptijmboGkHxwk18C8r2Ne/iboXuiRfVrg=
-github.com/phuslu/log v1.0.136 h1:2hfLajpoR1yu6VBfKfgQ0d7SN2mF26FFbkDAIeIRsK4=
-github.com/phuslu/log v1.0.136/go.mod h1:GYElPZLxBdIMMGZkGggLHDQ33zQJjqsHdJns+flCTyE=
+github.com/fastabc/fastconf v1.1.0 h1:+hQzd31+eU2PsXo97chnqaT8JGZ1TWGSgA5aE4SGU/4=
+github.com/fastabc/fastconf v1.1.0/go.mod h1:/HWZhan9Dr/QF7S6v+1Lyg/OQtOQ8y2e4G5wPZJ6T+c=
 github.com/phuslu/log v1.0.138 h1:SKG4WmL+sUovdVU2AVBRF10EWwTOXwm7kTSWN8lTK8E=
 github.com/phuslu/log v1.0.138/go.mod h1:GYElPZLxBdIMMGZkGggLHDQ33zQJjqsHdJns+flCTyE=

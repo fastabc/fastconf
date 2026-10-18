@@ -19,6 +19,7 @@ decoding, metadata file layout and configuration ownership for all recipes.
 | Recipe | Use it for |
 |---|---|
 | [Local layered configuration](../../examples/basic/README.md) | Complete base/prod/env example with typed reads and validation |
+| [Struct tag `fc`](field-meta.md) | `default`, `required`, `min`, `max`, `oneof`, `secret`, `desc`; loading examples and behavior limits |
 | [INI input](ini.md) | Sections, string values, typed conversion and strict mixed-format merging |
 | [k8s](k8s.md) | ConfigMap / Secret + sidecar / in-process loading |
 | [sidecar](sidecar.md) | Run `fastconfd` for non-Go workloads |
@@ -50,6 +51,5 @@ decoding, metadata file layout and configuration ownership for all recipes.
 | [generators](generators.md) | Kustomize-style ConfigMap/Secret generators |
 | [strategic-merge](strategic-merge.md) | `mergeKeys` list-of-object merge |
 | [typed-hooks](typed-hooks.md) | Plug `time.Duration` / custom scalar pre-decode hooks |
-| [field-meta](field-meta.md) | `fc:"required,min=,max=,oneof=,desc="` metadata |
 | [secrets](secrets.md) | SOPS / age / KMS / Vault transit decryption hooks |
 | [features](features.md) | Feature flags, targeting, percentage rollouts |
