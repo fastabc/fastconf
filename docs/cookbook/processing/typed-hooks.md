@@ -4,7 +4,10 @@
 
 ## Default
 
-`DurationHook` ships in `codec.DefaultTypedHooks()` and is installed automatically. Any `time.Duration` field decodes from a Go duration string:
+`codec.DefaultTypedHooks()` installs `DurationHook` and `StringPrimitiveHook`.
+Duration strings become `time.Duration`; strings for built-in bool/integer/float
+fields convert to their destination types. Named scalar types need a matching
+hook. For example:
 
 ```yaml
 server:
@@ -36,7 +39,10 @@ bridge can decode duration strings through its own decoder.
 Add a hook for a named scalar type (enum, custom int, …):
 
 ```go
-import "reflect"
+import (
+    "fmt"
+    "reflect"
+)
 
 type Mood int
 
@@ -56,13 +62,17 @@ func (moodHook) Convert(raw any) (any, error) {
         case "sad":   return -1, nil
         }
     }
-    return raw, nil
+    return nil, fmt.Errorf("invalid mood: %v", raw)
 }
 
-mgr, _ := fastconf.New[MoodConfig](ctx,
+mgr, err := fastconf.New[MoodConfig](ctx,
     fastconf.WithDir("conf.d"),
     fastconf.WithTypedHook(moodHook{}),
 )
+if err != nil {
+    return err
+}
+defer mgr.Close()
 ```
 
 ## Where hooks apply

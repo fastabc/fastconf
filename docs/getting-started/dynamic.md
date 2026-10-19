@@ -3,20 +3,9 @@
 使用 `New[T]` 管理生命周期，`WithWatch` 开启文件监听。每次业务操作调用一次
 `cfg := mgr.Get()`，随后只读使用 cfg 及其所有可达对象。错误输入不会发布。
 
-完整程序、配置和错误处理见 [examples/dynamic](../../examples/dynamic/README.md)
-及 [main.go](../../examples/dynamic/main.go)。Go 1.24+，从仓库根目录运行：
-
-```sh
-cp examples/single-file/app.yaml /tmp/fastconf-app.yaml
-go run ./examples/dynamic -file /tmp/fastconf-app.yaml
-```
-
-另一个终端依次执行，每次等待程序输出：
-
-```sh
-printf 'port: 9090\n' > /tmp/fastconf-app.yaml
-printf 'prot: 9091\n' > /tmp/fastconf-app.yaml
-```
+完整运行命令、配置和错误处理见
+[examples/dynamic](../../examples/dynamic/README.md) 及
+[main.go](../../examples/dynamic/main.go)。运行需要 Go 1.24+。
 
 预期初始化 8080、成功发布 9090、拒绝拼错字段并保留 9090。Ctrl-C 让拥有者
 调用 Close 并取消订阅。初始化错误由 New 返回，之后的失败从 Errors 读取；
@@ -43,4 +32,5 @@ func copyConfig(src *Config) Config {
 
 片段导入标准库 maps、slices；更深的指针或集合需继续逐层复制。
 如需先预览再发布，使用 [Plan 与恢复示例](../../examples/reload/README.md)。
-Pause 不清空已经排队的操作，也不锁住配置源。
+Pause 不清空已经排队的操作，也不锁住配置源。详见
+[订阅边界](../cookbook/runtime/subscribe.md)和[运行时契约](../design/spec.md)。

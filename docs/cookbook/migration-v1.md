@@ -58,6 +58,10 @@ mgr, err := fastconf.New[Config](ctx,
     fastconf.WithWatch(fastconf.Watch{}),
     fastconf.WithStrictMerge(true),
 )
+if err != nil {
+    return err
+}
+defer mgr.Close()
 ```
 
 Omit `WithWatch` when the old `WatchOptions.Enabled` was false. A zero
@@ -100,8 +104,9 @@ the JSON/YAML bridge into `T`; diagnostic field names always follow JSON tags.
 HTTP's nil decoder selects from Content-Type. `WithInterval(0)` retains
 manual-only fetching; omit it for 30-second polling. Replace HTTP source setters
 with constructor options `WithClient`, `WithPriority` and `WithMaxBodyBytes`.
-Built-in document readers now default to a 4 MiB limit and reject oversized
-input with `ErrTooLarge`; adjust the provider limit for larger documents.
+Root file/byte and HTTP/KV provider readers default to a 4 MiB limit and reject
+oversized input with `ErrTooLarge`; S3 defaults to 10 MiB. Directory discovery
+is a separate reader path. Adjust provider limits for larger documents.
 Multi-document YAML is rejected rather than silently truncated.
 
 ## Manager and snapshot APIs
@@ -130,7 +135,7 @@ cancellation only bounds initialization; stop workers with `Close` or
 `Shutdown`. Negative `WithHistory` capacities are errors; zero disables history.
 Pause suppresses watcher triggers; Resume does not replay them. Reload explicitly
 after a paused batch. `Plan` collects validator/policy findings without publishing;
-a nil error is not an acceptance decision. See [Plan](plan.md).
+a nil error is not an acceptance decision. See [Plan](runtime/plan.md).
 
 `Map`, `Dump`, `Diff` and `Explain` now mask tagged/path-matched secrets by default.
 Unknown struct keys warn by default; choose `WithUnknownFields(UnknownError)` to
@@ -150,7 +155,7 @@ in `/version.loaded_at` and SSE causes are RFC 3339 strings rather than numbers.
 | `WithRawMapAccess(fn)` | A final read-only transform wrapping `fn` and returning nil |
 | `transform.MergeByKey(path, key)` | `WithMergeKeys(map[string]string{path: key})` before transform execution |
 | `transform.Defaults`, `SetIfAbsent` | `fc:"default=…"` or `Defaulter` |
-| `transform.ExpandLabels` | A label provider or `confmap.ExpandLabels` in a transform; see [labels](labels.md) |
+| `transform.ExpandLabels` | A label provider or `confmap.ExpandLabels` in a transform; see [labels](sources/labels.md) |
 | `WithMetrics`, `WithAuditSink`, `WithDiffReporter` | `WithObserver` with `observe.Metrics`, `observe.JSONLines`, or a `Committed` handler |
 | `DiffEvent` | `Committed`: use `Prev`, `Next`, `Cause` and `Diff()` |
 
@@ -183,19 +188,20 @@ extracted value changes. Callbacks now follow registration order.
   `examples/redisstream`; copy and adapt them. `integrations/bus` and the
   OpenFeature imitation are removed; the rule evaluator is not an SDK provider.
 - `cmd/fastconfgen` is an independent module. Logging adapters, Prometheus and
-  OTel retain their leaf module paths; all eleven modules use v1.1.0.
+  OTel retain their leaf module paths; release modules use coordinated version tags.
 - Remove `no_provider_*` build tags; Go links only imported packages. Replace
   dotenv replacer exports with `providers/env` equivalents.
 
 Run `go test ./...` in the application and exercise its reload/rollback paths.
 Use the [runtime contract](../design/spec.md) and [examples](../../examples/README.md)
-for complete v1.1.0 behavior and configuration.
+for current behavior and configuration. This migration table targets v1.1.0;
+changes made afterward are listed in the [changelog](../../CHANGELOG.md#unreleased).
 
 ## Preserve explicit zero values
 
 Tag defaults retain their zero-value semantics. When migrating a switch or limit
 that must accept false, 0 or an empty string, remove its default tag and supply
 the default through a lower-priority base layer. Review custom Defaults methods
-as well. See [the missing/zero/null matrix](field-meta.md#missing-zero-and-null).
+as well. See [the missing/zero/null matrix](processing/field-meta.md#missing-zero-and-null).
 Use UnknownError for new struct configurations, or supply WithLogger explicitly
 when retaining UnknownWarn during a migration.

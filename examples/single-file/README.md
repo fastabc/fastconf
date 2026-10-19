@@ -20,3 +20,5 @@ Use `Load` with options when you need a YAML struct bridge, additional providers
 custom validation or diagnostic snapshots; use `New` for runtime updates.
 
 See [the loading guide](../../docs/getting-started/load.md).
+
+Verify from the repository root: `go test -race ./examples/single-file`.

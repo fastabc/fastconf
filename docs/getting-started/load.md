@@ -51,7 +51,7 @@ go run ./examples/single-file
 例如 `fc:"default=8080,min=1,max=65535"` 会在字段为零时先填充 8080，
 再执行范围校验，因此显式输入 0 也会变成 8080。需要保留 false、0 或空字符串时，
 不要在对应字段使用 `default` 标签；把默认值写入配置文件。
-详见 [`fc` 标签说明](../cookbook/field-meta.md)。
+详见 [`fc` 标签说明](../cookbook/processing/field-meta.md)。
 
 ## 需要更多控制时
 
@@ -69,5 +69,5 @@ state, err := fastconf.Load[Config](ctx,
 此片段需导入 `github.com/fastabc/fastconf/providers/source` 并处理 `err`。
 `Load` 保持原有语义：默认还会扫描 `conf.d`，`source.NewFile` 将缺失文件视为
 空层，`state.Value()` 及其可达对象须保持只读。多层默认值可使用
-[base 默认层](../cookbook/field-meta.md#missing-zero-and-null)。
+[base 默认层](../cookbook/processing/field-meta.md#missing-zero-and-null)。
 运行期间需要更新时转到[动态管理](dynamic.md)。

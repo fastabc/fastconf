@@ -67,7 +67,7 @@ publish independently of the preview flow.
 
 ## Runnable example
 
-[`examples/reload`](../../examples/reload/README.md) supplies local YAML for an
+[`examples/reload`](../../../examples/reload/README.md) supplies local YAML for an
 invalid candidate and a valid replacement, then demonstrates rejection, commit
 and rollback. Run `go run ./examples/reload` from the repository root.
 

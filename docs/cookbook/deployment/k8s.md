@@ -28,6 +28,10 @@ mgr, err := fastconf.New[MyApp](ctx,
     fastconf.WithProfile(fastconf.Profile{Env: "APP_PROFILE"}),
     fastconf.WithWatch(fastconf.Watch{}),
 )
+if err != nil {
+    return err
+}
+defer mgr.Close()
 ```
 
 Mounted ConfigMaps and Secrets update asynchronously. Projection can take
@@ -63,6 +67,10 @@ mgr, err := fastconf.New[MyApp](ctx,
     fastconf.WithProvider(k8s.NewDefault()),
     fastconf.WithWatch(fastconf.Watch{}),
 )
+if err != nil {
+    return err
+}
+defer mgr.Close()
 ```
 
 Downward API volume refreshes use the same projected-volume `..data`
@@ -79,11 +87,13 @@ configuration paths.
 ## B. Sidecar (preferred for non-Go services)
 
 Run `fastconfd` next to your app container; the app polls
-`http://localhost:8650/config` once per startup and follows
-`/events` for live updates. See [sidecar.md](sidecar.md).
+`http://localhost:8650/config` at startup and follows
+`/events` as a signal to fetch a fresh snapshot. Both endpoints require
+`X-Config-Token`. SSE notifications are not a durable replay log; clients need
+a reconnect/refetch strategy. See [sidecar.md](sidecar.md).
 
 ## Runnable example
 
-[`ExampleLoad_profiles`](../../example_api_test.go) demonstrates profile-aware
+[`ExampleLoad_profiles`](../../../example_api_test.go) demonstrates profile-aware
 overlay loading with `fastconf.WithProfile`. Run it with
 `go test . -run '^ExampleLoad_profiles$' -v`.

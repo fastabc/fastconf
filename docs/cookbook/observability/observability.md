@@ -1,8 +1,9 @@
 # Observability runbook
 
-FastConf emits reload, provider-watch, dropped-event, generation, layer-count,
-stage-duration, audit, and trace signals. Treat these as a single reload health
-surface rather than independent dashboards.
+FastConf exposes reload results, stage timings, provider notifications and
+commit events. Optional adapters translate them into metrics and traces.
+Commit audit lines do not contain reload failures; use `Errors()` or
+`ReloadFinished` for those.
 
 ## Prometheus
 
@@ -21,6 +22,10 @@ import (
 mgr, err := fastconf.New[Config](ctx,
     fastconf.WithObserver(observe.Metrics(fcprom.New(prometheus.DefaultRegisterer))),
 )
+if err != nil {
+    return err
+}
+defer mgr.Close()
 ```
 
 Ship both rule files from the module:
@@ -34,14 +39,16 @@ Ship both rule files from the module:
 
 | Symptom | First checks |
 |---|---|
-| `FastConfReloadFailures` | Inspect `Manager.Errors()`, `observe.JSONLines` output, validation/policy failures, and provider decode errors |
+| `FastConfReloadFailures` | Inspect `Manager.Errors()` or `ReloadFinished.Err`; correlate with commit audit lines and validation/provider errors |
 | `FastConfReloadLatencyHigh` | Break down `fastconf_stage_duration_seconds` by `stage`; slow `validate` or `policy` usually means user code is blocking reload |
 | `FastConfProviderWatchErrors` | Check provider credentials, network reachability, revision retention, and whether `Watch(ctx, from)` can resume from the stored revision |
 | `FastConfProviderEventsDropped` | The reload queue is saturated; reduce upstream event volume, increase coalescing before FastConf, or fix slow reload stages |
 
 ## OpenTelemetry
 
-Wire the OTel SDK once, then every reload emits spans:
+Configure the OTel SDK, then register the tracer. A normal reload emits this
+span tree; stages after a failure are skipped, and unchanged-input shortcuts
+may omit pipeline stages:
 
 ```
 fastconf.reload
@@ -69,6 +76,10 @@ otel.SetTracerProvider(tp)
 mgr, err := fastconf.New[MyApp](ctx,
     fastconf.WithTracer(fcotel.New(otel.Tracer("fastconf"))),
 )
+if err != nil {
+    return err
+}
+defer mgr.Close()
 ```
 
 The root reload span has a `reason` attribute; pipeline-stage spans use
@@ -78,4 +89,6 @@ IDs. Correlate an incident by its time window and audit/trace context.
 
 Register the Prometheus sink once per registry and share it through an observer
 when instrumenting multiple managers. Calling `fcprom.New` twice on the same
-registry attempts duplicate metric registration and panics.
+registry attempts duplicate metric registration and panics. With a shared
+sink, generation and layer-count gauges reflect the most recently emitting
+manager; they are not per-tenant values or sums across managers.

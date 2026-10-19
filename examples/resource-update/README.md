@@ -32,3 +32,7 @@ requests and close resources. Do not close the notification channel while a
 callback may send to it. For telemetry alone, use `observe.Async` and inspect
 `Dropped()`; close that observer after the Manager. Its drop-on-full FIFO alone
 does not guarantee a final resource update.
+
+Source: [main.go](main.go).
+
+Verify from the repository root: `go test -race ./examples/resource-update`.

@@ -1,33 +1,51 @@
 # Documentation
 
-These pages describe the current FastConf API. Commands run from the repository
-root unless a recipe says otherwise.
+These pages follow the current checkout. Additions after v1.1.0 are marked;
+for a released dependency, read the same path at its installed tag. Commands
+run from the repository root unless stated otherwise.
 
-| Need | Start here |
+## Start here
+
+| Need | Guide |
 |---|---|
-| Load one file at startup | [Single-file guide](getting-started/load.md) |
-| Manage runtime changes | [Dynamic guide](getting-started/dynamic.md) |
-| Add providers or policies | [Extensions guide](getting-started/extensions.md) |
-| Install and load configuration | [English README](../README.md), [中文 README](../README.zh.md) |
-| Run complete programs | [Examples](../examples/README.md), including S3 and pflag examples |
-| Find a recipe by feature | [Cookbook](cookbook/README.md) |
-| Understand lifecycle, precedence and ownership | [Runtime contract](design/spec.md) |
-| Locate implementation and tests | [Architecture](architecture.md) |
-| Measure performance and resource recovery | [Performance notes](design/perf.md) |
-| Run development checks | [Repository tooling](../tools/README.md) |
-| Prepare a release | [Release guide](../RELEASING.md) |
-| Upgrade from v0.20.0 | [Migration guide](cookbook/migration-v1.md) |
+| Read one required file at startup | [Single file](getting-started/load.md); `LoadFile` was added after v1.1.0 |
+| Load layers once | [Basic example](../examples/basic/README.md) with `Load` |
+| Manage runtime updates | [Dynamic guide](getting-started/dynamic.md) with `New` |
+| Add a source, validator or policy | [Extensions and optional modules](getting-started/extensions.md) |
+| Run complete programs | [Examples](../examples/README.md) |
+| Find a task-specific recipe | [Cookbook by function](cookbook/README.md) |
+| Upgrade from v0.20.0 | [Migration to v1.1.0](cookbook/migration-v1.md) |
+
+## Reference and development
+
+| Document | Owns |
+|---|---|
+| [Runtime contract](design/spec.md) | Lifecycle, precedence, decoding, concurrency and ownership |
+| [Architecture](architecture.md) | Package responsibilities and dependency direction |
+| [Performance notes](design/perf.md) | Read-path budget, caches and measurement commands |
+| [Repository tooling](../tools/README.md) | Development checks and module discovery |
+| [Release guide](../RELEASING.md) | Coordinated module tags and distribution |
+| [API reference](https://pkg.go.dev/github.com/fastabc/fastconf) | Published exported signatures and Go comments |
 
 ## Maintaining documentation
 
-Keep behavior definitions in the runtime contract, commands in the tooling and
-release guides, and task-specific examples in the cookbook. Link to those
-sources instead of repeating full option tables or module inventories.
+Keep each fact in one primary location: behavior in the runtime contract,
+module choices in the extensions guide, commands in tooling/release guides,
+and complete programs with their fixtures under `examples/`. READMEs summarize
+and link to these pages. Recipes explain a specific task and its limits.
 
-When behavior or paths change, check exported Go comments, both READMEs,
-relevant recipes, examples and CI/Makefile commands together. Run `make example` to validate core and optional
-examples; verify local links and anchors after moves.
+When changing behavior or moving code:
 
-`archive/` contains dated validation and review records. Their results describe
-the recorded checkout and environment, not the current release. Local drafts in
-`plans/` are ignored by Git and are not published documentation or API contracts.
+1. Check the relevant implementation, exported comments and behavior tests.
+2. Update the owning guide, both root READMEs when their summaries change,
+   and the affected recipe/example. Mark additions unavailable in a released tag.
+3. Use exact API names. Label fragments and application placeholders; handle
+   construction errors and show shutdown when a fragment creates a manager.
+4. Run `make example` and the affected package tests. Check local paths and
+   anchors; each cookbook page must be reachable from its index.
+
+Avoid copied module counts, source-file inventories, benchmark results or
+claims that every extension is built in. Discover modules through
+`bash tools/modules.sh matrix`; keep dated measurements with their environment.
+Local `archive/`, `plans/` and review directories are ignored by Git and are
+not published API contracts. This index does not depend on those local records.

@@ -2,14 +2,14 @@
 
 FastConf's hot read path is `mgr.Get() *T` — strong-typed, zero-alloc, no
 string paths. For debug endpoints, CLI dumps or DI helpers you sometimes want
-the opposite: a generic tree. That lives on `State[T]`, and every view there
-masks secrets by default.
+a generic tree. `State[T]` diagnostic views mask secrets by default;
+`Value()` returns the typed plaintext configuration.
 
 | API | Returns | When to use |
 |-----|---------|-------------|
 | `state.Map()` | fresh `map[string]any`, secrets masked | debug endpoints, diff tools, dotted lookups |
-| `state.Dump(fastconf.YAML)` | deterministic YAML / JSON / TOML bytes, secrets masked | operator dumps, golden files |
-| `state.Explain("db.dsn")` | the layers that wrote a path, values masked for secrets | "where did this value come from?" (needs `WithProvenance`) |
+| `state.Dump(format)` | deterministic YAML / JSON / TOML bytes, secrets masked | operator dumps, golden files |
+| `state.Explain("database.dsn")` | the layers that wrote a path, values masked for secrets | "where did this value come from?" (needs `WithProvenance`) |
 | `state.Unredacted().Map()` / `.Dump(f)` | the same without masking | code that must see plaintext — greppable on purpose |
 | `&state.Value().Database` | typed pointer into the snapshot | strong-typed DI for a sub-struct (read-only) |
 
@@ -44,14 +44,20 @@ paths follow JSON tags.
 state := mgr.Snapshot()
 b, err := state.Dump(fastconf.YAML) // or JSON / TOML; secrets masked
 if err != nil { return err }
-_ = os.WriteFile("/tmp/cur.yaml", b, 0o644)
+if err := os.WriteFile("/tmp/cur.yaml", b, 0o644); err != nil {
+    return err
+}
 ```
 
-Map keys are sorted lexicographically inside every YAML mapping, so two snapshots whose merged values match produce **byte-identical** YAML — diff tools work without flake. JSON uses two-space indent; TOML uses BurntSushi/toml's canonical output.
+YAML map keys are sorted lexicographically, so identical diagnostic trees
+produce byte-identical YAML. JSON uses two-space indentation; TOML uses
+BurntSushi/toml's encoder. Dumps describe the final typed JSON view, not the
+original source text or comments.
 
 ### `fastconfctl dump --format=yaml`
 
-CLI `dump`, `diff` and `explain` mask common credential keys by default.
+In the current checkout (after v1.1.0), CLI `dump`, `diff` and `explain` mask
+common credential keys by default.
 Use `-unredacted` only when plaintext output is intended.
 
 ```bash
@@ -85,10 +91,27 @@ b, _ := state.Unredacted().Dump(fastconf.YAML)
 Map-typed configurations have no struct tags, so they rely on path patterns:
 
 ```go
-mgr, _ := fastconf.New[map[string]any](ctx, fastconf.WithSecretPaths("**.password", "db.dsn"))
+mgr, err := fastconf.New[map[string]any](ctx, fastconf.WithSecretPaths("**.password", "db.dsn"))
+if err != nil {
+    return err
+}
+defer mgr.Close()
 ```
 
-The sidecar's `/dump` and `/config` use this path — see the [sidecar recipe](sidecar.md).
+The sidecar uses configured path patterns for its map target; library maps have
+no default credential-name patterns. See the [sidecar recipe](../deployment/sidecar.md).
+
+## Diff and provenance
+
+`previous.Diff(next)` returns structured changes; `fastconf.FormatDiff` renders
+them as text. Plan and commit events reuse the masked diagnostic diff. Paths
+follow JSON field names even when decoding uses YAML tags; compare hashes too
+when YAML-only fields can change.
+
+Enable `WithProvenance(ProvenanceFull)` for leaf origin chains or
+`ProvenanceTopLevel` for top-level keys. `Explain` shows recorded layer writes,
+not a complete execution trace of transforms or defaults. Secret resolution
+adds a secret origin rather than replacing the original layer history.
 
 ## History and rollback
 
@@ -110,4 +133,4 @@ if history != nil {
 
 Rollback publishes a new generation with a new cause timestamp and reason
 `rollback`; it does not rerun validation or edit source files. A later reload
-reads the sources again. See the complete [reload example](../../examples/reload/README.md).
+reads the sources again. See the complete [reload example](../../../examples/reload/README.md).

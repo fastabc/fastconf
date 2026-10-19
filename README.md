@@ -1,96 +1,47 @@
-# FastConf — strongly typed, lock-free, Kustomize-style configuration for Go
+# FastConf
 
-> **Language**: English · [中文](README.zh.md)
+[English](README.md) · [中文](README.zh.md)
 
-`fastconf` layers YAML / JSON / TOML / INI files, environment variables, CLI
-flags, remote KV stores, and on-the-fly generators into a single strongly
-typed Go struct. A single-writer reload loop publishes new snapshots atomically
-via `atomic.Pointer`; the hot read path is one `atomic.Pointer.Load()`.
-
-Kustomize-style refers to base/overlay layering and patches for one application
-configuration. FastConf does not read `kustomization.yaml` or implement the full
-Kubernetes resource and strategic-merge protocols. See the
-[keyed-list example](docs/cookbook/strategic-merge.md).
+FastConf loads layered configuration into typed Go values. It supports YAML,
+JSON, TOML and INI, environment variables, flags and remote providers. A manager
+serializes reloads and publishes snapshots atomically; `Get()` is a lock-free,
+zero-allocation read. Failed loads or validation keep the previous snapshot.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/fastabc/fastconf.svg)](https://pkg.go.dev/github.com/fastabc/fastconf)
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-> **Version**: v1.1.0, the stable API described by this documentation.
-> Upgrading from v0.20.0? See the [migration guide](docs/cookbook/migration-v1.md).
+Documentation follows this checkout. Features added after v1.1.0 are marked;
+use the documentation at your installed tag for released behavior. For v0.20.0
+upgrades, see the [migration guide](docs/cookbook/migration-v1.md).
 
----
+## Installation
 
-## Table of contents
+The root module requires Go 1.24+. Optional modules declare their own minimum
+Go version; install only the adapters you use.
 
-1. [Quick start](#quick-start)
-2. [Why FastConf](#why-fastconf)
-3. [Installation](#installation)
-4. [Core model](#core-model)
-5. [Manager API](#manager-api)
-6. [Reload pipeline](#reload-pipeline)
-7. [Profiles & overlays](#profiles--overlays)
-8. [Provider system](#provider-system)
-9. [Transformers & migration](#transformers--migration)
-10. [Watch, Subscribe, and Plan](#watch-subscribe-and-plan)
-11. [Provenance, history & rollback](#provenance-history--rollback)
-12. [Observability](#observability)
-13. [Multi-tenant setups](#multi-tenant-setups)
-14. [Sub-module ecosystem](#sub-module-ecosystem)
-15. [CLI tools](#cli-tools)
-16. [Performance](#performance)
-17. [Development](#development)
-18. [Documentation](#documentation)
-19. [License](#license)
-
----
+```sh
+go get github.com/fastabc/fastconf@v1.1.0
+```
 
 ## Quick start
 
-Choose a path: [load one file](docs/getting-started/load.md) · [dynamic management](docs/getting-started/dynamic.md) · [extensions](docs/getting-started/extensions.md).
+Choose the entry point that matches the configuration lifecycle:
 
-### One file at startup
+| Need | API | Guide |
+|---|---|---|
+| Read exactly one required file at startup | `LoadFile[T](path)` → `*T` | [Single file](docs/getting-started/load.md); added after v1.1.0 |
+| Load layers once, with options and diagnostics | `Load[T](ctx, opts...)` → `*State[T]` | [Layered example](examples/basic/README.md) |
+| Reload configuration while running | `New[T](ctx, opts...)` → `*Manager[T]` | [Dynamic guide](docs/getting-started/dynamic.md) |
 
-`LoadFile` is available in the current checkout; it is not included in v1.1.0.
-Create `app.yaml`:
+Create `conf.d/base/00-app.yaml`:
 
 ```yaml
-port: 8080
+server:
+  port: 8080
 ```
 
-```go
-package main
-
-import (
-    "log"
-
-    "github.com/fastabc/fastconf"
-)
-
-type Config struct {
-    Port int `json:"port" fc:"default=8080,min=1,max=65535"`
-}
-
-func main() {
-    cfg, err := fastconf.LoadFile[Config]("app.yaml")
-    if err != nil {
-        log.Fatal(err)
-    }
-    log.Println(cfg.Port)
-}
-```
-
-Only the named file is loaded; no `conf.d` scanning or background workers.
-Missing files, unknown keys and invalid values return errors. The extension
-selects YAML, JSON, TOML or INI parsing; `json` tags name the struct fields.
-`fc` defaults and validation run automatically. The caller owns the returned
-`*Config`; no `Close()` is needed. Files are limited to 4 MiB.
-
-Run the bundled example: `go run ./examples/single-file`.
-See the [single-file guide](docs/getting-started/load.md) and
-[`fc` tag reference](docs/cookbook/field-meta.md).
-
-### Layered configuration and runtime updates
+Save this complete program as `main.go` in your application module:
 
 ```go
 package main
@@ -103,448 +54,280 @@ import (
     "github.com/fastabc/fastconf/providers/env"
 )
 
-type AppConfig struct {
+type Config struct {
     Server struct {
-        Addr string `json:"addr" yaml:"addr" fc:"required"`
-    } `json:"server" yaml:"server"`
-    Database struct {
-        DSN  string `json:"dsn"  yaml:"dsn"`
-        Pool int    `json:"pool" yaml:"pool" fc:"min=1"`
-    } `json:"database" yaml:"database"`
+        Port int `json:"port" fc:"min=1,max=65535"`
+    } `json:"server"`
 }
 
 func main() {
-    mgr, err := fastconf.New[AppConfig](context.Background(),
+    state, err := fastconf.Load[Config](context.Background(),
         fastconf.WithDir("conf.d"),
-        fastconf.WithProfile(fastconf.Profile{
-            Env:     "DEPLOY_PROFILE",
-            Default: "dev",
-        }),
-        fastconf.WithProvider(env.New("APP_")),
+        fastconf.WithProvider(env.New("MYAPP_")),
         fastconf.WithUnknownFields(fastconf.UnknownError),
-        fastconf.WithWatch(fastconf.Watch{}),
     )
     if err != nil {
         log.Fatal(err)
     }
-    defer mgr.Close()
-
-    cfg := mgr.Get() // *AppConfig — lock-free, O(1), zero-alloc
-    log.Println(cfg.Server.Addr, cfg.Database.Pool)
+    log.Printf("port=%d", state.Value().Server.Port)
 }
 ```
 
-Treat `cfg` and every reachable map, slice and pointer as read-only. Read once per
-business operation. The example rejects unknown fields; the default `UnknownWarn`
-requires `WithLogger` to make warnings visible. `DEPLOY_PROFILE` stays outside the
-`APP_` configuration prefix. See [field semantics](docs/cookbook/field-meta.md).
-
-Directory layout:
-
-```text
-conf.d/
-  base/
-    00-app.yaml
-  overlays/
-    prod/
-      50-overrides.yaml
+```sh
+go run .                          # port=8080
+MYAPP_SERVER_PORT=9090 go run .     # port=9090
+MYAPP_SERVER_PORT=0 go run .        # validation error
 ```
 
-```yaml
-# conf.d/base/00-app.yaml
-server:
-  addr: ":8080"
-database:
-  dsn: "postgres://localhost/app"
-  pool: 10
-```
+Input formats use `json` struct tags by default. `Load` starts no background
+workers; its value and all reachable maps, slices and pointers must stay
+read-only. For runtime updates, use `New`, enable file watching with `WithWatch`,
+and close the manager on shutdown. See the complete [dynamic example](examples/dynamic/README.md).
 
-Add the prod overlay:
-
-```yaml
-# conf.d/overlays/prod/50-overrides.yaml
-database:
-  pool: 20
-```
-
-Run with an environment override:
-
-```bash
-DEPLOY_PROFILE=prod APP_DATABASE_POOL=25 go run .
-```
-
-`APP_DATABASE_POOL=25` maps to `database.pool` (single `_` separator,
-Viper/Spring Boot style). With `DEPLOY_PROFILE=prod`, FastConf merges `base/*`
-first, then `overlays/prod/*`.
-
-Complete programs and fixtures are indexed in [examples](examples/README.md).
-Run from the repository root:
+Run bundled examples from the repository root:
 
 ```sh
 go run ./examples/basic
-go run ./examples/tenant
 go run ./examples/reload
-go run ./examples/features
 ```
 
----
+### Exactly one required file
 
-## Why FastConf
+`LoadFile` was added after v1.1.0. With the `Config` type and YAML above:
 
-- **Strong typing on the read path.** `mgr.Get().Server.Addr` is checked
-  by the compiler. No dotted-path strings, no reflection, no `interface{}`.
-- **Lock-free hot reads.** `Get()` is an `atomic.Pointer.Load()` — O(1),
-  zero-alloc, safe from any number of goroutines.
-- **Fail-safe reload.** Any pipeline stage that errors out keeps the old
-  `*State[T]` live; a broken config never reaches your read path.
-- **Kustomize-style layering.** base / overlays, RFC 6902 patches, and
-  strategic merge for lists of objects.
-- **Opt-in extensions.** Providers, transformers, secret resolvers,
-  validators, policies, metrics, and tracing are all optional.
-
----
-
-## Installation
-
-Requires Go 1.24+ for the root module. Submodules require at least Go 1.24;
-those with newer dependencies declare a higher minimum in their go.mod.
-
-```bash
-go get github.com/fastabc/fastconf@v1.1.0
-go get github.com/fastabc/fastconf/integrations/log/zerolog@v1.1.0  # or .../log/phuslu
-go get github.com/fastabc/fastconf/observability/metrics/prometheus@v1.1.0
-go get github.com/fastabc/fastconf/observability/otel@v1.1.0
+```go
+cfg, err := fastconf.LoadFile[Config]("conf.d/base/00-app.yaml")
+if err != nil {
+    return err // Inside a function returning error.
+}
+log.Printf("port=%d", cfg.Server.Port)
 ```
 
-Root tags use `vX.Y.Z`; independent modules use `<module>/vX.Y.Z`.
-All modules release together at the same version. See [releasing](RELEASING.md).
+Only that file is read; env and profile discovery do not participate. Unknown
+keys and missing files fail. The caller owns the returned value, with no
+manager to close. See the [single-file guide](docs/getting-started/load.md).
 
----
+## Features
 
-## Core model
+| Area | Capabilities and recipes |
+|---|---|
+| Sources | [Files and profiles](docs/cookbook/sources/layers.md), [INI](docs/cookbook/sources/ini.md), [env and dotenv](docs/cookbook/sources/env-replacer.md), [labels](docs/cookbook/sources/labels.md), [HTTP](docs/cookbook/sources/http.md), [Vault](docs/cookbook/sources/vault.md), [Consul](docs/cookbook/sources/consul.md) |
+| Merge and conversion | Base/overlay layers, RFC 6902 patches, [keyed lists](docs/cookbook/processing/strategic-merge.md), [generators](docs/cookbook/processing/generators.md), [typed hooks](docs/cookbook/processing/typed-hooks.md) |
+| Validation and secrets | [`fc` tags and defaults](docs/cookbook/processing/field-meta.md), [Go/OPA/CUE policies](docs/cookbook/processing/policy.md), [resolution and redaction](docs/cookbook/processing/secrets.md) |
+| Runtime updates | [Subscriptions](docs/cookbook/runtime/subscribe.md), [failure handling and overrides](docs/cookbook/runtime/reload-policy.md), [Plan](docs/cookbook/runtime/plan.md), [history and rollback](docs/cookbook/runtime/introspect.md) |
+| Operations | [Observers](docs/cookbook/observability/observer.md), [metrics and tracing](docs/cookbook/observability/observability.md), [logging](docs/cookbook/observability/log.md), [timeouts](docs/cookbook/runtime/provider-timeouts.md) |
+| Deployment | [Kubernetes](docs/cookbook/deployment/k8s.md), [sidecar](docs/cookbook/deployment/sidecar.md), [tenants](docs/cookbook/deployment/tenant.md), [transport reference implementations](docs/cookbook/sources/cross-process.md) |
+| Application features | [Feature targeting and percentage rollouts](docs/cookbook/features/features.md) |
+
+Layer precedence is files → generators → providers → one-shot overrides.
+Provider priorities only order providers. FastConf borrows base/overlay and
+patch concepts from Kustomize; it does not read `kustomization.yaml` or implement
+the full Kubernetes strategic-merge protocol.
+
+The [runtime contract](docs/design/spec.md) defines lifecycle, precedence,
+decoding and ownership. The [extensions guide](docs/getting-started/extensions.md)
+lists optional modules, including S3, pflag, validation, logging and telemetry.
+NATS and Redis Streams are application-adaptable examples, not stable providers.
+
+## Loading and reload pipeline
+
+`Load` returns a snapshot without workers. `New` loads synchronously, starts
+the writer and configured watchers, and provides `Get`, `Snapshot`, `Reload`,
+`Plan`, `Errors` and history. The constructor context bounds initialization;
+close the manager to stop background work.
+
+The following blocks are integration fragments using application types and
+values.
+
+```go
+mgr, err := fastconf.New[Config](ctx,
+    fastconf.WithDir("conf.d"),
+    fastconf.WithUnknownFields(fastconf.UnknownError),
+    fastconf.WithWatch(fastconf.Watch{}), // Enable file watching.
+    fastconf.WithHistory(4),             // Retain up to four prior snapshots.
+)
+if err != nil {
+    return err // Inside a function returning error.
+}
+defer mgr.Close()
+cfg := mgr.Get() // Read once per business operation; keep the entire tree read-only.
+_ = cfg
+// Keep the manager alive until the service owner shuts down.
+```
 
 ```text
-sources / generators / providers
-              │
-              ▼
-       assemble preflight
-              │
-              ▼
- merge → transform → secret → typed-hooks
-      → decode → field-meta → validate → policy
-              │
-      fail ───┴─── keep old State[T]
-              │
-           success
-              ▼
- canonical hash → atomic swap → history → observers → subscribers
+assemble -> merge -> transform -> secret -> typed-hooks -> decode
+         -> field-meta -> validate -> policy -> hash -> publish
 ```
 
+A rejected candidate preserves the live snapshot and generation. Equal typed
+hashes skip publication. `Errors()` is bounded and evicts the oldest pending
+error on overflow; consume it for ongoing failures. `WithUnknownFields` controls
+unknown struct keys; the default `UnknownWarn` needs `WithLogger` to be visible.
+`WithStrictMerge` controls raw merge type conflicts and file discovery instead.
 
----
+### Files, profiles and merge rules
 
-## Manager API
-
-`LoadFile[T](path)` loads one file and returns a caller-owned `*T` (new in this
-checkout, not v1.1.0); it needs no Manager lifecycle.
-`New[T]` loads synchronously and starts configured watchers; `Load[T]` loads
-once and returns `*State[T]`.
-`Get()` returns a read-only `*T`, while `Snapshot()` adds diagnostics.
-`Reload(ctx)` and `Plan(ctx)` serialize through the same writer. `Plan` reports
-all validators (including successes) and policy findings without publishing.
-Call `Close()` when finished; use `Shutdown(ctx)` to bound the wait.
-See the [API reference](https://pkg.go.dev/github.com/fastabc/fastconf).
-
-The constructor context bounds initialization only; background work ends with
-`Close` or `Shutdown`. Treat `Get()` and every reachable map/slice as read-only.
-File watching needs `WithWatch`; provider watch channels run independently.
-Lifecycle, decoding and option ownership are defined in the
-[runtime contract](docs/design/spec.md).
-
----
-
-## Reload pipeline
-
-Assembly scans files and loads generators and providers, then the stages above
-merge, transform, resolve secrets, decode, validate and evaluate policy.
-Failures preserve the current state and generation, reach `Errors()`, and emit
-`ReloadFinished{Err}` without `Committed`. A successful change hashes the typed
-value, publishes it atomically, retains history and notifies observers and
-subscribers. See the [runtime contract](docs/design/spec.md).
-
----
-
-## Profiles & overlays
-
-Files in `base/` apply first, followed by matched `overlays/<profile>/`.
-`WithProfile(Profile{Names: []string{"prod", "eu-west"}})` selects multiple
-profiles; each overlay's `_meta.yaml.match` supports `&`, `|`, `!`, and parentheses.
-Root `_meta.yaml` configures defaults and merge behavior. Files ending in
-`.patch.json` apply RFC 6902 operations.
-
-`WithAxes` adds independent overlay dimensions. Higher `Axis.Priority` wins
-across whole directories; declaration order breaks ties, then filenames order
-files. Up to 40 axes, 100 files per overlay, and 1000 base files are supported.
-See the [runtime contract](docs/design/spec.md).
-
----
-
-## Provider system
-
-### Built-in structured providers (`providers/*`)
-
-| Provider | Constructor | Notes |
-|---|---|---|
-| Env | `env.New("APP_")` (`providers/env`) | `APP_FOO_BAR` → `foo.bar`; chain `.WithReplacer`, `.At`, `.WithCoerce` |
-| CLI | `cliflag.New(map)` (`providers/cliflag`) | Pass only explicitly changed flags; files/env stay authoritative |
-| DotEnv | `dotenv.New("APP_", paths...)` (`providers/dotenv`) | `.env` fallback; process env wins |
-| Labels | `labels.New(labels, labels.Options{})` (`providers/labels`) | Dotted config labels; `Options.Routing` enables the routing DSL |
-| K8s Downward | `k8s.NewDefault()` | `/etc/podinfo/{labels,annotations}` |
-
-First-party KV providers (root module; only imported packages are linked):
+`base/*` loads first, followed by matched `overlays/*`, then `WithAxes` directories
+such as region or host. Files and matching profile directories use lexical
+order; the order of names in `Profile.Names` does not set overlay precedence.
 
 ```go
-vp, err := vault.New("https://vault.svc", "myapp", os.Getenv("VAULT_TOKEN"), vault.WithMount("kv"))
-cp, err := consul.New("http://consul.svc:8500", "config/myapp")
-hp, err := httpprov.New("remote", "https://example.com/cfg.yaml", nil)
-```
-
-NATS and Redis Streams reference implementations live in `examples/nats` and
-`examples/redisstream`; copy and adapt them with a real client. S3 remains an
-independent provider module (`providers/s3`). HTTP supports automatic codec
-selection with a nil codec and manual-only fetching with `WithInterval(0)`.
-
-Provider priorities, low to high: DotEnv (5), Static (10), KV (30),
-K8s (40), Env (50), CLI (60). Equal priorities follow registration order.
-Implement `contracts.Provider` (`Name`, `Load`); optional `contracts.Watcher`
-adds native notifications via `Watch(ctx, from)`. Optional `contracts.Describer`
-supplies priority and file-watch paths, independently of Watcher.
-
-Priorities order providers within their layer: files < generators < providers
-< one-shot overrides. Configure providers before registration: chained methods
-mutate the provider, and the manager reads `Describe()` only once. See
-[configuration and ownership](docs/design/spec.md#configuration-and-ownership).
-
----
-
-## Transformers & migration
-
-```go
-fastconf.WithTransform(
-    transform.EnvSubst(),
-    transform.DeletePaths("internal.debug"),
-    transform.Aliases(map[string]string{"db.url": "database.dsn"}),
-)
+fastconf.WithProfile(fastconf.Profile{Names: []string{"prod"}})
+fastconf.WithAxes(fastconf.Axis{Dir: "regions", Env: "DEPLOY_REGION"})
 fastconf.WithMergeKeys(map[string]string{"listeners": "name"})
 ```
 
-Transforms run after merging. Keyed lists merge through `WithMergeKeys` or
-`_meta.yaml` before this stage. Defaults belong in `fc:"default=…"` tags or
-`Defaulter.Defaults`; `fc:"secret"` marks sensitive fields. `transform.NewChain`
-builds schema migration chains. See [migration](docs/cookbook/migration-v1.md)
-and [secrets](docs/cookbook/secrets.md).
+Maps merge recursively; scalars and lists replace by default. `mergeKeys`
+aligns list objects by a non-empty string key. `.patch.json` / `.patch.yaml`
+files apply RFC 6902 operations in layer order. Root `_meta.yaml` uses `spec`
+for defaults and merge options; overlay `_meta.yaml` uses top-level `match`
+expressions. See [files, profiles and patches](docs/cookbook/sources/layers.md).
 
----
+### Providers and generators
 
-## Watch, Subscribe, and Plan
+| Source | Entry point | Behavior |
+|---|---|---|
+| File / bytes | `source.NewFile(path)`, `source.NewBytes(name, codec, data)` | Auxiliary decoded documents; missing `NewFile` files contribute an empty layer |
+| Env / dotenv | `env.New("MYAPP_")`, `dotenv.New("MYAPP_", ".env")` | Underscores become path separators; dotenv is fallback, process env wins |
+| Flags | `cliflag.New(values)` | Pass explicitly changed flags; pflag has an optional adapter |
+| Labels / Downward API | `labels.New(input, opts)`, `k8s.NewDefault()` | Dotted config labels or raw namespaced pod metadata |
+| HTTP / Vault / Consul | `providers/http`, `providers/vault`, `providers/consul` | Remote documents or KV, with native polling/blocking-query watchers |
+| S3 | Separate `providers/s3` module | Object loading and optional change-event integration |
+
+Providers implement `contracts.Provider` (`Name`, `Load`). Optional `Describe`
+supplies priority/file paths; optional `contracts.Watcher` supplies native events
+with `Watch(ctx, from)`. Provider watchers start with `New` independently of
+`WithWatch`. Configure providers before registration; fluent methods mutate them.
+Within the provider class, higher priority wins and registration order breaks ties.
+
+`WithGenerator` accepts `contracts.Generator` implementations producing encoded
+`RawLayer` values. Generators run during assembly before providers and have no
+built-in watch channel. Transforms registered with `WithTransform` then rewrite
+the merged tree, including schema migrations through `transform.NewChain`.
+See [generators](docs/cookbook/processing/generators.md) and [extensions](docs/getting-started/extensions.md).
+
+### Types, validation and secrets
+
+Document format is independent of struct decoding: the default JSON bridge uses
+`json` tags; `WithDecodeFormat(fastconf.YAML)` selects YAML tags. Default typed
+hooks convert duration strings and primitive string values from env/INI.
+
+The type fragment below imports `time`.
+
+```go
+type Database struct {
+    DSN     string        `json:"dsn" fc:"required,secret"`
+    Pool    int           `json:"pool" fc:"min=1,max=100"`
+    Timeout time.Duration `json:"timeout"`
+}
+```
+
+`fc` defaults fill Go zero values after decoding, followed by `Defaulter.Defaults`.
+Use base-layer defaults when explicit false, 0 or empty strings must survive.
+Field constraints run before `WithValidate` and `WithPolicy`; policy warnings
+allow publication and error-severity findings reject it. Tags do not validate
+collection elements; use a validator for those checks.
+
+`SecretResolver` resolves references before typed decoding; it does not decrypt
+SOPS/age/KMS formats without an application adapter. `fc:"secret"` and
+`WithSecretPaths` mask diagnostic output independently of resolution. `Get()`
+and `Value()` still expose plaintext to application code. See
+[field metadata](docs/cookbook/processing/field-meta.md), [policies](docs/cookbook/processing/policy.md)
+and [secrets](docs/cookbook/processing/secrets.md).
+
+### Subscriptions, preview and recovery
 
 ```go
 cancel := fastconf.Subscribe(mgr,
-    func(c *AppConfig) *string { return &c.Database.DSN },
-    func(old, next *string) { reconnect(*next) },
+    func(c *Config) *int { return &c.Server.Port },
+    func(old, next *int) { log.Printf("port: %d -> %d", *old, *next) },
 )
 defer cancel()
 
-err := mgr.Reload(ctx, fastconf.WithReason("admin"),
-    fastconf.WithOverride(map[string]any{"database": map[string]any{"pool": 25}}))
-result, err := mgr.Plan(ctx, fastconf.WithPlanHostname("prod-1"))
+if err := mgr.Reload(ctx, fastconf.WithReason("admin"),
+    fastconf.WithOverride(map[string]any{"server": map[string]any{"port": 9090}}),
+); err != nil {
+    return err
+}
 ```
 
-Subscribe compares extracted values; `WithEqual` customizes equality.
-Override applies only to that reload. Plan returns proposed state, diff,
-validator results and policy findings. `Pause()` ignores file and provider
-change events; `Resume()` resumes listening without replaying ignored events.
-Call `Reload(ctx)` explicitly after a batch to load its final state. See [subscriptions](docs/cookbook/observer.md) and
-[plans](docs/cookbook/plan.md).
+Subscriptions compare selected values after publication; `WithEqual` customizes
+equality. Callbacks run on the writer, must return quickly and must not wait on
+that manager's reload/Plan/rollback/shutdown. Signal a bounded worker for costly
+resource updates. An override applies to one reload and does not edit sources.
 
----
+`Plan(ctx)` returns `Proposed`, `Diff`, `Validators` and `Policies` without
+publishing. Inspect validator errors and policy severity even when Plan returns
+nil error. Reload reads inputs again. `Pause` suppresses watcher triggers;
+`Resume` does not replay ignored events, so reload explicitly after a paused batch.
 
-## Provenance, history & rollback
+`Snapshot().Map/Dump/Diff/Explain` provide masked diagnostics; enable
+`WithProvenance` for origins. `Unredacted().Map/Dump` exposes plaintext explicitly.
+`History().List()` returns prior snapshots oldest-first; rollback republishes a
+retained snapshot without validation or source repair. History is nil when disabled.
+See [subscriptions](docs/cookbook/runtime/subscribe.md), [Plan](docs/cookbook/runtime/plan.md)
+and [diagnostics/history](docs/cookbook/runtime/introspect.md).
 
-Enable `WithProvenance(ProvenanceFull)` for per-leaf origin chains via
-`mgr.Snapshot().Explain("server.addr")`; `ProvenanceTopLevel` tracks top-level
-keys and `ProvenanceOff` disables tracking. Secret list paths use `items.0`.
+### Observability and application features
 
-`WithHistory(10)` retains prior snapshots. `mgr.History().List()` is ordered
-oldest first; pass a retained snapshot to `Rollback`. Zero disables history;
-negative capacities are errors. Failed reloads reach `mgr.Errors()`.
-Snapshot `Map`, `Dump`, `Diff`, and `Explain` mask secrets; use `Unredacted()`
-only where plaintext is intended. See [history](docs/cookbook/introspect.md).
+`WithObserver` receives reload, stage, provider-error, drop and commit events.
+`observe.Multi`, `JSONLines`, `Metrics` and `Func` compose audit and telemetry.
+`observe.Async` adds bounded asynchronous delivery; its owner closes it after
+the manager and supplies deadlines for external I/O. Log through `WithLogger`
+and a standard `slog.Handler`, or an optional backend adapter.
 
----
-
-## Observability
-
-`WithObserver` receives reload, stage, provider-error, dropped-event and commit
-notifications. Compose observers using `observe.Multi`, `observe.JSONLines`,
-`observe.Metrics` and `observe.Func`. Slow observers can use `observe.Async`;
-close the manager before closing the async observer to drain queued events.
-
-Prometheus (`observability/metrics/prometheus`) and OpenTelemetry
-(`observability/otel`) remain separate modules. Logging adapters
-(`integrations/log/phuslu`, `integrations/log/zerolog`) are separate modules
-that share a dependency-free logging core in the root module, so each pulls in only its own backend.
-See [observability](docs/cookbook/observability.md) and [logging](docs/cookbook/log.md).
-
----
-
-## Multi-tenant setups
-
-```go
-// WithTenant labels the manager; select each tenant's files and env explicitly.
-mgrA, err := fastconf.New[AppConfig](ctx,
-    fastconf.WithDir("/etc/config"), // shared base and overlays
-    fastconf.WithProfile(fastconf.Profile{Names: []string{"prod"}}),
-    fastconf.WithTenant("tenant-a"),
-    fastconf.WithProvider(
-        source.NewFile("/etc/config/tenants/tenant-a.yaml"),
-        env.New("FC_TENANT_A_"),
-    ),
-)
-```
-
-See the [local tenant example](examples/tenant/README.md) for complete files,
-independent tenant-a/tenant-b overrides and failure isolation, and the
-[tenant recipe](docs/cookbook/tenant.md) for lifecycle guidance. Shared-file
-changes can affect both managers; each publishes independently.
-
----
-
-## Sub-module ecosystem
-
-### Shipped with the root module
-
-| Package | Path |
-|---|---|
-| contracts | `contracts` — public interfaces |
-| reusable primitives | `codec`, `confmap`, `transform`, `feature`, `providers/{env,cliflag,dotenv,labels,source}` |
-| http / vault / consul | `providers/{http,vault,consul}` |
-| policy | `policy` — `Func` adapter |
-| sidecar service | `cmd/fastconfd` |
-| CLI tools | `cmd/fastconfctl` (root), `cmd/fastconfgen` (own module) |
-| integrations | `integrations/render` |
-
-### Independent sub-modules (`go get` as needed)
-
-| Sub-module | Path | Primary dependency |
-|---|---|---|
-| validate/playground | `validate/playground` | go-playground/validator |
-| Prometheus | `observability/metrics/prometheus` | Prometheus |
-| OpenTelemetry | `observability/otel` | OpenTelemetry |
-| phuslu adapter | `integrations/log/phuslu` | phuslu/log |
-| zerolog adapter | `integrations/log/zerolog` | zerolog |
-| generator | `cmd/fastconfgen` | yaml.v3 |
-| cue (validation + policy) | `cue` | cuelang.org/go |
-| opa-policy | `policy/opa` | open-policy-agent/opa |
-| cli/pflag | `integrations/cli/pflag` | spf13/pflag |
-| s3 provider | `providers/s3` | AWS SDK v2 |
-
-Tag every module at the same version: `./tools/tag-release.sh vX.Y.Z [--push]`
-
----
+Use one manager per tenant, selecting sources and credentials explicitly;
+`WithTenant` only labels causes and policy input. Feature rules are ordinary
+configuration fields evaluated with `feature.Eval`: targets precede deterministic
+percentage rollouts, then the rule default. The evaluator is not an OpenFeature
+SDK provider. See [observability](docs/cookbook/observability/observability.md),
+[tenants](docs/cookbook/deployment/tenant.md) and [feature flags](docs/cookbook/features/features.md).
 
 ## CLI tools
 
-### `fastconfd` — sidecar service
-
-```bash
-fastconfd --dir=/etc/config --profile=prod --addr=127.0.0.1:8650 \
-  --read-token="$FASTCONFD_READ_TOKEN" --reload-token="$FASTCONFD_RELOAD_TOKEN"
-```
-
-| Endpoint | Method | Description |
-|---|---|---|
-| `/healthz` | GET  | Plain text `ok` once the first reload succeeded |
-| `/version` | GET  | Version, generation, hash, load time, reason |
-| `/config`  | GET  | Current config JSON, secrets masked; `?unredacted=true` + `X-Unredacted-Token` for plaintext |
-| `/dump`    | GET  | Deterministic YAML (`?format=json` for JSON) |
-| `/reload`  | POST | Trigger a manual reload |
-| `/events`  | GET  | SSE stream of `ReloadCause` when a new snapshot commits |
-
-`FASTCONFD_READ_TOKEN` and `FASTCONFD_RELOAD_TOKEN` must be non-empty.
-`/config`, `/dump`, and `/events` require `X-Config-Token`; `/reload` requires
-`X-Reload-Token`. See the [sidecar recipe](docs/cookbook/sidecar.md).
-
-### `fastconfctl` — admin CLI
-
-`dump`, `diff` and `explain` mask common credential keys by default. Pass
-`-unredacted` to include plaintext secrets.
-
-```bash
-fastconfctl dump     -dir conf.d -profile prod
-fastconfctl diff     -dir conf.d -from dev -to prod --json
-fastconfctl validate -dir conf.d -profile prod
-fastconfctl explain  -dir conf.d -profile prod database.dsn
-```
-
-### `fastconfgen` — code generator
-
-```bash
-fastconfgen -in conf.d/base/00-app.yaml -pkg config -type Config -out config/config_gen.go
-```
-
----
-
-## Performance
-
-Performance contracts and reproducible benchmark commands are maintained in
-[Performance Notes](docs/design/perf.md). Use `tools/profile-reload.sh` to measure your target
-machine; `tools/bench-guard.sh` checks the read-path latency and zero-allocation budget.
-
----
-
-## Development
-
-```bash
-go mod tidy
-make build
-make test        # go test -race -count=1 ./...
-make test-workspace # all modules against this checkout
-make test-candidate # isolated module-protocol tests of this checkout
-make lint        # requires golangci-lint
-make check       # formatting, dependency boundaries and tooling regressions
-
-go test ./... -run '^Example' -v
-go test -bench=BenchmarkGet -benchmem ./...
-```
-
-See [Repository tooling](tools/README.md) for commands and release validation.
-
----
-
-## Documentation
-
-Start with the [documentation index](docs/README.md) for guides grouped by purpose.
-
-| Doc | Purpose |
+| Command | Purpose |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | Source responsibilities, package boundaries, test layout and naming |
-| [examples/README.md](examples/README.md) | Runnable scenarios, complete configuration and expected output |
-| [docs/design/README.md](docs/design/README.md) | Design index and historical validation records |
-| [docs/cookbook/README.md](docs/cookbook/README.md) | Ready recipes ordered by user journey |
-| [docs/design/spec.md](docs/design/spec.md) | Runtime model, concurrency, module boundaries |
-| [docs/cookbook/migration-v1.md](docs/cookbook/migration-v1.md) | v0.20.0 → v1.1.0 migration guide |
-| [GitHub Releases](https://github.com/fastabc/fastconf/releases) | Release notes and prebuilt CLI binaries |
-| [pkg.go.dev](https://pkg.go.dev/github.com/fastabc/fastconf) | godoc and runnable examples |
+| `fastconfctl` | Offline `dump`, `diff`, `validate` and `explain` |
+| `fastconfd` | HTTP configuration snapshots, manual reload and SSE notifications; [sidecar recipe](docs/cookbook/deployment/sidecar.md) |
+| `fastconfgen` | Generate Go structs from YAML; separate module |
 
-Common recipes: [k8s](docs/cookbook/k8s.md) · [vault](docs/cookbook/vault.md) ·
-[consul](docs/cookbook/consul.md) · [secrets](docs/cookbook/secrets.md) ·
-[features](docs/cookbook/features.md) · [policy](docs/cookbook/policy.md) ·
-[otel](docs/cookbook/observability.md#opentelemetry) · [tenant](docs/cookbook/tenant.md) ·
-[sidecar](docs/cookbook/sidecar.md) · [plan](docs/cookbook/plan.md)
+Install from source at a matching version, or use binaries from
+[GitHub Releases](https://github.com/fastabc/fastconf/releases):
+
+```sh
+go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.1.0
+go install github.com/fastabc/fastconf/cmd/fastconfd@v1.1.0
+go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.1.0
+fastconfctl dump -dir conf.d -profile prod -format yaml
+fastconfctl diff -dir conf.d -from dev -to prod -json
+fastconfctl validate -dir conf.d -profile prod
+fastconfctl explain -dir conf.d -profile prod server.port
+fastconfgen -in conf.d/base/00-app.yaml -pkg config -type Config
+```
+
+`fastconfctl validate` loads a generic map; it does not validate your application's
+struct tags or business policies. In this checkout (after v1.1.0), CLI diagnostic
+output masks common credential keys by default; library structs need `fc:"secret"` or `WithSecretPaths`.
+See [diagnostics](docs/cookbook/runtime/introspect.md).
+
+## Development and documentation
+
+```sh
+make build       # root module and fastconfgen
+make test        # root race tests
+make example     # executable examples, including optional integrations
+make check       # repository checks; see tools/README.md
+```
+
+- [Documentation index](docs/README.md): guides and recipes by function.
+- [Examples](examples/README.md): complete programs, fixtures and expected output.
+- [Repository tooling](tools/README.md): module checks and development commands.
+- [Architecture](docs/architecture.md): package responsibilities and dependency direction.
+- [Performance notes](docs/design/perf.md): reproducible measurements and read-path budget.
+- [Release guide](RELEASING.md): coordinated module tags and distribution.
+- [API reference](https://pkg.go.dev/github.com/fastabc/fastconf): published Go API.
 
 ## License
 
-MIT License, See [`LICENSE`](LICENSE).
-
-Copyright (c) 2026 FastAbc
+[MIT](LICENSE) · Copyright (c) 2026 FastAbc

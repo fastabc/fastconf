@@ -1,9 +1,11 @@
 # Examples
 
 Run the following complete programs from the repository root with Go 1.24+.
-These examples need no external services or credentials. They target the v1.1.0
-API except `single-file`, which uses the unreleased `LoadFile` entry in this checkout.
-Each directory includes configuration files, expected output and scenario tests.
+These programs need no external services or credentials and follow the current
+checkout. `single-file` uses `LoadFile`, added after v1.1.0. The linked READMEs
+provide source/fixture links, expected output and verification commands.
+
+## Loading and source conversion
 
 | Example | Demonstrates | Command |
 |---|---|---|
@@ -11,6 +13,11 @@ Each directory includes configuration files, expected output and scenario tests.
 | [dynamic](dynamic/README.md) | File watching, rejection and shutdown | `go run ./examples/dynamic` |
 | [basic](basic/README.md) | Typed base/prod layering, duration decoding, env override and field validation | `go run ./examples/basic` |
 | [ini](ini/README.md) | INI base/prod layering, typed scalars and preservation of leading zeros | `go run ./examples/ini` |
+
+## Runtime changes and application behavior
+
+| Example | Demonstrates | Command |
+|---|---|---|
 | [tenant](tenant/README.md) | Editable local files, shared defaults, isolated tenant files/env, redaction and failed reload isolation | `go run ./examples/tenant` |
 | [resource-update](resource-update/README.md) | Bounded updates, failed connection retention and draining | `go run ./examples/resource-update` |
 | [reload](reload/README.md) | Local file changes, Plan findings, rejection, commit and history rollback | `go run ./examples/reload` |
@@ -22,8 +29,10 @@ FC_TENANT_A_DATABASE_POOL=12 go run ./examples/tenant
 go test -race ./examples/...
 ```
 
-`basic` and `features` embed their YAML; `ini` embeds its INI files. `tenant` reads local files directly
-(use `-dir` to select a copy); `reload` writes only to a temporary directory.
+`basic` and `features` embed YAML; `ini` embeds INI. `single-file`, `dynamic`
+and `tenant` read local files; `reload` writes only to a temporary directory.
+Use copies for watch/edit exercises and wait for each observed update before
+writing the next one; filesystem coalescing can combine rapid writes.
 
 ## Executable API examples
 
@@ -60,8 +69,9 @@ the local adapter modules; naming `main.go` bypasses the build constraint.
 No AWS account, external service, or real credentials are needed. Both pflag
 and S3 print a configuration map containing port 9090.
 
-Both adapters require the v1.1.0 root module. To run them against local source
-rather than the released dependency, use a temporary workspace:
+The adapter manifests select their declared root dependency. For validation
+against this checkout, use the temporary workspace commands below; `make example`
+runs these same optional programs:
 
 ```sh
 bash tools/modules.sh exec go -C integrations/cli/pflag run ../../../examples/pflag/main.go

@@ -15,7 +15,7 @@ Pushing a root version tag starts the release workflow.
 | `make test-workspace` | Every module against the local checkout |
 | `make test-candidate` | Every module through an isolated candidate proxy/cache |
 | `make check` | Formatting, dependency boundaries, tidy metadata and tooling regression tests |
-| `make lint` | Root module; runs pinned golangci-lint v2.14.0 via `go run` |
+| `make lint` | Root module; runs the Makefile-pinned golangci-lint via `go run` |
 | `make tools-check` | Requires shellcheck and actionlint |
 | `make bench` / `make bench-guard` | Benchmarks / hot-read budget |
 | `make cover` / `make example` | Root coverage / godoc, scenario tests and optional S3/pflag programs |
@@ -93,9 +93,6 @@ CI reuses these Make targets, tests each submodule at its declared minimum Go
 version and runs the root module on Linux, macOS and Windows. The release workflow
 verifies that every module tag exists at the same commit, tests candidates, then
 builds and publishes archives. Resource soak remains a separate manual workflow.
-The v1.1.0 release used `BASE=none` to establish its baseline because public v1.0.0
-proxy content conflicts with its immutable checksum record. Subsequent release
-checks compare against `BASE=v1.1.0`.
 
 CI compares the next candidate (`VERSION=v1.2.0`) against `BASE=v1.1.0`.
 The candidate must be newer than the baseline; this check does not create a release.
@@ -108,24 +105,8 @@ to the fixed v1.1.0 baseline and does not change the working tree.
 The isolated [comparison project](../benchmarks/compare/README.md) pins competitor
 dependencies outside the runtime/release modules. Run its tests separately.
 
-## Lint backlog
+## Lint configuration
 
-The 2026-10-19 review ran golangci-lint v2.14.0 with the proposed extra
-linters and found 38 issues. Since this exceeded the plan's 20-issue limit,
-only the zero-report additions (`nilerr`, `bodyclose`) are enabled alongside
-the default linters. Errors and import formatting introduced by this review
-were fixed. Enable the following linters in separate, focused changes:
-
-| Linter | Initial reports | Follow-up |
-| --- | ---: | --- |
-| `contextcheck` | 14 | Review initialization, logging, watcher and shutdown context ownership |
-| `errorlint` | 3 | Review wrapping of scan/profile parser errors |
-| `gocritic` | 3 | Review deferred cleanup on exit and secret path slice appends |
-| `prealloc` | 4 | Preserve CLI empty-diff JSON semantics while sizing slices |
-| `unconvert` | 2 | Remove redundant resolver and test conversions |
-| `usestdlibvars` | 5 | Replace HTTP status literals in Vault tests |
-
-The other seven reports were `errcheck` (3), `goimports` (3) and
-`staticcheck` (1); these are fixed with the existing default checks retained.
-A subsequent run exposed two more pre-existing import-group issues in watcher
-and source tests (hidden by the repeated-issue limit); those are fixed too.
+The root lint command and tool version are defined in the [Makefile](../Makefile);
+enabled checks live in [`.golangci.yml`](../.golangci.yml). Review findings are
+point-in-time records, not a maintained inventory of current failures.

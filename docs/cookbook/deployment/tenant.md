@@ -18,7 +18,7 @@ go run ./examples/tenant
 FC_TENANT_A_DATABASE_POOL=12 go run ./examples/tenant
 ```
 
-[`examples/tenant`](../../examples/tenant/README.md) contains the complete Go
+[`examples/tenant`](../../../examples/tenant/README.md) contains the complete Go
 program, editable local YAML, expected output and scenario tests. It uses no
 external service and does not connect to a database.
 
@@ -38,6 +38,10 @@ mgr, err := fastconf.New[Config](ctx,
     fastconf.WithProvenance(fastconf.ProvenanceFull),
     fastconf.WithHistory(4),
 )
+if err != nil {
+    return err
+}
+defer mgr.Close()
 ```
 
 The precedence is shared base → prod overlay → tenant file → tenant env →
@@ -71,6 +75,6 @@ and in-flight request ownership rules. Close an evicted manager after releasing
 the registry lock and after its users have finished; callbacks may need registry
 access. Tenant IDs used in paths must be trusted or validated.
 
-Related: [reload failures and overrides](reload-policy.md),
-[secret resolution and redaction](secrets.md),
-[configuration ownership](../design/spec.md#configuration-and-ownership).
+Related: [reload failures and overrides](../runtime/reload-policy.md),
+[secret resolution and redaction](../processing/secrets.md),
+[configuration ownership](../../design/spec.md#configuration-and-ownership).

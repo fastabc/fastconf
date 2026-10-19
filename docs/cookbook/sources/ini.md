@@ -3,7 +3,7 @@
 INI is a built-in document decoder. Files ending in `.ini`
 (case-insensitive) participate in normal base/overlay discovery, merging,
 validation, provenance and file watching. No registration import is needed.
-See the [complete example](../../examples/ini/README.md).
+See the [complete example](../../../examples/ini/README.md).
 
 ```ini
 name = demo

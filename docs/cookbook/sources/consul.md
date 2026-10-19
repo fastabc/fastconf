@@ -21,6 +21,10 @@ if err != nil {
 mgr, err := fastconf.New[MyApp](ctx,
     fastconf.WithProvider(p),
 )
+if err != nil {
+    return err
+}
+defer mgr.Close()
 ```
 
 Provider watches start automatically; `WithWatch` only controls the file

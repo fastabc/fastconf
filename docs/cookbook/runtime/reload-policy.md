@@ -6,12 +6,19 @@ For consumers that want to observe / react to failures, the framework exposes a 
 
 ## `m.Errors()` — per-failure event stream
 
-Every failed reload emits one `ReloadError` onto a buffered channel. The channel is closed when the Manager closes.
+Failures processed by the writer, including Plan failures, are also reported
+as `ReloadError`. Initialization errors return from `New`/`Load`; errors before
+queue admission may return directly. The channel closes with the Manager.
+It is a work channel, not a broadcast: multiple consumers divide the events.
+Subscriber panics also appear after publication and do not undo the snapshot.
 
 ```go
 import "github.com/fastabc/fastconf"
 
-mgr, _ := fastconf.New[Cfg](ctx, fastconf.WithDir("conf.d"))
+mgr, err := fastconf.New[Cfg](ctx, fastconf.WithDir("conf.d"))
+if err != nil {
+    return err
+}
 defer mgr.Close()
 
 go func() {
@@ -31,7 +38,7 @@ type ReloadError struct {
 }
 ```
 
-Capacity is 16 with **drop-on-full** semantics — if the consumer cannot keep up, the oldest pending error is dropped. The reload loop is never blocked by a slow consumer. Failure-safe state preservation is unaffected by drops.
+Capacity is 16 with **oldest-error eviction** — if the consumer cannot keep up, the oldest pending error is dropped. The reload loop is never blocked by a slow consumer. Failure-safe state preservation is unaffected by drops.
 
 ### Consumer pattern: "abort after N consecutive failures"
 
@@ -89,13 +96,15 @@ err := mgr.Reload(ctx,
 Behaviour:
 
 - Full reload pipeline runs with an extra in-memory layer at priority 9000, above all providers.
-- The layer is **one-shot** — the next plain `mgr.Reload(ctx)` reverts to the natural source set.
+- The layer is **one-shot** — the next reload, including a watcher-triggered
+  reload, reads the natural source set without that layer.
 - Values must be JSON-serializable. `Reload` **deep-copies** the map when applying the option; do not mutate it concurrently with the call. The original can be reused after `Reload` returns.
 - Useful for integration tests and application-level operator overrides without editing source files.
 
 Additional `ReloadOption`:
 
-- `fastconf.WithReason(s string)` — overrides the default `"manual"` reason tag stamped onto audit / metric / log lines.
+- `fastconf.WithReason(s string)` — overrides the default `"manual"` reason tag used by causes, audit, logs and reload events; the built-in Prometheus
+  reload counter has no reason label.
 
 ## Why no `mgr.Set(key, value)`?
 
@@ -106,4 +115,4 @@ A partial-mutation API would break:
 - subscriber fan-out (every reload must be atomic),
 - audit (one cause per state change).
 
-`WithOverride` is the sanctioned shape for "apply just this much change" — it produces a real reload with a real audit entry and reverts automatically on the next plain `Reload`.
+`WithOverride` is the sanctioned shape for "apply just this much change" — it produces a real reload with a real audit entry and is omitted from the next reload. It has no timer-based expiry.

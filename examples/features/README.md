@@ -15,8 +15,8 @@ missing flag=false missing anchor=false
 
 The complete [feature document](conf.d/base/00-features.yaml) enables checkout
 for enterprise users first, then rolls it out to 30% of `user.id` buckets.
-Targets precede rollouts. Requests without a matching target or a non-empty
-rollout anchor receive the rule default; missing flags receive the caller's
+Targets precede rollouts. If no target matches and no rollout applies,
+requests receive the rule default; missing flags receive the caller's
 fallback. The same user ID always lands in the same bucket.
 
 The example embeds YAML and loads it once. A service can use `New` and evaluate
@@ -24,4 +24,8 @@ The example embeds YAML and loads it once. A service can use `New` and evaluate
 maps and rules remain read-only. Hashing uses the anchor alone; include a flag
 namespace in the anchor when independent flag cohorts are needed.
 
-Related: [feature cookbook](../../docs/cookbook/features.md).
+Related: [feature cookbook](../../docs/cookbook/features/features.md).
+
+Source: [main.go](main.go).
+
+Verify from the repository root: `go test -race ./examples/features`.

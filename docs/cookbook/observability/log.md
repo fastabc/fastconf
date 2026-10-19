@@ -29,10 +29,14 @@ import (
 )
 
 h := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})
-cfg, _ := fastconf.New[AppConfig](ctx,
+mgr, err := fastconf.New[AppConfig](ctx,
     fastconf.WithDir("conf.d"),
     fastconf.WithLogger(slog.New(h)),
 )
+if err != nil {
+    return err
+}
+defer mgr.Close()
 ```
 
 Example output:
@@ -74,10 +78,14 @@ import (
 )
 
 zl := zerolog.New(os.Stderr).With().Timestamp().Logger().Level(zerolog.InfoLevel)
-cfg, _ := fastconf.New[AppConfig](ctx,
+mgr, err := fastconf.New[AppConfig](ctx,
     fastconf.WithDir("conf.d"),
     fastconf.WithLogger(slog.New(zerologadapter.NewHandler(zl, zerologadapter.Options{}))),
 )
+if err != nil {
+    return err
+}
+defer mgr.Close()
 ```
 
 `Options` fields:
@@ -126,10 +134,14 @@ pl := &plog.Logger{
     TimeFormat: "2006-01-02T15:04:05.999Z07:00",
     Writer:     plog.IOWriter{Writer: os.Stderr},
 }
-cfg, _ := fastconf.New[AppConfig](ctx,
+mgr, err := fastconf.New[AppConfig](ctx,
     fastconf.WithDir("conf.d"),
     fastconf.WithLogger(slog.New(phusluadapter.NewHandler(pl, phusluadapter.Options{}))),
 )
+if err != nil {
+    return err
+}
+defer mgr.Close()
 ```
 
 This adapter exposes the same `Options` fields as the zerolog adapter:

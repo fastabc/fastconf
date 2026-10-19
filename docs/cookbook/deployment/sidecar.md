@@ -16,7 +16,7 @@ go run github.com/fastabc/fastconf/cmd/fastconfd@v1.1.0 \
 wire from a Kubernetes Secret.
 `-read-token` defaults from `FASTCONFD_READ_TOKEN` and is required for
 `/config`, `/dump`, and `/events` via `X-Config-Token`. Both tokens are
-required at startup; the explicit loopback address is the safe default.
+required at startup. The default bind address is loopback.
 
 The sidecar serves `map[string]any`, which has no `fc:"secret"` tags, so it
 redacts by path pattern instead. Keys named `password`, `passwd`, `secret`,
@@ -81,6 +81,11 @@ spec:
           env:
             - name: FASTCONFD_ADDR
               value: http://127.0.0.1:8650
+            - name: FASTCONFD_READ_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fastconfd-reload
+                  key: read-token
         - name: fastconfd
           image: example/fastconfd:v1.1.0
           args:
@@ -100,14 +105,6 @@ spec:
           ports:
             - name: http
               containerPort: 8650
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: http
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: http
           volumeMounts:
             - name: config
               mountPath: /etc/myapp/conf.d
@@ -121,9 +118,28 @@ spec:
                 path: base/00-app.yaml
 ```
 
+The application image must use `FASTCONFD_ADDR` and send `FASTCONFD_READ_TOKEN`
+in the `X-Config-Token` header; these environment variables do not configure an
+HTTP client automatically.
+
+The example omits probes because the listener binds to loopback. Add an
+image-specific exec probe for `http://127.0.0.1:8650/healthz` if the image has
+an HTTP client. A Pod-IP HTTP probe requires an address reachable through the
+Pod network. See the Kubernetes
+[probe configuration reference](https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/#http-probes).
+
 Do not create a Service or Ingress for `fastconfd` unless another workload
 genuinely needs cross-pod access. If `/reload` is exposed outside the pod,
 require TLS and rotate the token through the Secret.
+
+## Client behavior
+
+SSE events carry a reload cause, not the configuration or a durable cursor.
+Fetch `/config` at startup and after notifications/reconnects; account for
+changes between fetching and subscribing. The event bus is bounded and may
+drop notifications, so periodic generation checks/refetches are appropriate
+when eventual synchronization is required. `/healthz` indicates an available
+snapshot; it does not mean the latest reload succeeded.
 
 ## Examples
 
@@ -146,6 +162,6 @@ curl -s -H "X-Config-Token: $FASTCONFD_READ_TOKEN" http://localhost:8650/config 
 
 ## HTTP integration tests
 
-[`cmd/fastconfd/main_test.go`](../../cmd/fastconfd/main_test.go) exercises
+[`cmd/fastconfd/main_test.go`](../../../cmd/fastconfd/main_test.go) exercises
 the daemon's authentication, redacted views and SSE commit delivery.
 Run it with `go test ./cmd/fastconfd -run '^TestServer_'`.

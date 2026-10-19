@@ -1,6 +1,8 @@
 # FastConf Runtime Contract
 
-This document defines the FastConf v1.1.0 runtime contract.
+This document defines the runtime contract for the current checkout.
+For a released dependency, use this document at its installed tag. Changes
+after v1.1.0 are recorded in the [changelog](../../CHANGELOG.md#unreleased).
 The root module requires Go 1.24; independent modules declare their own
 minimum versions. See [architecture.md](../architecture.md) for package
 ownership and [RELEASING.md](../../RELEASING.md) for release checks.
@@ -65,6 +67,10 @@ File discovery limits each base directory to
 profile directories and 40 declared axes fit in the file bands. Axis priorities
 are relative ranks: higher values win, with declaration order breaking ties.
 The scanner assigns each axis a separate priority window and rejects overflow.
+Matching profile directories merge in lexical directory order, regardless of
+`Profile.Names` order. Files are read directly from each selected directory;
+nested directories and names beginning with `.` or `_` are skipped.
+See [files, profiles and patches](../cookbook/sources/layers.md) for selection examples.
 Root `_meta.yaml` settings live under `spec`; per-overlay `_meta.yaml` uses a
 top-level `match` expression. See the [reload pipeline](#reload-pipeline).
 
@@ -142,7 +148,7 @@ provider snapshots, transforms and `State.Map`; they are not solely internal.
 INI input: default-section keys map to the root,
 other sections to child maps, and leaf values remain strings until typed hooks.
 Strict merging checks raw types before those hooks, so an INI string cannot
-override a YAML number in strict mode. See the [INI recipe](../cookbook/ini.md)
+override a YAML number in strict mode. See the [INI recipe](../cookbook/sources/ini.md)
 for syntax and compatibility details; INI is not a dump or struct-tag format.
 
 ## Reload pipeline
@@ -154,11 +160,13 @@ assemble → merge → transform → secret → typed-hooks → decode
 
 Assembly discovers files, invokes generators and loads providers. Merge
 applies deep/strategic merge and RFC 6902 patches in layer order. Transforms
-include optional schema migration functions. Secret resolution precedes typed
+include optional schema migration functions. Provenance records layer writes
+and resolved secret leaves; it is not a complete trace of arbitrary transform,
+hook or default mutations. Secret resolution precedes typed
 hooks and decode. Decode applies struct-tag defaults and then `Defaulter`.
 Field metadata, user validators and policies run before publication. Tag defaults
 fill Go zero values, including explicit false, 0 and empty strings. Use lower
-priority base layers to preserve explicit zero overrides; see [field semantics](../cookbook/field-meta.md).
+priority base layers to preserve explicit zero overrides; see [field semantics](../cookbook/processing/field-meta.md).
 UnknownWarn uses the configured logger, whose default discards output. Production
 struct examples select UnknownError; permissive callers must supply WithLogger.
 
@@ -168,6 +176,10 @@ dropped on overflow); initialization failures are returned by `New`/`Load`.
 Context cancellation remains recognizable with `errors.Is`. The eight main
 pipeline error categories are available in the root API reference; history has
 additional `ErrHistoryDisabled` and `ErrUnknownGeneration` errors.
+Subscriber panics also reach `Errors()` with reason `subscriber-panic`, after
+publication; they do not roll back the already-published snapshot. Failures
+before an operation enters the writer (such as a closed manager) may return
+directly without a channel event.
 
 Commit hashes the final typed value encoded in the selected decode format.
 Both encoders sort map keys. Custom `MarshalJSON` / `MarshalYAML` implementations
@@ -190,8 +202,9 @@ Plan can return nil error with failing validator reports or error-severity polic
 findings; inspect both collections before treating a preview as acceptable.
 Reload loads sources again, so a preview does not reserve its exact candidate.
 Plan still invokes providers, generators and user hooks, whose external effects
-are not rolled back. It accepts PlanOption values, not ReloadOption values such
-as `WithOverride`.
+are not rolled back. A proposed state retains the current generation; it does
+not reserve a future generation or populate a normal commit cause. It accepts
+PlanOption values, not ReloadOption values such as `WithOverride`.
 
 ## Watchers and observation
 
@@ -208,6 +221,8 @@ and commit callbacks are synchronous; provider notifications may be concurrent.
 it cannot interrupt a callback that ignores cancellation. `observe.Async`
 provides a bounded queue with a dropped-event count. Its owner must call
 `Close()`; closing a manager does not close separately created observers.
+Async targets receive `context.Background()`, so the owner must supply their
+I/O deadlines; the manager callback timeout does not bound async delivery.
 Tracing exposes the reload, assemble, pipeline-stage and commit spans.
 
 ## Diagnostic views

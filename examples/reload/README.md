@@ -19,7 +19,8 @@ source repaired: port=8080 generation=5
 ```
 
 The program copies [initial.yaml](config/initial.yaml) to a temporary local
-file, then replaces it with [invalid.yaml](config/invalid.yaml) and
+file, then tries [invalid.yaml](config/invalid.yaml),
+[policy-invalid.yaml](config/policy-invalid.yaml) and
 [proposed.yaml](config/proposed.yaml). It removes the temporary directory on
 exit, leaving repository fixtures unchanged.
 
@@ -35,11 +36,15 @@ loads sources again; a preview does not freeze them or reserve the approved
 candidate. Rollback restores in-memory state and leaves the source file unchanged,
 so a later reload would load port 9090 again.
 
-Related: [Plan](../../docs/cookbook/plan.md),
-[diagnostics and history](../../docs/cookbook/introspect.md).
+Related: [Plan](../../docs/cookbook/runtime/plan.md),
+[diagnostics and history](../../docs/cookbook/runtime/introspect.md).
 
 The port policy rejects 7070 and warns for 9090. `checkPlan` checks validator
 errors and error-severity policies; `printChange` compares hashes as well as
 diagnostic entries, so JSON-hidden YAML changes are not labeled unchanged.
 The final steps first demonstrate the unchanged source reapplying 9090, then
 repair it to 8080 and validate before publication.
+
+Source: [main.go](main.go).
+
+Verify from the repository root: `go test -race ./examples/reload`.

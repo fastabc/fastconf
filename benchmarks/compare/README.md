@@ -1,8 +1,8 @@
 # Reproducible configuration comparison
 
-This standalone module pins FastConf (local checkout), Viper 1.21.0, Koanf 2.3.0,
-Cleanenv 1.5.0 and Envconfig 1.4.0. These are fixed comparison versions, not a
-claim that each is the latest release. Its `replace` selects the local FastConf
+This standalone module compares FastConf with Viper, Koanf, Cleanenv and
+Envconfig. [go.mod](go.mod) pins the comparison dependencies; these are fixed
+comparison versions, not a claim that each is the latest release. Its `replace` selects the local FastConf
 source. It is excluded from release module discovery, tags and candidate archives;
 competitor dependencies do not enter the root go.mod.
 
@@ -85,4 +85,9 @@ The installed module source was read to verify those signatures. See
 [compare.go](compare.go), [benchmarks](compare_test.go) and
 [sample tool](cmd/sample/main.go) for the complete measured work.
 
-Measured results: [2026-10-18 report (中文)](REPORT.zh.md), including raw samples and limitations.
+Measured results: [2026-10-18 report (中文)](REPORT.zh.md), including raw samples
+and limitations. That report describes its recorded source and environment, not
+the performance of every later checkout.
+
+Related: [runtime performance contract](../../docs/design/perf.md) and
+[repository tooling](../../tools/README.md).

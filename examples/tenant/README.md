@@ -38,18 +38,6 @@ conf.d/
 | [tenants/tenant-a.yaml](conf.d/tenants/tenant-a.yaml) | Address `:8081`, tenant-a DSN, pool `10`, RPS `100` |
 | [tenants/tenant-b.yaml](conf.d/tenants/tenant-b.yaml) | Address `:8082`, tenant-b DSN, RPS `200`; inherits pool `20` |
 
-For example, tenant-a's entire local document is:
-
-```yaml
-server:
-  addr: ":8081"
-database:
-  dsn: "postgres://demo:demo@localhost/tenant_a"
-  pool: 10
-limits:
-  rps: 100
-```
-
 Copy the whole `conf.d` directory and pass `-dir` to use your own files. Edit
 `tenants/tenant-a.yaml` and rerun to see only tenant-a change. Database URLs
 contain demonstration credentials; `fc:"secret"` masks DSNs in diagnostic views,
@@ -95,6 +83,8 @@ hook state between tenant managers.
 go test -race ./examples/tenant
 ```
 
-Related: [tenant cookbook](../../docs/cookbook/tenant.md),
-[reload failures](../../docs/cookbook/reload-policy.md),
-[secrets](../../docs/cookbook/secrets.md).
+Related: [tenant cookbook](../../docs/cookbook/deployment/tenant.md),
+[reload failures](../../docs/cookbook/runtime/reload-policy.md),
+[secrets](../../docs/cookbook/processing/secrets.md).
+
+Source: [main.go](main.go).

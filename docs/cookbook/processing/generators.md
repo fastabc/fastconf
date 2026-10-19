@@ -1,6 +1,8 @@
 # Custom configuration generators
 
-`WithProvider(source.NewBytes(...))` already injects ad-hoc layers, but it hard-codes the producer in the call site. `WithGenerator` formalises the same idea so third-party producers can register a stable `Generate` API.
+`WithGenerator` registers a producer of encoded layers. Use a provider for a
+structured snapshot or native change notifications; use `source.NewBytes`
+when the document is already available at construction.
 
 A `Generator` produces zero or more `contracts.RawLayer` values during the `assemble` stage, after file discovery and before providers run. Failure aborts the reload and preserves the previous state.
 
@@ -48,10 +50,14 @@ func (b BuildInfo) Generate(context.Context) ([]contracts.RawLayer, error) {
     }}, nil
 }
 
-mgr, _ := fastconf.New[AppConfig](ctx,
+mgr, err := fastconf.New[AppConfig](ctx,
     fastconf.WithDir("conf.d"),
     fastconf.WithGenerator(BuildInfo{Version: "1.2.3", Commit: "abc123"}),
 )
+if err != nil {
+    return err
+}
+defer mgr.Close()
 ```
 
 ## Custom generators
@@ -63,7 +69,9 @@ ideas, not built-in generators:
 - **Downward API**: read `/etc/podinfo/labels` (mounted by Kubernetes) and emit a layer.
 - **gRPC**: pull a tiny snapshot from an internal control-plane on every reload.
 
-Generators MUST be deterministic for a given input — `Manager.Plan` invokes them, and a non-deterministic generator would make plan output unreproducible.
+Keep output deterministic for a given input and honor context cancellation.
+Plan also invokes generators, but inputs may change before Reload. Generators
+have no watch channel: trigger Reload explicitly or through a separate watcher.
 
 ## Generator vs transform vs Provider
 

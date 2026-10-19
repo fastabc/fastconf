@@ -1,55 +1,76 @@
-# FastConf Cookbook — Recipes by Journey
+# Cookbook
 
-Recipes target the FastConf v1.1.0 API. Unless marked as a
-complete program, Go blocks are integration fragments: supply your own config
-type, imports, context, error handling and manager shutdown.
+Recipes follow the current checkout; additions after v1.1.0 are marked. Start
+with the [loading guides](../README.md#start-here) or [complete examples](../../examples/README.md).
 
-Start with the [runnable examples](../../examples/README.md) for complete source,
-configuration, commands and expected output. Root-only examples require Go 1.24+;
-optional integrations use their module's declared Go floor. Commands run from the
-repository root unless stated otherwise. To test optional modules against local
-source, use `bash tools/modules.sh exec <command>`.
-Historical API names appear only in migration tables and before/after blocks.
+Go blocks are integration fragments unless labeled as complete programs.
+Files use the same functional directories as the sections below.
+Supply the named config type, imports and application context; `return err`
+assumes an enclosing function returning `error`. Commands run from the repository
+root. Optional modules and local workspace commands are listed in the
+[extensions guide](../getting-started/extensions.md).
 
-The [runtime contract](../design/spec.md) defines lifecycle, source precedence,
-decoding, metadata file layout and configuration ownership for all recipes.
+## Sources and layering
 
-## Day 1 — get a typed config loading
-
-| Recipe | Use it for |
+| Recipe | Purpose |
 |---|---|
-| [Local layered configuration](../../examples/basic/README.md) | Complete base/prod/env example with typed reads and validation |
-| [Struct tag `fc`](field-meta.md) | `default`, `required`, `min`, `max`, `oneof`, `secret`, `desc`; loading examples and behavior limits |
-| [INI input](ini.md) | Sections, string values, typed conversion and strict mixed-format merging |
-| [k8s](k8s.md) | ConfigMap / Secret + sidecar / in-process loading |
-| [sidecar](sidecar.md) | Run `fastconfd` for non-Go workloads |
-| [env-replacer](env-replacer.md) | Env key conventions, `At()` namespacing, coercion |
-| [labels](labels.md) | Metadata labels, dotted config labels, routing DSL labels |
-| [migration v1](migration-v1.md) | Upgrade directly from v0.20.0 to v1.1.0 |
+| [Files, profiles and patches](sources/layers.md) | Directory layout, profile selection, axes and RFC 6902 patches |
+| [Environment and dotenv](sources/env-replacer.md) | Key separators, namespaces, coercion and fallback |
+| [INI](sources/ini.md) | Sections, typed conversion and mixed-format merge limits |
+| [Labels](sources/labels.md) | Dotted configuration, routing DSL and raw Kubernetes metadata |
+| [HTTP](sources/http.md) | Remote documents, codecs, conditional requests and polling |
+| [Vault KV v2](sources/vault.md) | KV data, metadata polling and authentication choices |
+| [Consul KV](sources/consul.md) | Prefix trees, document mode and blocking queries |
+| [NATS / Redis Streams](sources/cross-process.md) | Transport reference implementations and resume limits |
 
-## Operations — observe, inspect, and run safely
+## Merge, conversion and validation
 
-| Recipe | Use it for |
+| Recipe | Purpose |
 |---|---|
-| [observability](observability.md) | Prometheus rules, OpenTelemetry tracing, and reload triage |
-| [log](log.md) | JSON / zerolog / phuslu/log adapter wiring |
-| [observer](observer.md) | Audit lines, metrics and pushing reload diffs to Slack / PagerDuty / GitHub |
-| [introspect](introspect.md) | `state.Map / Dump / Explain`, `Unredacted()`, deterministic dumps |
-| [reload-policy](reload-policy.md) | `m.Errors()` consumer pattern + `WithOverride` |
-| [provider-timeouts](provider-timeouts.md) | HTTP-client `Timeout` vs `ctx` guarantees |
-| [vault](vault.md) | Load Vault KV-v2 and poll metadata for version changes |
-| [consul](consul.md) | Consul KV with watcher prefix + ACL |
-| [cross-process](cross-process.md) | Cross-process push via NATS or Redis Streams |
+| [Keyed-list merging](processing/strategic-merge.md) | Merge list objects with `mergeKeys` |
+| [Generators](processing/generators.md) | Implement `contracts.Generator` for encoded layers |
+| [Typed hooks](processing/typed-hooks.md) | Duration and scalar conversion before struct decoding |
+| [`fc` tags](processing/field-meta.md) | Defaults, constraints, explicit zero values and redaction |
+| [Secret resolution](processing/secrets.md) | Implement decryption hooks; configure redaction separately |
+| [Policies](processing/policy.md) | Go rules and optional OPA/CUE adapters |
 
-## Advanced — policy, generators, and extension points
+## Runtime updates and diagnostics
 
-| Recipe | Use it for |
+| Recipe | Purpose |
 |---|---|
-| [plan](plan.md) | Dry-run a reload before letting it land |
-| [policy](policy.md) | OPA / CUE / Go policies in the reload pipeline |
-| [tenant](tenant.md) | Complete local shared/prod/tenant files, isolated env and reload failures |
-| [generators](generators.md) | Kustomize-style ConfigMap/Secret generators |
-| [strategic-merge](strategic-merge.md) | `mergeKeys` list-of-object merge |
-| [typed-hooks](typed-hooks.md) | Plug `time.Duration` / custom scalar pre-decode hooks |
-| [secrets](secrets.md) | SOPS / age / KMS / Vault transit decryption hooks |
-| [features](features.md) | Feature flags, targeting, percentage rollouts |
+| [Subscriptions](runtime/subscribe.md) | Compare selected values and signal bounded resource workers |
+| [Reload failures and overrides](runtime/reload-policy.md) | Error consumption and one-shot override layers |
+| [Plan](runtime/plan.md) | Inspect candidate values and validator/policy findings |
+| [Snapshots and history](runtime/introspect.md) | `Map`, `Dump`, `Diff`, `Explain` and rollback |
+| [Timeouts and cancellation](runtime/provider-timeouts.md) | Bound provider I/O and understand writer/shutdown limits |
+
+## Observability
+
+| Recipe | Purpose |
+|---|---|
+| [Observers](observability/observer.md) | Lifecycle events, audit output and bounded async delivery |
+| [Metrics and tracing](observability/observability.md) | Prometheus, OpenTelemetry and reload triage |
+| [Logging](observability/log.md) | Standard `slog`, zerolog and phuslu/log |
+
+## Deployment
+
+| Recipe | Purpose |
+|---|---|
+| [Kubernetes](deployment/k8s.md) | Projected volumes and Downward API metadata |
+| [Sidecar](deployment/sidecar.md) | `fastconfd` HTTP/SSE, authentication and deployment |
+| [Tenants](deployment/tenant.md) | Explicit source selection and one manager per tenant |
+
+## Application features
+
+| Recipe | Purpose |
+|---|---|
+| [Feature flags](features/features.md) | Ordered targets, percentage rollouts and fallbacks |
+
+## Migration
+
+[Migration to v1.1.0](migration-v1.md) documents the historical v0.20.0 → v1.1.0
+API changes; it is separate from recipes for the current checkout.
+
+The [runtime contract](../design/spec.md) owns shared lifecycle, precedence,
+decoding and ownership rules. Recipes link to it instead of defining another
+version of those rules.

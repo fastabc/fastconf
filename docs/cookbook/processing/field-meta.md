@@ -10,7 +10,7 @@ Separate directives with commas and enumeration values with `|`. For example:
 
 ```go
 type Config struct {
-    Level  string `json:"level" yaml:"level" fc:"default=info,oneof=info|warn|error,desc=日志级别"`
+    Level  string `json:"level" yaml:"level" fc:"default=info,oneof=info|warn|error,desc=Log level"`
     Port   int    `json:"port" yaml:"port" fc:"required,min=1,max=65535"`
     Token  string `json:"token" yaml:"token" fc:"required,secret"`
 }
@@ -54,7 +54,7 @@ cfg := state.Value() // Level="info", Port=8080, Token="demo-token"; read-only
 _ = cfg
 ```
 
-See the [single-file guide](../getting-started/load.md) for a complete program
+See the [single-file guide](../../getting-started/load.md) for a complete program
 and the default `conf.d` directory behavior. Missing `level` receives `info`;
 `level: debug`, `port: 70000`, or a missing/empty `token` fails with `ErrInvalid`.
 On reload, a rejected candidate leaves the previous snapshot active.
@@ -192,7 +192,7 @@ and is unaffected by this limitation.
 In a normal reload, any field metadata violations reject the candidate with
 `ErrInvalid`. `mgr.Plan(ctx)` collects these violations in `Validators` without
 rejecting the preview; inspect each report's `Err` before approving it. See the
-[runnable reload example](../../examples/reload/README.md).
+[runnable reload example](../../../examples/reload/README.md).
 
 ## Pairing with WithValidate
 

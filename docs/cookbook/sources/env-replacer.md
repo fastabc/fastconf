@@ -1,6 +1,6 @@
 # Env key replacer & namespacing
 
-`providers/env.New("APP_")` defaults to the Viper / Spring Boot relaxed-binding convention: every `_` after the prefix becomes a `.` level. Runs of underscores collapse to a single separator, so neither single- nor double-underscore keys produce empty path segments.
+`providers/env.New("APP_")` defaults to the underscore-to-path convention: every `_` after the prefix becomes a `.` level. Runs of underscores collapse to a single separator, so neither single- nor double-underscore keys produce empty path segments.
 
 | Input env var | With prefix `APP_` | Resulting dotted path |
 |---|---|---|
@@ -16,11 +16,15 @@ import (
     "github.com/fastabc/fastconf/providers/env"
 )
 
-mgr, _ := fastconf.New[Cfg](ctx,
+mgr, err := fastconf.New[Cfg](ctx,
     fastconf.WithDir("conf.d"),
     // APP_DATABASE_DSN → database.dsn
     fastconf.WithProvider(env.New("APP_")),
 )
+if err != nil {
+    return err
+}
+defer mgr.Close()
 ```
 
 ## Preserving `_` in keys (`__` as separator)
@@ -28,13 +32,17 @@ mgr, _ := fastconf.New[Cfg](ctx,
 When your keys legitimately carry literal underscores (e.g. SCREAMING_SNAKE feature-flag names that the consuming code reads as one identifier), use `DoubleUnderscoreReplacer`:
 
 ```go
-mgr, _ := fastconf.New[Cfg](ctx,
+mgr, err := fastconf.New[Cfg](ctx,
     fastconf.WithDir("conf.d"),
     // APP_FEATURE_FLAGS → feature_flags  (single "_" preserved)
     // APP_DATABASE__POOL → database.pool (only "__" introduces a level)
     fastconf.WithProvider(env.New("APP_").
         WithReplacer(env.DoubleUnderscoreReplacer)),
 )
+if err != nil {
+    return err
+}
+defer mgr.Close()
 ```
 
 ## Custom replacer
@@ -51,7 +59,9 @@ fastconf.WithProvider(env.New("APP_").WithReplacer(custom))
 
 ## Namespacing env values under a sub-tree (`At`)
 
-By default env values land at the root of the merged config. Use `At` to graft the whole env-loaded tree under a dotted path — useful when you want to keep operator-injected runtime values out of the main schema:
+By default env values land at the root of the merged config. `At` places the
+whole env-loaded tree under a dotted path. Declare that subtree in a typed
+configuration when unknown-field checking is enabled:
 
 ```go
 fastconf.WithProvider(env.New("APP_").At("config.runtime"))
@@ -81,7 +91,10 @@ combine the fallback with deployment overrides.
 
 ## Coercion (off by default)
 
-Values are kept verbatim as strings; the typed-decode chain (`codec.StringPrimitiveHook` in `DefaultTypedHooks`) converts them to the destination field type at `*T` decode time. If you consume the merged map directly (without the typed-decode hook chain) and want eager bool/int/float coercion at Load time, opt in:
+Values remain strings by default. `codec.StringPrimitiveHook` converts them
+to built-in scalar field types during typed decoding. If the target is
+`map[string]any`, there is no concrete field type to guide
+conversion. For eager bool/int/float coercion during provider loading, opt in:
 
 ```go
 fastconf.WithProvider(env.New("APP_").WithCoerce(true))
@@ -89,4 +102,7 @@ fastconf.WithProvider(env.New("APP_").WithCoerce(true))
 
 ## Mixing providers
 
-Multiple env providers with different prefixes / replacers can co-exist — they advertise distinct names (`env:APP_`, `env:LEGACY_` …) so the framework treats them as independent layers. The later one in the option list wins per dotted key when priorities tie.
+Multiple env providers can use different prefixes and replacers. Names derive
+from the prefix (`env:APP_`, `env:LEGACY_`), not the replacer; use distinct
+prefixes to keep diagnostic names distinct. Equal-priority providers merge in
+registration order, with later values winning at the same path.

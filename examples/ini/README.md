@@ -1,6 +1,6 @@
 # INI configuration
 
-From the repository root, run:
+From the repository root (Go 1.24+, no services required), run:
 
 ```sh
 go run ./examples/ini
@@ -19,5 +19,5 @@ the default typed hooks convert the port, boolean and duration. The string code
 keeps its leading zeros. Both layers use strings, so strict merging succeeds.
 
 No INI struct tags or extra options are needed: the default JSON bridge uses
-the `json` tags in [main.go](main.go). See the [INI recipe](../../docs/cookbook/ini.md)
+the `json` tags in [main.go](main.go). See the [INI recipe](../../docs/cookbook/sources/ini.md)
 for syntax, mixed-format merging and the input-only scope.

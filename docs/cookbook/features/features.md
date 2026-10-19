@@ -35,18 +35,30 @@ type AppConfig struct {
     Features map[string]feature.Rule `json:"features" yaml:"features"`
 }
 
-mgr, _ := fastconf.New[AppConfig](ctx, fastconf.WithDir("conf.d"))
+mgr, err := fastconf.New[AppConfig](ctx, fastconf.WithDir("conf.d"))
+if err != nil {
+    return err
+}
+defer mgr.Close()
 
 // In a request handler:
-on, _ := feature.Eval(mgr.Get().Features, "darkMode", feature.EvalContext{
+on, ok := feature.Eval(mgr.Get().Features, "darkMode", feature.EvalContext{
     "region":  "eu-west",
     "user.id": "u_42",
 }, false).(bool)
+if !ok {
+    return fmt.Errorf("darkMode must evaluate to bool")
+}
+_ = on
 ```
+
+The fragment also imports `fmt`. Rule values are `any`; check their type when
+the application expects a bool. Missing flags use the caller fallback; existing
+flags with no matching target/rollout use the rule default.
 
 ## Runnable example
 
-[`examples/features`](../../examples/features/README.md) includes complete YAML,
+[`examples/features`](../../../examples/features/README.md) includes complete YAML,
 targeting, a 30% rollout, missing-key fallbacks and deterministic output:
 
 ```sh

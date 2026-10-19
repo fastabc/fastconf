@@ -20,5 +20,9 @@ returns a `State[Config]`; read the typed config with `state.Value()`. It starts
 no workers. For editable files use `WithDir` without `WithFS`; for live reload
 use `New`, `WithWatch(Watch{})`, and close the manager on shutdown.
 
-Related: [environment conventions](../../docs/cookbook/env-replacer.md),
+Related: [environment conventions](../../docs/cookbook/sources/env-replacer.md),
 [runtime contract](../../docs/design/spec.md).
+
+Source: [main.go](main.go).
+
+Verify from the repository root: `go test -race ./examples/basic`.
