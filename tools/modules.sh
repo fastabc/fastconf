@@ -41,17 +41,7 @@ for module in "${SELECTED[@]}"; do
 done
 export GOWORK=off
 if [[ "$COMMAND" == tidy || "$COMMAND" == tidy-check ]]; then
-  ARGS=(mod tidy)
-  [[ "$COMMAND" != tidy-check ]] || ARGS+=(-diff)
-  FAIL=0
-  for module in "${SELECTED[@]}"; do
-    echo "modules: $COMMAND / $module"
-    (cd "$ROOT/$module" && go "${ARGS[@]}") || FAIL=1
-  done
-  if [[ "$FAIL" != 0 && "$COMMAND" == tidy-check ]]; then
-    echo "Resolve any errors above, then run make tidy and commit the dependency metadata." >&2
-  fi
-  exit "$FAIL"
+  exec bash "$ROOT/tools/check-candidate.sh" "--$COMMAND" "${SELECTED[@]}"
 fi
 if [[ "$COMMAND" == workspace || "$COMMAND" == exec ]]; then
   TMP="$(mktemp -d)"

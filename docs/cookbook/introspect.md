@@ -51,6 +51,9 @@ Map keys are sorted lexicographically inside every YAML mapping, so two snapshot
 
 ### `fastconfctl dump --format=yaml`
 
+CLI `dump`, `diff` and `explain` mask common credential keys by default.
+Use `-unredacted` only when plaintext output is intended.
+
 ```bash
 fastconfctl dump --dir conf.d --profile prod --format=yaml > /tmp/prod.yaml
 fastconfctl dump --dir conf.d --profile dev  --format=yaml > /tmp/dev.yaml

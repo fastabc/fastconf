@@ -20,6 +20,9 @@ type server struct {
 }
 
 func newServer(mgr *fastconf.Manager[map[string]any], bus *eventBus, token string, log *slog.Logger) *server {
+	if log == nil {
+		log = slog.Default()
+	}
 	return &server{mgr: mgr, bus: bus, token: token, log: log}
 }
 

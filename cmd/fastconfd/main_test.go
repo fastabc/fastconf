@@ -2,9 +2,12 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -14,6 +17,8 @@ import (
 	"time"
 
 	"github.com/fastabc/fastconf"
+	"github.com/fastabc/fastconf/cmd/internal/cli"
+	"github.com/fastabc/fastconf/internal/testutil"
 )
 
 func newTestServer(t *testing.T) (*server, func()) {
@@ -253,7 +258,7 @@ func TestServer_ConfigRedactsByDefault(t *testing.T) {
 		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("db:\n  host: h\n  password: hunter2\n")},
 	}
 	mgr, err := fastconf.New[map[string]any](context.Background(),
-		fastconf.WithFS(mfs), fastconf.WithSecretPaths(defaultSecretPaths...))
+		fastconf.WithFS(mfs), fastconf.WithSecretPaths(cli.DefaultSecretPaths...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,6 +295,64 @@ func TestServer_ConfigRedactsByDefault(t *testing.T) {
 			}
 			if rr := get(plainTarget, "plain-secret"); rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "hunter2") {
 				t.Fatalf("unredacted with token: %d %s; want plaintext", rr.Code, rr.Body)
+			}
+		})
+	}
+}
+
+func TestServer_ReloadErrorNotEchoed(t *testing.T) {
+	p := testutil.NewFakeProvider("test", 0, map[string]any{"a": 1})
+	mgr, err := fastconf.New[map[string]any](context.Background(), fastconf.WithProvider(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = mgr.Close() }()
+	p.LoadErr = errors.New("dial tcp 10.0.0.9:8500")
+	var logs bytes.Buffer
+	s := newServer(mgr, newEventBus(), "reload-secret", slog.New(slog.NewTextHandler(&logs, nil)))
+	req := httptest.NewRequest(http.MethodPost, "/reload", nil)
+	req.Header.Set("X-Reload-Token", "reload-secret")
+	rr := httptest.NewRecorder()
+	s.routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusInternalServerError || rr.Body.String() != "reload failed\n" {
+		t.Fatalf("response = %d %q", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(logs.String(), "10.0.0.9:8500") {
+		t.Fatalf("missing error detail in logs: %s", logs.String())
+	}
+}
+
+type failingDumpValue struct{}
+
+func (failingDumpValue) MarshalJSON() ([]byte, error) {
+	return nil, errors.New("internal /private/config.yaml")
+}
+func (failingDumpValue) MarshalYAML() (any, error) {
+	return nil, errors.New("internal /private/config.yaml")
+}
+
+func TestServer_DumpErrorNotEchoed(t *testing.T) {
+	mgr, err := fastconf.New[map[string]any](context.Background(),
+		fastconf.WithProvider(testutil.NewFakeProvider("test", 0, map[string]any{"password": "pw"})),
+		fastconf.WithSecretPaths("password"),
+		fastconf.WithRedactor(func(string, any) any { return failingDumpValue{} }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = mgr.Close() }()
+	for _, format := range []string{"json", "yaml"} {
+		t.Run(format, func(t *testing.T) {
+			var logs bytes.Buffer
+			s := newServer(mgr, newEventBus(), "", slog.New(slog.NewTextHandler(&logs, nil)))
+			req := httptest.NewRequest(http.MethodGet, "/dump?format="+format, nil)
+			rr := httptest.NewRecorder()
+			s.routes().ServeHTTP(rr, req)
+			if rr.Code != http.StatusInternalServerError || rr.Body.String() != "dump failed\n" {
+				t.Fatalf("response = %d %q", rr.Code, rr.Body.String())
+			}
+			if !strings.Contains(logs.String(), "/private/config.yaml") {
+				t.Fatalf("missing detail: %s", logs.String())
 			}
 		})
 	}

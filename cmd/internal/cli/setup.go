@@ -27,15 +27,22 @@ import (
 	"github.com/fastabc/fastconf/providers/source"
 )
 
+// DefaultSecretPaths masks common credential keys in map-typed CLI snapshots.
+var DefaultSecretPaths = []string{
+	"**.password", "**.passwd", "**.secret", "**.token",
+	"**.api_key", "**.apikey", "**.private_key",
+}
+
 // Flags is the canonical FastConf CLI flag set shared by fastconfd and
 // fastconfctl (and any future binary). Each sub-command embeds one of
 // these inside its own flag.FlagSet via RegisterFlags.
 type Flags struct {
-	Dir       string
-	Profile   string
-	Strict    bool
-	Watch     bool
-	Providers ProviderFlags
+	Unredacted bool
+	Dir        string
+	Profile    string
+	Strict     bool
+	Watch      bool
+	Providers  ProviderFlags
 }
 
 // ProviderFlags is a repeatable "-provider name=value" flag. Value may
@@ -61,6 +68,7 @@ func RegisterFlags(fs *flag.FlagSet, f *Flags) {
 	fs.StringVar(&f.Profile, "profile", "", "overlay profile (empty = base only or via $APP_PROFILE)")
 	fs.BoolVar(&f.Strict, "strict", false, "strict overlay/merge: unknown file extensions and merge type conflicts fail (does not reject misspelled config keys)")
 	fs.BoolVar(&f.Watch, "watch", false, "enable fsnotify file-system watcher")
+	fs.BoolVar(&f.Unredacted, "unredacted", false, "show plaintext secrets in fastconfctl output")
 	fs.Var(&f.Providers, "provider", "name=value provider spec (repeatable; value may be JSON)")
 }
 
@@ -109,6 +117,7 @@ func LoadConfig[T any](ctx context.Context, f Flags, extra ...fastconf.Option) (
 func (f Flags) Options(extra ...fastconf.Option) ([]fastconf.Option, error) {
 	opts := []fastconf.Option{
 		fastconf.WithDir(f.Dir),
+		fastconf.WithSecretPaths(DefaultSecretPaths...),
 		fastconf.WithStrictMerge(f.Strict),
 	}
 	if f.Watch {

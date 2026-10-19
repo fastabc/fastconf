@@ -30,7 +30,7 @@ func runExplain(args []string) error {
 	if snap.Value() == nil {
 		return fmt.Errorf("snapshot value is nil")
 	}
-	v, ok := confmap.GetDotted(*snap.Value(), path)
+	v, ok := confmap.GetDotted(snap.Map(), path)
 	if !ok {
 		return fmt.Errorf("path %q not found", path)
 	}

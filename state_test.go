@@ -501,3 +501,30 @@ func TestRingBuffer_CircularPush(t *testing.T) {
 		t.Fatalf("Find broken")
 	}
 }
+
+func TestDumpTOMLNullInArrayNamesPath(t *testing.T) {
+	for _, tc := range []struct{ yaml, path string }{
+		{"l: [1, null]\n", "l[1]"},
+		{"outer:\n  l: [[1, null]]\n", "outer.l[0][1]"},
+	} {
+		s, err := Load[map[string]any](context.Background(), WithFS(fstest.MapFS{"conf.d/base/a.yaml": {Data: []byte(tc.yaml)}}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.Dump(TOML)
+		if err == nil || !strings.Contains(err.Error(), tc.path) || strings.Contains(err.Error(), "toml: toml:") {
+			t.Fatalf("Dump(TOML) = %v, want path %s", err, tc.path)
+		}
+	}
+}
+
+func TestDumpTOMLOmitsMapNull(t *testing.T) {
+	s, err := Load[map[string]any](context.Background(), WithFS(fstest.MapFS{"conf.d/base/a.yaml": {Data: []byte("keep: 1\nomit: null\nnested:\n  omit: null\n")}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := s.Dump(TOML)
+	if err != nil || strings.Contains(string(out), "omit") || !strings.Contains(string(out), "keep = 1") {
+		t.Fatalf("Dump(TOML) = %q, %v", out, err)
+	}
+}

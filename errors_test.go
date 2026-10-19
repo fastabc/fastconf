@@ -7,6 +7,7 @@ import (
 	"testing/fstest"
 
 	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/policy"
 )
 
 func TestErrFastConfHierarchy(t *testing.T) {
@@ -99,5 +100,12 @@ func TestGeneratorFailureIsErrProvider(t *testing.T) {
 	}
 	if errors.Is(err, ErrDecode) {
 		t.Fatalf("generator failure must not classify as ErrDecode: %v", err)
+	}
+}
+
+func TestPolicyErrorMessage(t *testing.T) {
+	err := &PolicyError{Violations: []policy.Violation{{Rule: "r1", Path: "a", Message: "m1"}, {Rule: "r2", Path: "b", Message: "m2"}}}
+	if got, want := err.Error(), "fastconf: policy denied: r1@a: m1; r2@b: m2"; got != want {
+		t.Fatalf("Error() = %q, want %q", got, want)
 	}
 }

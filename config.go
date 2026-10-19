@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -55,6 +56,7 @@ type options struct {
 	WatchPaths  []string
 	OverlayAxes []scan.AxisSpec
 
+	TypedFor       []reflect.Type
 	Validators     []func(any) error
 	Transforms     []func(map[string]any) error
 	Provenance     provenance.Level
@@ -139,6 +141,9 @@ func trimProfiles(dst []string, vals []string) []string {
 func resolveOptions(opts []Option) (options, error) {
 	o := defaultOptions()
 	for _, fn := range opts {
+		if fn == nil {
+			continue
+		}
 		fn(&o)
 	}
 	if o.ObserverTimeout == 0 {

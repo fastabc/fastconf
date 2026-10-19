@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"unicode/utf8"
+
+	"github.com/fastabc/fastconf/confmap"
 )
 
 // valueMapChecked turns any pointer into a generic map[string]any view by
@@ -69,11 +72,15 @@ type DiffEntry struct {
 	After  any
 }
 
+type diffEntry struct {
+	DiffEntry
+	segs []string
+}
+
 // diffMaps returns sorted dotted-path differences between two generic
-// maps. Nested maps recurse with a dotted prefix; scalar equality uses
-// json-canonical comparison so map ordering does not produce spurious
-// diffs.
-func diffMaps(prefix string, a, b map[string]any) []DiffEntry {
+// maps, retaining path segments for unambiguous value lookup. Scalar
+// equality uses JSON comparison so map ordering does not produce diffs.
+func diffMaps(prefix []string, a, b map[string]any) []diffEntry {
 	keys := map[string]struct{}{}
 	for k := range a {
 		keys[k] = struct{}{}
@@ -86,28 +93,28 @@ func diffMaps(prefix string, a, b map[string]any) []DiffEntry {
 		ordered = append(ordered, k)
 	}
 	sort.Strings(ordered)
-	var out []DiffEntry
+	var out []diffEntry
 	for _, k := range ordered {
-		full := k
-		if prefix != "" {
-			full = prefix + "." + k
-		}
+		segs := make([]string, len(prefix)+1)
+		copy(segs, prefix)
+		segs[len(prefix)] = k
+		full := strings.Join(segs, ".")
 		va, oka := a[k]
 		vb, okb := b[k]
 		switch {
 		case oka && !okb:
-			out = append(out, DiffEntry{Path: full, Change: DiffRemoved, Before: va})
+			out = append(out, diffEntry{DiffEntry: DiffEntry{Path: full, Change: DiffRemoved, Before: va}, segs: segs})
 		case !oka && okb:
-			out = append(out, DiffEntry{Path: full, Change: DiffAdded, After: vb})
+			out = append(out, diffEntry{DiffEntry: DiffEntry{Path: full, Change: DiffAdded, After: vb}, segs: segs})
 		default:
 			ma, _ := va.(map[string]any)
 			mb, _ := vb.(map[string]any)
 			if ma != nil && mb != nil {
-				out = append(out, diffMaps(full, ma, mb)...)
+				out = append(out, diffMaps(segs, ma, mb)...)
 				continue
 			}
 			if !jsonEqual(va, vb) {
-				out = append(out, DiffEntry{Path: full, Change: DiffModified, Before: va, After: vb})
+				out = append(out, diffEntry{DiffEntry: DiffEntry{Path: full, Change: DiffModified, Before: va, After: vb}, segs: segs})
 			}
 		}
 	}
@@ -161,30 +168,16 @@ func FormatDiff(entries []DiffEntry) []string {
 func diagnosticDiff[T any](before, after *State[T]) []DiffEntry {
 	a, _ := before.rawTreeChecked()
 	b, _ := after.rawTreeChecked()
-	entries := diffMaps("", a, b)
-	a, b = diagnosticValues(before.Map()), diagnosticValues(after.Map())
-	for i := range entries {
-		entries[i].Before = a[entries[i].Path]
-		entries[i].After = b[entries[i].Path]
+	entries := diffMaps(nil, a, b)
+	if len(entries) == 0 {
+		return nil
 	}
-	return entries
-}
-
-func diagnosticValues(tree map[string]any) map[string]any {
-	out := make(map[string]any)
-	var walk func(map[string]any, string)
-	walk = func(m map[string]any, prefix string) {
-		for k, v := range m {
-			path := k
-			if prefix != "" {
-				path = prefix + "." + k
-			}
-			out[path] = v
-			if child, ok := v.(map[string]any); ok {
-				walk(child, path)
-			}
-		}
+	a, b = before.Map(), after.Map()
+	out := make([]DiffEntry, len(entries))
+	for i, e := range entries {
+		out[i] = e.DiffEntry
+		out[i].Before, _ = confmap.Get(a, e.segs...)
+		out[i].After, _ = confmap.Get(b, e.segs...)
 	}
-	walk(tree, "")
 	return out
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+
 	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/cmd/internal/cli"
 )
@@ -12,13 +13,10 @@ func loadSnapshot(f cli.Flags, extra ...fastconf.Option) (*fastconf.State[map[st
 	if err != nil {
 		return nil, err
 	}
-	return fastconf.Load[map[string]any](context.Background(), opts...)
-}
-
-func loadDump(f cli.Flags) (map[string]any, error) {
-	st, err := loadSnapshot(f)
-	if err != nil {
-		return nil, err
+	// A plaintext display redactor also restores historical Explain values and
+	// Diff values; only fastconfctl opts in here, never the HTTP sidecar.
+	if f.Unredacted {
+		opts = append(opts, fastconf.WithRedactor(func(_ string, value any) any { return value }))
 	}
-	return *st.Value(), nil
+	return fastconf.Load[map[string]any](context.Background(), opts...)
 }

@@ -19,9 +19,13 @@ func runDump(args []string) error {
 	if *format == "yaml" {
 		return dumpYAML(f)
 	}
-	m, err := loadDump(f)
+	st, err := loadSnapshot(f)
 	if err != nil {
 		return err
+	}
+	m := st.Map()
+	if f.Unredacted {
+		m = st.Unredacted().Map()
 	}
 	enc := json.NewEncoder(os.Stdout)
 	if *pretty {
@@ -31,13 +35,17 @@ func runDump(args []string) error {
 }
 
 // dumpYAML loads a manager and writes the deterministic YAML form
-// produced by State.Unredacted().Dump(YAML).
+// produced by State.Dump(YAML).
 func dumpYAML(f cli.Flags) error {
 	st, err := loadSnapshot(f)
 	if err != nil {
 		return err
 	}
-	b, err := st.Unredacted().Dump(fastconf.YAML)
+	dump := st.Dump
+	if f.Unredacted {
+		dump = st.Unredacted().Dump
+	}
+	b, err := dump(fastconf.YAML)
 	if err != nil {
 		return err
 	}

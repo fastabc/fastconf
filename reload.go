@@ -30,6 +30,9 @@ func (m *Manager[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 	}
 	cfg := reloadConfig{reason: "manual"}
 	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
 		opt(&cfg)
 	}
 	if cfg.err != nil {
@@ -64,7 +67,7 @@ func (m *Manager[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 	})
 }
 
-// ReloadOption tunes a single Reload invocation.
+// ReloadOption tunes a single Reload invocation. nil values are ignored.
 type ReloadOption func(*reloadConfig)
 
 type reloadConfig struct {

@@ -7,28 +7,6 @@ import (
 	"testing"
 )
 
-func TestBuildJSONChanges(t *testing.T) {
-	a := map[string]any{"x": 1.0, "y": "old", "z": "same"}
-	b := map[string]any{"x": 2.0, "y": "new", "w": "added"}
-	changes := buildJSONChanges("", a, b)
-	ops := map[string]string{}
-	for _, c := range changes {
-		ops[c["path"].(string)] = c["op"].(string)
-	}
-	if ops["x"] != "~" {
-		t.Errorf("x: want ~, got %q", ops["x"])
-	}
-	if ops["y"] != "~" {
-		t.Errorf("y: want ~, got %q", ops["y"])
-	}
-	if ops["z"] != "-" {
-		t.Errorf("z: want -, got %q", ops["z"])
-	}
-	if ops["w"] != "+" {
-		t.Errorf("w: want +, got %q", ops["w"])
-	}
-}
-
 func TestCommands(t *testing.T) {
 	dir := t.TempDir()
 	for path, body := range map[string]string{"base/a.yaml": "name: base\n", "overlays/prod/a.yaml": "name: prod\n"} {

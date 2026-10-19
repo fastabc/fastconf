@@ -477,6 +477,9 @@ fastconfd --dir=/etc/config --profile=prod --addr=127.0.0.1:8650 \
 
 ### `fastconfctl` — admin CLI
 
+`dump`, `diff` and `explain` mask common credential keys by default. Pass
+`-unredacted` to include plaintext secrets.
+
 ```bash
 fastconfctl dump     -dir conf.d -profile prod
 fastconfctl diff     -dir conf.d -from dev -to prod --json

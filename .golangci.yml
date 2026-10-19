@@ -1,0 +1,6 @@
+version: "2"
+linters:
+  # Other proposed linters are tracked in tools/README.md's lint backlog.
+  enable: [nilerr, bodyclose]
+formatters:
+  enable: [gofmt, goimports]

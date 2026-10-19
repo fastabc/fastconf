@@ -464,6 +464,8 @@ fastconfd --dir=/etc/config --profile=prod --addr=127.0.0.1:8650 \
 
 ### `fastconfctl` — 管理 CLI
 
+`dump`、`diff`、`explain` 默认遮蔽常见密钥字段；传入 `-unredacted` 可输出明文。
+
 ```bash
 fastconfctl dump     -dir conf.d -profile prod
 fastconfctl diff     -dir conf.d -from dev -to prod --json

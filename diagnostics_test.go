@@ -33,7 +33,7 @@ func TestDiff_ScalarJSONEquivalence(t *testing.T) {
 			if got := jsonEqual(a, b); got != want {
 				t.Errorf("pair %d/%d (%#v/%#v): equal=%v want=%v", i, j, a, b, got, want)
 			}
-			diff := diffMaps("", map[string]any{"leaf": a}, map[string]any{"leaf": b})
+			diff := diffMaps(nil, map[string]any{"leaf": a}, map[string]any{"leaf": b})
 			if (len(diff) == 0) != want {
 				t.Errorf("pair %d/%d: diff=%v want equal=%v", i, j, diff, want)
 			}
@@ -383,6 +383,27 @@ func TestExplain_PerLayerValues(t *testing.T) {
 			}
 		default:
 			t.Fatalf("winner value type=%T value=%v", last.Value, last.Value)
+		}
+	}
+}
+
+func TestDiffLiteralDottedKey(t *testing.T) {
+	type C struct {
+		M map[string]any `json:"m"`
+	}
+	load := func(y string) *State[C] {
+		s, err := Load[C](context.Background(), WithFS(fstest.MapFS{"conf.d/base/a.yaml": {Data: []byte(y)}}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	a := load("m:\n  a.b: 1\n  a:\n    b: 2\n")
+	b := load("m:\n  a.b: 3\n  a:\n    b: 2\n")
+	for i := 0; i < 100; i++ {
+		d := a.Diff(b)
+		if len(d) != 1 || fmt.Sprint(d[0].Before) != "1" || fmt.Sprint(d[0].After) != "3" {
+			t.Fatalf("diff = %+v", d)
 		}
 	}
 }

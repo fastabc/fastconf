@@ -21,19 +21,28 @@ For the next release, choose a version newer than `v1.1.0`. The commands below
 use `v1.2.0` as an example:
 
 1. Update the changelog and any relevant migration notes.
-2. Align in-repository module requirements to the release version. Do not
+2. Align in-repository module requirements and the Makefile `VERSION` default to
+   the release version. Do not
    commit local `replace` directives or synthetic checksums in release modules.
    The standalone benchmark module is excluded from release inventory.
 3. Run the checks against the final source, then merge the reviewed release
    commit before tagging.
 
 ```sh
-make check
+make tidy VERSION=v1.2.0
+make check VERSION=v1.2.0
 make test-workspace
 make test-candidate VERSION=v1.2.0
 make api-check VERSION=v1.2.0 BASE=v1.1.0
 VERSION=v1.2.0 bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
 ```
+
+Tidy uses the isolated candidate proxy for internal dependencies at `VERSION`,
+so these checks work before tags are published. It checks `go.mod` and external
+or older-version checksums, while excluding exact candidate-version checksums
+from comparison. The write command never copies synthetic checksums to the
+source checkout. After publication, ordinary `GOWORK=off go mod tidy` in each
+module can add the real published checksums.
 
 `test-workspace` tests all modules against local source. `test-candidate` serves
 that source through a temporary file proxy with `GOWORK=off`, a fresh module

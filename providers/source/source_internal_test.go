@@ -3,10 +3,11 @@ package source
 import (
 	"context"
 	"errors"
-	"github.com/fastabc/fastconf/contracts"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/fastabc/fastconf/contracts"
 )
 
 func TestBytes_OwnsImmutableDocument(t *testing.T) {

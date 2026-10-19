@@ -1,10 +1,16 @@
 package codec_test
 
 import (
+	"context"
+	"errors"
+	"net"
 	"reflect"
+	"regexp"
 	"testing"
+	"testing/fstest"
 	"time"
 
+	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/codec"
 )
 
@@ -140,5 +146,53 @@ func TestTypedHookPlan_ExactFieldNameCandidate(t *testing.T) {
 	}
 	if got := merged["Timeout"]; got != 2*time.Second {
 		t.Fatalf("Timeout = %v (%T), want time.Duration", got, got)
+	}
+}
+
+func TestIPHook(t *testing.T) {
+	type config struct {
+		IP net.IP `json:"ip"`
+	}
+	for _, tc := range []struct {
+		input string
+		valid bool
+	}{{"10.0.0.1", true}, {"2001:db8::1", true}, {"x", false}} {
+		st, err := fastconf.Load[config](context.Background(), fastconf.WithFS(fstest.MapFS{"conf.d/base/a.yaml": {Data: []byte("ip: " + tc.input + "\n")}}), fastconf.WithTypedHook(codec.IPHook{}))
+		if !tc.valid {
+			if !errors.Is(err, fastconf.ErrTransform) {
+				t.Fatalf("invalid IP: %v", err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !st.Value().IP.Equal(net.ParseIP(tc.input)) {
+			t.Fatalf("IP = %v, want %s", st.Value().IP, tc.input)
+		}
+	}
+}
+
+func TestRegexHook(t *testing.T) {
+	type config struct {
+		Pattern *regexp.Regexp `json:"pattern"`
+	}
+	for _, tc := range []struct {
+		input string
+		valid bool
+	}{{"^a+$", true}, {"(", false}} {
+		st, err := fastconf.Load[config](context.Background(), fastconf.WithFS(fstest.MapFS{"conf.d/base/a.yaml": {Data: []byte("pattern: '" + tc.input + "'\n")}}), fastconf.WithTypedHook(codec.RegexHook{}))
+		if !tc.valid {
+			if !errors.Is(err, fastconf.ErrTransform) {
+				t.Fatalf("invalid regex: %v", err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := st.Value().Pattern; got == nil || got.String() != tc.input || !got.MatchString("aaa") || got.MatchString("b") {
+			t.Fatalf("Pattern = %v", got)
+		}
 	}
 }

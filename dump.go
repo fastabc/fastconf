@@ -56,8 +56,12 @@ func dumpState[T any](s *State[T], format Format, redactor secret.Redactor) ([]b
 		return json.MarshalIndent(tree, "", "  ")
 	case TOML:
 		var buf bytes.Buffer
-		if err := toml.NewEncoder(&buf).Encode(tomlNumbers(tree)); err != nil {
-			return nil, fmt.Errorf("toml: %w", err)
+		value, err := tomlValue("", tree)
+		if err != nil {
+			return nil, err
+		}
+		if err := toml.NewEncoder(&buf).Encode(value); err != nil {
+			return nil, err
 		}
 		return buf.Bytes(), nil
 	case YAML:
@@ -104,24 +108,43 @@ func (n tomlNumber) MarshalTOML() ([]byte, error) {
 	return []byte(n), nil
 }
 
-func tomlNumbers(value any) any {
+// tomlValue converts JSON numbers and rejects array nulls with their path.
+// Map nulls are omitted, matching the TOML encoder's treatment of nil values.
+func tomlValue(path string, value any) (any, error) {
 	switch v := value.(type) {
+	case nil:
+		return nil, fmt.Errorf("toml: cannot encode null at %s", path)
 	case json.Number:
-		return tomlNumber(v)
+		return tomlNumber(v), nil
 	case map[string]any:
 		out := make(map[string]any, len(v))
 		for k, item := range v {
-			out[k] = tomlNumbers(item)
+			if item == nil {
+				continue
+			}
+			child := k
+			if path != "" {
+				child = path + "." + k
+			}
+			converted, err := tomlValue(child, item)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = converted
 		}
-		return out
+		return out, nil
 	case []any:
 		out := make([]any, len(v))
 		for i, item := range v {
-			out[i] = tomlNumbers(item)
+			converted, err := tomlValue(fmt.Sprintf("%s[%d]", path, i), item)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = converted
 		}
-		return out
+		return out, nil
 	default:
-		return value
+		return value, nil
 	}
 }
 

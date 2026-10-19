@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/fastabc/fastconf"
@@ -109,7 +110,8 @@ func (s *server) handleDump(w http.ResponseWriter, r *http.Request) {
 	if format == "json" {
 		b, err := dump(fastconf.JSON)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			s.log.LogAttrs(r.Context(), slog.LevelWarn, "fastconfd dump failed", slog.Any("err", err))
+			http.Error(w, "dump failed", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -118,7 +120,8 @@ func (s *server) handleDump(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := dump(fastconf.YAML)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.log.LogAttrs(r.Context(), slog.LevelWarn, "fastconfd dump failed", slog.Any("err", err))
+		http.Error(w, "dump failed", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/yaml")
@@ -146,7 +149,8 @@ func (s *server) handleReload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := s.mgr.Reload(r.Context()); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.log.LogAttrs(r.Context(), slog.LevelWarn, "fastconfd reload failed", slog.Any("err", err))
+		http.Error(w, "reload failed", http.StatusInternalServerError)
 		return
 	}
 	_, _ = w.Write([]byte("reloaded"))

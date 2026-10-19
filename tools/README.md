@@ -15,13 +15,13 @@ Pushing a root version tag starts the release workflow.
 | `make test-workspace` | Every module against the local checkout |
 | `make test-candidate` | Every module through an isolated candidate proxy/cache |
 | `make check` | Formatting, dependency boundaries, tidy metadata and tooling regression tests |
-| `make lint` | Root module; requires golangci-lint v2 |
+| `make lint` | Root module; runs pinned golangci-lint v2.14.0 via `go run` |
 | `make tools-check` | Requires shellcheck and actionlint |
 | `make bench` / `make bench-guard` | Benchmarks / hot-read budget |
 | `make cover` / `make example` | Root coverage / godoc, scenario tests and optional S3/pflag programs |
 | `make soak` | Resource soak test; `FASTCONF_SOAK_DURATION=5m` for an extended run |
 | `make tidy` | Update dependency metadata in the root and all submodules, including benchmarks |
-| `make tidy-check` | Run `go mod tidy -diff` for the same modules; fail on drift without editing files |
+| `make tidy-check` | Tidy the same modules in isolation; report metadata drift without editing source files |
 | `make module-matrix` | CI JSON from discovered submodule Go floors |
 
 Use `MODULES=". cue"` with `test-all`, `test-workspace`, `test-candidate`, `tidy` or `tidy-check` to
@@ -31,12 +31,24 @@ comes from tracked and unignored `go.mod` files, excluding benchmark-only module
 under `benchmarks/`, not a maintained list. Inventory
 and release tools require a Git checkout; `make test` also works in source archives.
 
-Tidy commands include benchmark modules and use each module's declared dependencies
-with `GOWORK=off`. They preserve existing dependency constraints; let Go decide which
-older checksums are still needed instead of deleting entries by version.
+Tidy commands include benchmark modules and run in the disposable candidate
+checkout with `GOWORK=off`. Internal dependencies at `VERSION` resolve through its
+local proxy, including versions not yet published; other versions and external
+dependencies resolve normally. Let Go decide which older checksums are still
+needed instead of deleting entries by version.
 `make check` includes `tidy-check`, so CI and release checks reject untidy metadata.
-Use Go 1.26+ for the full inventory; checks may download dependencies but do not
-rewrite `go.mod` or `go.sum`.
+Checks compare all of `go.mod` and all `go.sum` entries except exact discovered
+internal module paths at `VERSION`, whose generated checksums are synthetic.
+`make tidy` writes the resulting real metadata back, retaining original candidate
+checksums still needed and never writing synthetic checksums. A failure in any
+selected module prevents all writeback. Before publication, candidate checksums
+may be absent; after publication, ordinary `GOWORK=off go mod tidy` in each module
+can record the published checksums.
+
+Use Go 1.26+ for the full inventory. For a release, align the internal requirements
+and the Makefile `VERSION` default, or explicitly use `make tidy VERSION=vX.Y.Z`
+and `make check VERSION=vX.Y.Z`. Checks may download dependencies but do not
+rewrite source `go.mod` or `go.sum` files.
 
 `bash tools/profile-reload.sh OUTPUT_DIRECTORY` records benchmarks and profiles.
 `MAX_NS_PER_OP`, `MAX_ALLOCS` and `BENCH_TIME` configure the benchmark guard.
@@ -95,3 +107,25 @@ to the fixed v1.1.0 baseline and does not change the working tree.
 
 The isolated [comparison project](../benchmarks/compare/README.md) pins competitor
 dependencies outside the runtime/release modules. Run its tests separately.
+
+## Lint backlog
+
+The 2026-10-19 review ran golangci-lint v2.14.0 with the proposed extra
+linters and found 38 issues. Since this exceeded the plan's 20-issue limit,
+only the zero-report additions (`nilerr`, `bodyclose`) are enabled alongside
+the default linters. Errors and import formatting introduced by this review
+were fixed. Enable the following linters in separate, focused changes:
+
+| Linter | Initial reports | Follow-up |
+| --- | ---: | --- |
+| `contextcheck` | 14 | Review initialization, logging, watcher and shutdown context ownership |
+| `errorlint` | 3 | Review wrapping of scan/profile parser errors |
+| `gocritic` | 3 | Review deferred cleanup on exit and secret path slice appends |
+| `prealloc` | 4 | Preserve CLI empty-diff JSON semantics while sizing slices |
+| `unconvert` | 2 | Remove redundant resolver and test conversions |
+| `usestdlibvars` | 5 | Replace HTTP status literals in Vault tests |
+
+The other seven reports were `errcheck` (3), `goimports` (3) and
+`staticcheck` (1); these are fixed with the existing default checks retained.
+A subsequent run exposed two more pre-existing import-group issues in watcher
+and source tests (hidden by the repeated-issue limit); those are fixed too.

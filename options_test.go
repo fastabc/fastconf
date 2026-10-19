@@ -12,6 +12,7 @@ import (
 
 	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/internal/coalesce"
+	"github.com/fastabc/fastconf/policy"
 	"github.com/fastabc/fastconf/providers/source"
 )
 
@@ -207,5 +208,59 @@ func TestPriority_DoesNotCrossLayerClasses(t *testing.T) {
 				t.Fatalf("v = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestNilOptionsIgnored(t *testing.T) {
+	fsys := fstest.MapFS{"conf.d/base/a.yaml": {Data: []byte("a: 1\n")}}
+	m, err := New[runtimeConfig](context.Background(), WithFS(fsys), nil)
+	if err != nil {
+		t.Fatalf("New with nil Option: %v", err)
+	}
+	defer func() { _ = m.Close() }()
+	if err := m.Reload(context.Background(), nil, WithReason("x")); err != nil {
+		t.Fatalf("Reload with nil ReloadOption: %v", err)
+	}
+	if got := m.Get().A; got != 1 {
+		t.Fatalf("A = %d, want 1", got)
+	}
+	st, err := Load[runtimeConfig](context.Background(), nil, WithFS(fsys))
+	if err != nil || st.Value().A != 1 {
+		t.Fatalf("Load with nil Option: %v, %v", st, err)
+	}
+}
+
+func TestMismatchedValidatorFailsConstruction(t *testing.T) {
+	type other struct{ X int }
+	assertMismatchedOption(t, WithValidate(func(*other) error { return nil }))
+}
+
+func TestMismatchedPolicyFailsConstruction(t *testing.T) {
+	type other struct{ X int }
+	assertMismatchedOption(t, WithPolicy(policy.Func[other]{N: "test", Fn: func(context.Context, policy.Input[other]) ([]policy.Violation, error) { return nil, nil }}))
+}
+
+func assertMismatchedOption(t *testing.T, opt Option) {
+	t.Helper()
+	// No source is required: mismatches must fail before provider loading.
+	for _, construct := range []func() error{
+		func() error {
+			m, err := New[runtimeConfig](context.Background(), opt)
+			if m != nil {
+				_ = m.Close()
+			}
+			return err
+		},
+		func() error { _, err := Load[runtimeConfig](context.Background(), opt); return err },
+	} {
+		err := construct()
+		if !errors.Is(err, ErrFastConf) {
+			t.Fatalf("err = %v, want ErrFastConf", err)
+		}
+		for _, want := range []string{"other", "runtimeConfig"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("err %q missing %q", err, want)
+			}
+		}
 	}
 }

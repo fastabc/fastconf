@@ -39,15 +39,6 @@ import (
 // without -ldflags (e.g. `go install`).
 var version = "dev"
 
-// defaultSecretPaths masks common credential keys at any depth. The sidecar
-// serves map[string]any, which carries no fc:"secret" tags, so without
-// path patterns every redacted view would be plaintext. -secret-path adds
-// patterns on top of these.
-var defaultSecretPaths = []string{
-	"**.password", "**.passwd", "**.secret", "**.token",
-	"**.api_key", "**.apikey", "**.private_key",
-}
-
 func main() {
 	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	var flags cli.Flags
@@ -59,7 +50,7 @@ func main() {
 	token := fs.String("reload-token", os.Getenv("FASTCONFD_RELOAD_TOKEN"), "shared secret required for POST /reload")
 	readToken := fs.String("read-token", os.Getenv("FASTCONFD_READ_TOKEN"), "shared secret required for config, dump and events")
 	unredactedToken := fs.String("unredacted-token", os.Getenv("FASTCONFD_UNREDACTED_TOKEN"), "shared secret for ?unredacted=true on config and dump (empty disables plaintext)")
-	secretPaths := append([]string(nil), defaultSecretPaths...)
+	secretPaths := append([]string(nil), cli.DefaultSecretPaths...)
 	fs.Func("secret-path", "dotted path pattern to redact (repeatable; * = one segment, ** = any)", func(v string) error {
 		secretPaths = append(secretPaths, v)
 		return nil

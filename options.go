@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"reflect"
 	"time"
 
 	"github.com/fastabc/fastconf/codec"
@@ -15,7 +16,7 @@ import (
 )
 
 // Option configures a Manager. options apply in order; later options
-// override earlier ones for single-valued settings.
+// override earlier ones for single-valued settings. nil values are ignored.
 type Option func(*options)
 
 // Axis is one extra overlay dimension (region, tier, host, ...). The
@@ -188,6 +189,7 @@ func WithRedactor(r SecretRedactor) Option {
 // addition to `fc:"secret"` tags. "*" matches one path segment, "**"
 // matches any number, and list elements are addressed by index. It is the
 // only way to redact map-typed configurations such as Manager[map[string]any].
+// Literal keys containing a dot cannot be addressed by these patterns.
 // Repeated calls accumulate.
 func WithSecretPaths(patterns ...string) Option {
 	return func(o *options) { o.SecretPaths = append(o.SecretPaths, patterns...) }
@@ -283,6 +285,7 @@ func WithValidate[T any](fns ...func(*T) error) Option {
 			if v == nil {
 				continue
 			}
+			o.TypedFor = append(o.TypedFor, reflect.TypeFor[T]())
 			o.Validators = append(o.Validators, func(target any) error {
 				t, ok := target.(*T)
 				if !ok {
@@ -326,6 +329,7 @@ func WithPolicy[T any](ps ...policy.Policy[T]) Option {
 	return func(o *options) {
 		for _, p := range ps {
 			if p != nil {
+				o.TypedFor = append(o.TypedFor, reflect.TypeFor[T]())
 				o.Policies = append(o.Policies, adaptPolicy(p))
 			}
 		}

@@ -3,6 +3,33 @@
 The [migration guide](docs/cookbook/migration-v1.md) covers upgrading from
 v0.20.0 to v1.1.0. Older entries below describe their historical releases.
 
+## [Unreleased]
+
+### Added
+
+- `LoadFile[T]` loads one required file (up to 4 MiB) with unknown fields rejected.
+
+### Changed
+
+- `fastconfctl dump`, `diff` and `explain` mask common credential keys by default;
+  pass `-unredacted` for plaintext. Diff now reuses snapshot diagnostics.
+
+- Examples and documentation clarify defaults, unknown fields and provider usage.
+
+### Fixed
+
+- TOML dumps identify the path of null array elements without duplicate error prefixes.
+
+- `fastconfd` logs reload/dump error details and returns only a generic HTTP error.
+
+- Diagnostic diffs resolve literal dotted map keys by path segments, preserving correct values.
+
+- Mismatched `WithValidate` / `WithPolicy` types fail construction with both type names.
+
+- nil `Option` and `ReloadOption` values are ignored instead of panicking.
+
+- Provider events dropped on a full queue now schedule one compensating refresh.
+
 ## [v1.1.0]
 
 This release establishes a new stable API baseline. The previously published

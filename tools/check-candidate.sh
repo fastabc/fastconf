@@ -83,6 +83,14 @@ export GONOSUMDB=github.com/fastabc/fastconf
 export GOPRIVATE=
 export GONOPROXY=
 echo "check-candidate: $VERSION from checkout; isolated proxy/cache; GOWORK=off"
+# Tidy compares with the original metadata before any download-all preparation
+# can fill unrelated sums. Only its explicit write mode updates the source tree.
+if [[ "${1:-}" == --tidy || "${1:-}" == --tidy-check ]]; then
+  MODE="${1#--}"
+  shift
+  (cd "$TMP/checkout" && python3 tools/tidy-candidate.py "$ROOT" "$VERSION" "$MODE" "$@")
+  exit
+fi
 # Floor jobs pin an old toolchain; modules above it cannot load there and are
 # not under test, so leave their checksums unfilled.
 GOVER="$(go env GOVERSION)"; GOVER="${GOVER#go}"

@@ -2,6 +2,7 @@ package fastconf
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -141,6 +142,9 @@ func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) 
 	if err != nil {
 		return nil, err
 	}
+	if err := checkTypedOptions[T](&o); err != nil {
+		return nil, err
+	}
 	if !o.YAMLBridge {
 		warnIfYAMLOnlyTags[T](o.Logger)
 	}
@@ -246,4 +250,14 @@ func (m *Manager[T]) finishClose() {
 	// reloadLoop, the only errsCh writer, has returned.
 	close(m.errsCh)
 	close(m.closeDone)
+}
+
+func checkTypedOptions[T any](o *options) error {
+	want := reflect.TypeFor[T]()
+	for _, got := range o.TypedFor {
+		if got != want {
+			return fmt.Errorf("%w: WithValidate/WithPolicy registered for *%v, manager decodes *%v", fcerr.ErrFastConf, got, want)
+		}
+	}
+	return nil
 }

@@ -8,6 +8,7 @@ export GOWORK := off
 export GOFLAGS := $(GOFLAGS) -mod=readonly
 VERSION ?= v1.1.0
 BASE ?= latest
+GOLANGCI_LINT ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 MODULES ?=
 TARGETS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 EXTRA_TARGETS ?=
@@ -49,7 +50,7 @@ api-check:
 	VERSION=$(VERSION) BASE=$(BASE) bash tools/check-candidate.sh bash tools/check-api.sh
 
 lint:
-	golangci-lint run --timeout=5m ./...
+	$(GOLANGCI_LINT) run --timeout=5m ./...
 
 fmt-check:
 	bash tools/check-repo.sh fmt
@@ -64,14 +65,15 @@ tools-check:
 check: fmt-check deps-check tidy-check
 	bash tools/check-repo-test.sh
 	bash tools/check-candidate-test.sh
+	python3 tools/tidy-candidate-test.py
 	bash tools/tag-release-test.sh
 	bash tools/bench-guard-test.sh
 
 tidy:
-	bash tools/modules.sh tidy $(MODULES)
+	VERSION=$(VERSION) bash tools/modules.sh tidy $(MODULES)
 
 tidy-check:
-	bash tools/modules.sh tidy-check $(MODULES)
+	VERSION=$(VERSION) bash tools/modules.sh tidy-check $(MODULES)
 
 bench:
 	go test -run '^$$' -bench . -benchmem ./...

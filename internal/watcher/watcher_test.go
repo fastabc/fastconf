@@ -1,10 +1,11 @@
 package watcher
 
 import (
-	"github.com/fsnotify/fsnotify"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 func TestK8sSwapCommit(t *testing.T) {
