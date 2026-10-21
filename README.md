@@ -189,11 +189,19 @@ expressions. See [files, profiles and patches](docs/cookbook/sources/layers.md).
 | Source | Entry point | Behavior |
 |---|---|---|
 | File / bytes | `source.NewFile(path)`, `source.NewBytes(name, codec, data)` | Auxiliary decoded documents; missing `NewFile` files contribute an empty layer |
+| Embedded / virtual filesystem | `source.NewFS(fsys, path)` | One required document from `fs.FS`; refreshed on explicit reload (after v1.1.0) |
 | Env / dotenv | `env.New("MYAPP_")`, `dotenv.New("MYAPP_", ".env")` | Underscores become path separators; dotenv is fallback, process env wins |
 | Flags | `cliflag.New(values)` | Pass explicitly changed flags; pflag has an optional adapter |
 | Labels / Downward API | `labels.New(input, opts)`, `k8s.NewDefault()` | Dotted config labels or raw namespaced pod metadata |
 | HTTP / Vault / Consul | `providers/http`, `providers/vault`, `providers/consul` | Remote documents or KV, with native polling/blocking-query watchers |
 | S3 | Separate `providers/s3` module | Object loading and optional change-event integration |
+| AWS Parameter Store | Separate `providers/parameterstore` module | Recursive path tree with string values; optional SecureString decryption (after v1.1.0) |
+| GCS / Azure Blob | Separate `providers/gcs`, `providers/azblob` modules | Document loading with generation / ETag caches (after v1.1.0) |
+
+See [embedded files and cloud sources](docs/cookbook/sources/cloud.md) for setup.
+The three new cloud providers accept application-owned SDK clients and refresh
+on explicit reload; they do not implement native watchers. Cloud SDKs remain
+outside the root module.
 
 Providers implement `contracts.Provider` (`Name`, `Load`). Optional `Describe`
 supplies priority/file paths; optional `contracts.Watcher` supplies native events

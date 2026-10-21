@@ -178,11 +178,17 @@ map 递归合并，标量和列表默认替换。`mergeKeys` 使用非空字符�
 | 来源 | 入口 | 行为 |
 |---|---|---|
 | 文件 / 字节 | `source.NewFile(path)`、`source.NewBytes(name, codec, data)` | 加载附加文档；`NewFile` 缺失文件视为空层 |
+| 嵌入 / 虚拟文件系统 | `source.NewFS(fsys, path)` | 从 `fs.FS` 读取一个必需文档，显式重载时重新读取（v1.1.0 之后新增） |
 | 环境变量 / dotenv | `env.New("MYAPP_")`、`dotenv.New("MYAPP_", ".env")` | 下划线映射为路径分隔符；dotenv 兜底，进程环境变量优先 |
 | 命令行参数 | `cliflag.New(values)` | 仅传入显式设置的参数；pflag 有可选适配器 |
 | Labels / Downward API | `labels.New(input, opts)`、`k8s.NewDefault()` | 展开 dotted 配置标签，或保留命名空间下的原始 Pod 元数据 |
 | HTTP / Vault / Consul | `providers/http`、`providers/vault`、`providers/consul` | 远程文档或 KV，通过原生轮询/阻塞查询监听变化 |
 | S3 | 独立模块 `providers/s3` | 对象加载及可选的变更事件集成 |
+| AWS Parameter Store | 独立模块 `providers/parameterstore` | 递归路径树，保留字符串值，可选 SecureString 解密（v1.1.0 之后新增） |
+| GCS / Azure Blob | 独立模块 `providers/gcs`、`providers/azblob` | 文档加载，使用 generation / ETag 缓存（v1.1.0 之后新增） |
+
+用法见[嵌入文件与云端来源](docs/cookbook/sources/cloud.md)。三个新云端 Provider
+接收应用持有的 SDK 客户端，通过显式重载刷新，没有原生监听；云 SDK 不进入根模块。
 
 Provider 实现 `contracts.Provider` 的 `Name` 和 `Load`。可选的 `Describe`
 提供优先级与文件路径；可选的 `contracts.Watcher` 通过 `Watch(ctx, from)` 提供

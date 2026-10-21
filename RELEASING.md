@@ -76,6 +76,11 @@ make api-check BASE=v1.1.0 VERSION=v1.2.0
 CI uses that explicit comparison. A baseline download failure must fail the check;
 do not fall back to `BASE=none`. API checks do not replace behavior regression tests.
 
+Explicit baseline tags must be available locally (`git fetch --tags` for a shallow
+checkout). Candidate checks retain that tag's tree. A module whose `go.mod` does
+not exist in that verified baseline tree uses `-base=none` for its first release;
+modules already present still require their published baseline to resolve.
+
 ## Go versions and vulnerabilities
 
 The root module requires Go 1.24. Satellite modules declare their own minimums;

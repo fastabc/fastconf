@@ -90,6 +90,10 @@ example:
 	go test -count=1 ./examples/...
 	bash tools/modules.sh exec go -C integrations/cli/pflag run ../../../examples/pflag/main.go
 	bash tools/modules.sh exec go -C providers/s3 run ../../examples/s3/main.go
+	go run ./examples/fs
+	bash tools/modules.sh exec go -C providers/parameterstore run ../../examples/parameterstore/main.go
+	bash tools/modules.sh exec go -C providers/gcs run ../../examples/gcs/main.go
+	bash tools/modules.sh exec go -C providers/azblob run ../../examples/azblob/main.go
 
 soak:
 	go test -race -count=1 -timeout=10m -run '^TestResourceSoak$$' -v ./tests/soak

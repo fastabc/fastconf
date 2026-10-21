@@ -8,6 +8,10 @@ v0.20.0 to v1.1.0. Older entries below describe their historical releases.
 ### Added
 
 - `LoadFile[T]` loads one required file (up to 4 MiB) with unknown fields rejected.
+- `source.NewFS` loads a required document from `fs.FS`, including embedded files.
+- Independent AWS Parameter Store, GCS and Azure Blob provider modules accept
+  application-owned SDK clients; cloud SDKs stay outside the root module.
+  Parameter Store expands recursive paths; GCS/Azure cache decoded versions.
 
 ### Changed
 

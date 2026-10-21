@@ -1,4 +1,4 @@
-// Package source provides local-file and in-memory document providers. Use providers/http for
+// Package source provides local-file, fs.FS and in-memory document providers. Use providers/http for
 // remote documents.
 package source
 

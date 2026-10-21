@@ -76,6 +76,11 @@ PYTHON
 # Module discovery uses git ls-files; this index belongs only to the copy.
 git -C "$TMP/checkout" init -q
 git -C "$TMP/checkout" add --all
+# Preserve the explicit baseline tree so API checks can distinguish a genuinely
+# new module from a published module whose baseline failed to download.
+if [[ -n "${BASE:-}" && "$BASE" != none && "$BASE" != latest ]]; then
+  git -C "$TMP/checkout" fetch --quiet --no-tags --depth=1 "$ROOT" "refs/tags/$BASE:refs/tags/$BASE"
+fi
 export GOWORK=off
 export GOMODCACHE="$TMP/modcache"
 export GOPROXY="file://$TMP/proxy,${GOPROXY:-https://proxy.golang.org,direct}"

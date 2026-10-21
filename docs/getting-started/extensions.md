@@ -35,7 +35,7 @@ SeverityError 阻止发布。Plan 和 Reload 之间会重新读取来源。
 
 | 需求 | 包 / API | 说明 |
 |---|---|---|
-| 附加文件、字节和环境变量 | `providers/source`、`providers/env`、`providers/dotenv` | [来源与分层配方](../cookbook/README.md#sources-and-layering) |
+| 附加文件、`fs.FS`、字节和环境变量 | `providers/source`、`providers/env`、`providers/dotenv` | [来源与分层配方](../cookbook/README.md#sources-and-layering) |
 | 显式设置的 CLI 参数 | `providers/cliflag` | `cliflag.New(values)` 接收嵌套 map，不展开 dotted key；pflag 适配器负责转换 |
 | 远程配置 | `providers/http`、`providers/vault`、`providers/consul` | 原生监听独立于文件监听开关 |
 | 自定义来源 | `contracts.Provider`、可选 `contracts.Watcher` / `Describer` | [所有权与生命周期](../design/spec.md#configuration-and-ownership) |
@@ -58,6 +58,9 @@ go get github.com/fastabc/fastconf/providers/s3@v1.1.0
 | 功能 | 模块 / 清单 |
 |---|---|
 | S3 对象与事件适配 | [`providers/s3`](../../providers/s3/go.mod)；`s3events` 同属此模块 |
+| AWS Parameter Store | [`providers/parameterstore`](../../providers/parameterstore/go.mod)；v1.1.0 之后新增 |
+| Google Cloud Storage | [`providers/gcs`](../../providers/gcs/go.mod)；v1.1.0 之后新增 |
+| Azure Blob Storage | [`providers/azblob`](../../providers/azblob/go.mod)；v1.1.0 之后新增 |
 | pflag 显式参数 | [`integrations/cli/pflag`](../../integrations/cli/pflag/go.mod) |
 | go-playground 校验 | [`validate/playground`](../../validate/playground/go.mod) |
 | CUE 校验和策略 | [`cue`](../../cue/go.mod)；包含 `cuelang` 和 `policy` 包 |
@@ -69,6 +72,7 @@ go get github.com/fastabc/fastconf/providers/s3@v1.1.0
 | YAML → Go 结构体生成 | [`cmd/fastconfgen`](../../cmd/fastconfgen/go.mod) |
 
 完整 S3/pflag 运行命令见[可选集成示例](../../examples/README.md#optional-integration-programs)。
+新来源的客户端、刷新和大小限制见[嵌入文件与云端来源](../cookbook/sources/cloud.md)。
 仓库内使用 `bash tools/modules.sh exec <command>` 可在临时 workspace 中验证当前
 源码，避免误用已发布的根模块。模块发现与发布规则见[仓库工具](../../tools/README.md)。
 

@@ -88,4 +88,21 @@ PY
 cmp go.sum "$TMP/original.sum"
 cmp sub/go.sum "$TMP/original.sum"
 [[ -z "$(git diff --name-only)" ]]
+# Explicit API baselines must survive the isolated checkout, including evidence
+# that a newly introduced module was absent from the baseline tree.
+git -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -qm baseline
+git tag v1.0.0
+mkdir added
+printf 'module github.com/fastabc/fastconf/added\n\ngo 1.24.0\n' > added/go.mod
+BASE=v1.0.0 GOPROXY=off VERSION=v1.1.0 bash tools/check-candidate.sh bash -c '
+  set -euo pipefail
+  git cat-file -e v1.0.0:sub/go.mod
+  test -f added/go.mod
+  if git cat-file -e v1.0.0:added/go.mod 2>/dev/null; then
+    echo "new module unexpectedly present in baseline" >&2; exit 1
+  fi
+'
+if BASE=v9.9.9 GOPROXY=off VERSION=v1.1.0 bash tools/check-candidate.sh true > "$TMP/missing-baseline" 2>&1; then
+  echo "missing baseline tag was accepted" >&2; exit 1
+fi
 echo 'check-candidate: OK'
