@@ -23,6 +23,11 @@ Fields containing secrets that implement `json.Marshaler` or
 `encoding.TextMarshaler` are masked as a whole when their output hides the
 original field structure.
 
+`Map` and `Dump` use JSON output names even with the YAML decode bridge.
+`Explain` follows input aliases as well, including secret fields omitted by
+`json:"-"` and fields flattened by `yaml:",inline"`. Input-path matching is
+conservative and may mask additional historical values.
+
 ## Decryption is failure-safe
 
 If `Resolve` returns an error, the reload aborts and the previous `*State[T]` is preserved — the manager never publishes partially-decrypted state.

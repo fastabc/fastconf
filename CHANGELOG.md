@@ -22,7 +22,9 @@ v0.20.0 to v1.1.0. Older entries below describe their historical releases.
 
 - `fastconfctl dump`, `diff` and `explain` mask common credential keys by default;
   pass `-unredacted` for plaintext. Diff now reuses snapshot diagnostics.
-
+- File caches retain only the latest decoded version per path/codec. Unchanged
+  file reloads avoid cloning; snapshots share compiled redaction metadata and
+  lazily cache diagnostic trees. Unknown-field retries reuse encoded input.
 - Examples and documentation clarify defaults, unknown fields and provider usage.
 - All 20 release modules use coordinated v1.2.0 tags. Lint covers every Go
   module, including the separate benchmark module; formatting checks also cover
@@ -30,6 +32,8 @@ v0.20.0 to v1.1.0. Older entries below describe their historical releases.
 
 ### Fixed
 
+- `Explain` masks secret fields loaded through YAML even when `json:"-"` omits
+  them from diagnostic trees or `yaml:",inline"` flattens their input paths.
 - Azure/GCP cloud modules pin the HTTP/2 security fixes in `golang.org/x/net`
   v0.60.0. Azure App Configuration, Blob and Service Bus now require Go 1.26.
   Security validation uses Go 1.26.10 to include the crypto/x509 trust fix.

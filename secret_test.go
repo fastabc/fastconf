@@ -207,6 +207,36 @@ func TestSecretJSONOutputNames(t *testing.T) {
 	assertSecretOutputs(t, value)
 }
 
+func TestSecretYAMLProvenance(t *testing.T) {
+	type credentials struct {
+		Token string `json:"token" yaml:"token" fc:"secret"`
+	}
+	type config struct {
+		Password    string      `json:"-" yaml:"password" fc:"secret"`
+		Credentials credentials `json:"credentials" yaml:",inline"`
+		Public      string      `json:"public" yaml:"public"`
+	}
+	m, err := New[config](context.Background(), WithFS(emptyFS()),
+		WithProvider(source.NewBytes("input", "yaml", []byte("password: hidden\ntoken: hidden\npublic: visible\n"))),
+		WithDecodeFormat(YAML), WithProvenance(ProvenanceFull))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.Close() }()
+	if m.Get().Password != "hidden" || m.Get().Credentials.Token != "hidden" {
+		t.Fatal("YAML secret fields were not loaded")
+	}
+	for _, path := range []string{"password", "token"} {
+		origins := m.Snapshot().Explain(path)
+		if len(origins) != 1 || origins[0].Value != "***REDACTED***" {
+			t.Errorf("%s provenance was not redacted: %+v", path, origins)
+		}
+	}
+	if origins := m.Snapshot().Explain("public"); len(origins) != 1 || origins[0].Value != "visible" {
+		t.Fatalf("public provenance changed: %+v", origins)
+	}
+}
+
 type jsonOpaqueSecret struct {
 	Password string `fc:"secret"`
 }

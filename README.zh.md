@@ -3,8 +3,9 @@
 [English](README.md) · [中文](README.zh.md)
 
 FastConf 将分层配置加载为强类型 Go 值，支持 YAML、JSON、TOML、INI、环境变量、
-命令行参数和远程 Provider。Manager 串行执行重载并原子发布快照；`Get()` 无锁且
-零分配。加载或校验失败时保留上一次有效快照。
+命令行参数和远程 Provider，并通过可选模块支持 AWS、Azure、GCP 云端配置源。
+Manager 串行执行重载并原子发布快照；`Get()` 无锁且零分配。
+加载或校验失败时保留上一次有效快照。
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/fastabc/fastconf.svg)](https://pkg.go.dev/github.com/fastabc/fastconf)
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
@@ -126,7 +127,8 @@ Provider 之间排序。FastConf 借鉴 Kustomize 的 base/overlay 与补丁思�
 
 以下为 [2026-10-25 比较报告](benchmarks/compare/REPORT.zh.md)的部分中位数：
 Apple M5 Pro、Darwin/arm64、Go 1.26.10、GOMAXPROCS=4；每组运行 10 次，每次 1 秒。
-FastConf v1.2.0 模块加本地工作树优化；完整报告记录源码校验信息与适用范围。
+FastConf 使用报告记录的源码快照，最终发布审查的修正在测量之后；
+完整报告记录源码校验信息与适用范围。
 
 | 场景 | FastConf | Viper 1.21.0 | Koanf 2.3.0 | Cleanenv 1.5.0 |
 |---|---:|---:|---:|---:|

@@ -3,8 +3,9 @@
 [English](README.md) · [中文](README.zh.md)
 
 FastConf loads layered configuration into typed Go values. It supports YAML,
-JSON, TOML and INI, environment variables, flags and remote providers. A manager
-serializes reloads and publishes snapshots atomically; `Get()` is a lock-free,
+JSON, TOML and INI, environment variables, flags and remote providers, including
+AWS, Azure and GCP cloud configuration sources through optional modules.
+A manager serializes reloads and publishes snapshots atomically; `Get()` is a lock-free,
 zero-allocation read. Failed loads or validation keep the previous snapshot.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/fastabc/fastconf.svg)](https://pkg.go.dev/github.com/fastabc/fastconf)
@@ -133,7 +134,8 @@ NATS and Redis Streams are application-adaptable examples, not stable providers.
 
 Selected medians from the [2026-10-25 comparison](benchmarks/compare/REPORT.zh.md):
 Apple M5 Pro, Darwin/arm64, Go 1.26.10, GOMAXPROCS=4; ten 1 s runs per case.
-FastConf v1.2.0 module with local working-tree optimizations; the report records source hashes and scope.
+FastConf uses the source snapshot recorded in the report; final release-review
+fixes came after these measurements. The report records source hashes and scope.
 
 | Workload | FastConf | Viper 1.21.0 | Koanf 2.3.0 | Cleanenv 1.5.0 |
 |---|---:|---:|---:|---:|

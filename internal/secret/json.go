@@ -22,12 +22,14 @@ type jsonField struct {
 	candidates []string
 	marked     bool
 	child      *jsonPlan
+	inline     bool
 }
 
 type jsonPlan struct {
 	kind            reflect.Kind
 	opaque, secrets bool
 	fields          []jsonField
+	origins         []jsonField
 	elem            *jsonPlan
 }
 
@@ -62,14 +64,50 @@ func Compile(t reflect.Type, patterns []string) *Plan {
 					marked = marked || HasTag(f.Tag.Get(typeinfo.TagKey))
 					ft = f.Type
 				}
-				p.fields = append(p.fields, jsonField{field.Name, typeinfo.ResolveField(field.Field).Candidates, marked, build(ft)})
+				p.fields = append(p.fields, jsonField{name: field.Name, marked: marked, child: build(ft)})
 			}
+			p.origins = provenanceFields(t, false, map[reflect.Type]bool{}, build)
 		case reflect.Map, reflect.Array, reflect.Slice:
 			p.elem = build(t.Elem())
 		}
 		return p
 	}
 	return &Plan{root: build(t), patterns: compilePatterns(patterns)}
+}
+
+// Provenance records input paths, including YAML-only and inline fields that
+// JSON output omits. Keep these conservative rules separate from output names.
+func provenanceFields(t reflect.Type, marked bool, stack map[reflect.Type]bool, build func(reflect.Type) *jsonPlan) []jsonField {
+	if stack[t] {
+		return nil
+	}
+	stack[t] = true
+	defer delete(stack, t)
+	var fields []jsonField
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if !field.IsExported() && !field.Anonymous {
+			continue
+		}
+		aliases := typeinfo.ResolveField(field)
+		secret := marked || HasTag(field.Tag.Get(typeinfo.TagKey))
+		child := build(field.Type)
+		fields = append(fields, jsonField{candidates: aliases.Candidates, marked: secret, child: child})
+		if !aliases.Flatten && !strings.Contains(","+field.Tag.Get("yaml")+",", ",inline,") {
+			continue
+		}
+		ft := field.Type
+		for ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		switch ft.Kind() {
+		case reflect.Struct:
+			fields = append(fields, provenanceFields(ft, secret, stack, build)...)
+		case reflect.Map:
+			fields = append(fields, jsonField{marked: secret, child: child, inline: true})
+		}
+	}
+	return fields
 }
 
 // Apply masks a detached JSON tree. The caller retains ownership of tree.
@@ -123,7 +161,10 @@ func (p *jsonPlan) pathHasSecrets(path string) bool {
 	}
 	switch p.kind {
 	case reflect.Struct:
-		for _, field := range p.fields {
+		for _, field := range p.origins {
+			if field.inline && (field.marked || field.child.pathHasSecrets(path)) {
+				return true
+			}
 			var rest string
 			matched := false
 			for _, name := range field.candidates {

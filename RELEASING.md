@@ -94,6 +94,16 @@ module; distinguish module/package-only findings from reachable calls. After
 publication, `make vulnerabilities` scans independently resolved dependencies.
 Historical scans do not validate a later source or dependency set.
 
+The default scan covers the host platform. Check other release targets with a
+host-built scanner; setting `GOOS` while installing the scanner would build a
+binary that cannot run on the host. For the Windows root-module target:
+
+```sh
+go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+bash tools/check-candidate.sh env GOOS=windows GOARCH=amd64 \
+  "$(go env GOPATH)/bin/govulncheck" -show verbose ./...
+```
+
 ## Tagging
 
 Preview and publish the complete module tag set from a clean release commit:
