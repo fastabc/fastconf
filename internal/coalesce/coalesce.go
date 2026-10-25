@@ -140,6 +140,7 @@ func (c *Coalescer) Push(key, reason string, swapCommit bool) {
 		if swapCommit {
 			window = c.opts.SwapHint
 		}
+		window = min(window, c.opts.MaxLag)
 		k := key
 		nb.timer = time.AfterFunc(window, func() { c.flush(k, nb) })
 	} else {
@@ -147,7 +148,7 @@ func (c *Coalescer) Push(key, reason string, swapCommit bool) {
 		switch {
 		case swapCommit:
 			b.swapSeen = true
-			b.timer.Reset(c.opts.SwapHint)
+			b.timer.Reset(min(c.opts.SwapHint, time.Until(b.deadline)))
 		case b.swapSeen:
 			// Swap window already running; do not extend.
 		default:

@@ -34,7 +34,15 @@ func PatternsMatchValue(value any, path string, patterns []string) bool {
 	segments := strings.Split(path, ".")
 	compiled := make([][]string, len(patterns))
 	for i, p := range patterns {
-		compiled[i] = strings.Split(p, ".")
+		for _, segment := range strings.Split(p, ".") {
+			compiled[i] = append(compiled[i], segment)
+			// Provenance flattens literal dots in map keys. A single-key
+			// wildcard may therefore span several flattened segments.
+			// Mask every plausible match instead of exposing an ambiguous key.
+			if segment == "*" {
+				compiled[i] = append(compiled[i], "**")
+			}
+		}
 		for n := 1; n <= len(segments); n++ {
 			if matchSegments(compiled[i], segments[:n]) {
 				return true

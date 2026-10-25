@@ -10,7 +10,7 @@ FastConf 将分层配置加载为强类型 Go 值，支持 YAML、JSON、TOML、
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-文档以当前源码为准，晚于 v1.1.0 的功能会单独标注；已发布版本请阅读对应 tag
+文档对应 v1.2.0；使用其他版本时，请阅读对应 tag
 下的文档。从 v0.20.0 升级见[迁移指南](docs/cookbook/migration-v1.md)。
 
 ## 安装
@@ -18,7 +18,7 @@ FastConf 将分层配置加载为强类型 Go 值，支持 YAML、JSON、TOML、
 根模块要求 Go 1.24+。可选模块的最低 Go 版本以各自的 `go.mod` 为准，按需安装。
 
 ```sh
-go get github.com/fastabc/fastconf@v1.1.0
+go get github.com/fastabc/fastconf@v1.2.0
 ```
 
 ## 快速上手
@@ -27,7 +27,7 @@ go get github.com/fastabc/fastconf@v1.1.0
 
 | 需求 | API | 指南 |
 |---|---|---|
-| 启动时读取一个必需文件 | `LoadFile[T](path)` → `*T` | [单文件加载](docs/getting-started/load.md)；v1.1.0 之后新增 |
+| 启动时读取一个必需文件 | `LoadFile[T](path)` → `*T` | [单文件加载](docs/getting-started/load.md)；v1.2.0 新增 |
 | 一次加载多层配置，使用选项和诊断 | `Load[T](ctx, opts...)` → `*State[T]` | [分层示例](examples/basic/README.md) |
 | 运行时重载配置 | `New[T](ctx, opts...)` → `*Manager[T]` | [动态管理](docs/getting-started/dynamic.md) |
 
@@ -89,7 +89,7 @@ go run ./examples/reload
 
 ### 只读取一个必需文件
 
-`LoadFile` 在 v1.1.0 之后新增，使用上面的 `Config` 类型和 YAML：
+`LoadFile` 在 v1.2.0 新增，使用上面的 `Config` 类型和 YAML：
 
 ```go
 cfg, err := fastconf.LoadFile[Config]("conf.d/base/00-app.yaml")
@@ -199,7 +199,7 @@ map 递归合并，标量和列表默认替换。`mergeKeys` 使用非空字符�
 |---|---|---|---|
 | `source.NewFile` | 共享文件监听 | — | 解码单文档；文件缺失贡献空层 |
 | `source.NewBytes` | — | — | 复制内存文档，显式指定 codec |
-| `source.NewFS` | — | — | 从嵌入或虚拟 `fs.FS` 读取必需文档；v1.1.0 之后新增 |
+| `source.NewFS` | — | — | 从嵌入或虚拟 `fs.FS` 读取必需文档；v1.2.0 新增 |
 | `env.New` | — | — | 进程环境变量；下划线映射路径分隔符 |
 | `dotenv.New` | 共享文件监听 | — | Dotenv 兜底，进程环境变量优先 |
 | `cliflag.New` | — | — | 显式设置的参数；可选 pflag 适配器 |
@@ -233,7 +233,7 @@ map 递归合并，标量和列表默认替换。`mergeKeys` 使用非空字符�
 消息；需要“刷新成功后确认”的场景应使用新增消费者。
 
 加载方式与限制见[嵌入文件与云端来源](docs/cookbook/sources/cloud.md)。云 SDK 位于独立
-模块；除 S3 加载器外，表中其他云加载器和三个通知模块均在 v1.1.0 之后新增。
+模块；除 S3 加载器外，表中其他云加载器和三个通知模块均在 v1.2.0 新增。
 
 Provider 实现 `contracts.Provider` 的 `Name` 和 `Load`。可选的 `Describe`
 提供优先级与文件路径；可选的 `contracts.Watcher` 通过 `Watch(ctx, from)` 提供
@@ -324,9 +324,9 @@ if err := mgr.Reload(ctx, fastconf.WithReason("admin"),
 中的二进制：
 
 ```sh
-go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.1.0
-go install github.com/fastabc/fastconf/cmd/fastconfd@v1.1.0
-go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.1.0
+go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.2.0
+go install github.com/fastabc/fastconf/cmd/fastconfd@v1.2.0
+go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.2.0
 fastconfctl dump -dir conf.d -profile prod -format yaml
 fastconfctl diff -dir conf.d -from dev -to prod -json
 fastconfctl validate -dir conf.d -profile prod
@@ -335,7 +335,7 @@ fastconfgen -in conf.d/base/00-app.yaml -pkg config -type Config
 ```
 
 `fastconfctl validate` 加载通用 map，不校验应用结构体标签或业务策略。
-当前源码中（v1.1.0 之后）的 CLI 诊断默认遮蔽常见密钥名；库中的结构体需使用 `fc:"secret"` 或 `WithSecretPaths`。
+v1.2.0 起，CLI 诊断默认遮蔽常见密钥名；库中的结构体需使用 `fc:"secret"` 或 `WithSecretPaths`。
 见[诊断配方](docs/cookbook/runtime/introspect.md)。
 
 ## 开发与文档

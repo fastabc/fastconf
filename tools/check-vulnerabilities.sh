@@ -15,8 +15,13 @@ GOBIN="$TMP" go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
 FAIL=0
 while IFS= read -r module; do
   echo "check-vulnerabilities: independent / $module"
-  if ! (cd "$ROOT/$module" && "$TMP/govulncheck" -show verbose ./...); then
+  out="$TMP/govulncheck-$$.out"
+  if ! (cd "$ROOT/$module" && "$TMP/govulncheck" -show verbose ./...) 2>&1 | tee "$out"; then
     FAIL=1
+    if grep -q "from the Go standard library" "$out"; then
+      echo "check-vulnerabilities: note: vulnerability reported in Go standard library; ensure Go toolchain is updated to latest patch release" >&2
+    fi
   fi
+  rm -f "$out"
 done <<< "$INVENTORY"
 exit "$FAIL"

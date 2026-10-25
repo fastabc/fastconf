@@ -18,7 +18,7 @@ configuration with unknown keys rejected and port validation enabled.
 `WithFS(files)` confines directory discovery to the embedded filesystem; the
 single-file provider contributes the actual configuration document.
 
-`source.NewFS` was added after v1.1.0. It infers the codec from the filename,
+`source.NewFS` was added in v1.2.0. It infers the codec from the filename,
 requires the file to exist, and defaults to a 4 MiB limit. Its priority allows
 environment and CLI providers to override embedded defaults. It has no automatic
 watcher; an embedded document remains unchanged for the lifetime of the binary.

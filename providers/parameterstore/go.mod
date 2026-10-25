@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	github.com/aws/aws-sdk-go-v2 v1.47.3
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.80.0
-	github.com/fastabc/fastconf v1.1.0
+	github.com/fastabc/fastconf v1.2.0
 )
 
 require (

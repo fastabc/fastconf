@@ -66,3 +66,29 @@ func TestRejectPendingReloads(t *testing.T) {
 	}
 	m.rejectPendingReloads() // Draining an empty queue is safe.
 }
+
+func TestRunReloadRequestSkipsCanceledWork(t *testing.T) {
+	for _, lifetime := range []bool{false, true} {
+		m, err := newManager[struct{}](context.Background(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		if lifetime {
+			m.lifetimeCancel()
+		} else {
+			cancel()
+		}
+		called := false
+		done := make(chan error, 1)
+		m.runReloadRequest(reloadRequest{ctx: ctx, doneCh: done, applyFn: func(context.Context) error {
+			called = true
+			return nil
+		}})
+		cancel()
+		m.lifetimeCancel()
+		if err := <-done; called || !errors.Is(err, context.Canceled) {
+			t.Fatalf("lifetime=%v: called=%v, err=%v; want skipped work and cancellation", lifetime, called, err)
+		}
+	}
+}

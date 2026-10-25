@@ -1,6 +1,7 @@
 package secret
 
 import (
+	"encoding"
 	"encoding/json"
 	"reflect"
 	"strconv"
@@ -22,7 +23,19 @@ func ApplyJSON(tree map[string]any, t reflect.Type, redactor Redactor) map[strin
 	return map[string]any{"$redacted": value}
 }
 
-var marshalerType = reflect.TypeOf((*json.Marshaler)(nil)).Elem()
+var marshalerTypes = [...]reflect.Type{
+	reflect.TypeFor[json.Marshaler](),
+	reflect.TypeFor[encoding.TextMarshaler](),
+}
+
+func opaqueJSONType(t reflect.Type) bool {
+	for _, iface := range marshalerTypes {
+		if t.Implements(iface) || reflect.PointerTo(t).Implements(iface) {
+			return true
+		}
+	}
+	return false
+}
 
 // PathHasSecrets checks provenance against the type, even when the final
 // value omits a field or removes a list. Containers with secret descendants
@@ -31,7 +44,7 @@ func PathHasSecrets(t reflect.Type, path string) bool {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
-	if path == "" || t.Implements(marshalerType) || reflect.PointerTo(t).Implements(marshalerType) {
+	if path == "" || opaqueJSONType(t) {
 		return hasSecrets(t, map[reflect.Type]bool{})
 	}
 	switch t.Kind() {
@@ -94,7 +107,7 @@ func redactJSON(node any, t reflect.Type, path string, redact Redactor) any {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
-	if (t.Implements(marshalerType) || reflect.PointerTo(t).Implements(marshalerType)) && hasSecrets(t, map[reflect.Type]bool{}) {
+	if opaqueJSONType(t) && hasSecrets(t, map[reflect.Type]bool{}) {
 		return redact(path, node)
 	}
 	switch t.Kind() {

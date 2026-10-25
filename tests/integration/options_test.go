@@ -226,6 +226,39 @@ func TestWithStrictMerge_TypeConflictFails(t *testing.T) {
 	}
 }
 
+func TestMetaStrictMerge(t *testing.T) {
+	fs := fstest.MapFS{
+		"conf.d/_meta.yaml":   {Data: []byte("spec:\n  strict: true\n")},
+		"conf.d/base/00.yaml": {Data: []byte("port: 1\n")},
+		"conf.d/base/10.yaml": {Data: []byte("port: {nested: true}\n")},
+	}
+	if _, err := fastconf.Load[map[string]any](context.Background(), fastconf.WithFS(fs)); !errors.Is(err, fastconf.ErrMerge) {
+		t.Fatalf("metadata strict merge error = %v; want ErrMerge", err)
+	}
+
+	delete(fs, "conf.d/base/10.yaml")
+	m, err := fastconf.New[map[string]any](context.Background(), fastconf.WithFS(fs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.Close() }()
+	fs["conf.d/base/10.yaml"] = &fstest.MapFile{Data: []byte("port: {nested: true}\n")}
+	before := m.Snapshot()
+	if err := m.Reload(context.Background()); !errors.Is(err, fastconf.ErrMerge) {
+		t.Fatalf("strict reload error = %v; want ErrMerge", err)
+	}
+	if m.Snapshot() != before {
+		t.Fatal("strict merge failure published a snapshot")
+	}
+	if _, err := m.Plan(context.Background()); !errors.Is(err, fastconf.ErrMerge) {
+		t.Fatalf("strict preview error = %v; want ErrMerge", err)
+	}
+	fs["conf.d/_meta.yaml"] = &fstest.MapFile{Data: []byte("spec:\n  strict: false\n")}
+	if err := m.Reload(context.Background()); err != nil {
+		t.Fatalf("relaxed metadata did not restore permissive merge: %v", err)
+	}
+}
+
 // TestWithUnknownFields verifies: a misspelled key fails under Error,
 // is logged under Warn (the default) and is silent under Ignore.
 func TestWithUnknownFields(t *testing.T) {

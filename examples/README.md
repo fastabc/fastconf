@@ -2,7 +2,7 @@
 
 Run the following complete programs from the repository root with Go 1.24+.
 These programs need no external services or credentials and follow the current
-checkout. `single-file` and `fs` use APIs added after v1.1.0. The linked READMEs
+checkout. `single-file` and `fs` use APIs added in v1.2.0. The linked READMEs
 provide source/fixture links, expected output and verification commands.
 
 ## Loading and source conversion
@@ -78,7 +78,7 @@ keep SDK dependencies isolated. `make example` explicitly runs them in a
 temporary workspace against the local adapter modules; naming `main.go` bypasses
 the build constraint. No cloud account, external service or real credentials are
 needed. Expected output is listed in each README. Cloud examples other than S3
-were added after v1.1.0; use each module's `go.mod` for its minimum Go version.
+were added in v1.2.0; use each module's `go.mod` for its minimum Go version.
 
 The adapter manifests select their declared root dependency. For validation
 against this checkout, use the temporary workspace commands below; `make example`

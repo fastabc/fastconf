@@ -174,6 +174,33 @@ func TestCoalesce_MaxLagCap(t *testing.T) {
 	}
 }
 
+func TestCoalesce_MaxLagCapsInitialWindow(t *testing.T) {
+	for _, swap := range []bool{false, true} {
+		r := newRecorder()
+		c := New(Options{Quiet: time.Hour, SwapHint: time.Hour, MaxLag: 10 * time.Millisecond}, r.fn)
+		c.Push("k", "first", swap)
+		fired := r.waitFor(1, time.Second)
+		c.Stop()
+		if !fired {
+			t.Fatalf("initial window exceeded MaxLag (swap=%v)", swap)
+		}
+	}
+}
+
+func TestCoalesce_MaxLagCapsSwapReset(t *testing.T) {
+	r := newRecorder()
+	c := New(Options{Quiet: time.Hour, SwapHint: time.Hour, MaxLag: time.Hour}, r.fn)
+	defer c.Stop()
+	c.Push("k", "first", false)
+	c.mu.Lock()
+	c.bursts["k"].deadline = time.Now().Add(10 * time.Millisecond)
+	c.mu.Unlock()
+	c.Push("k", "swap", true)
+	if !r.waitFor(1, time.Second) {
+		t.Fatal("swap reset extended the burst beyond MaxLag")
+	}
+}
+
 func TestCoalesce_SwapCommitShortens(t *testing.T) {
 	r := newRecorder()
 	c := New(Options{Quiet: 100 * time.Millisecond, MaxLag: 500 * time.Millisecond, SwapHint: 10 * time.Millisecond}, r.fn)

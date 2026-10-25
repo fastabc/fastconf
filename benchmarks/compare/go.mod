@@ -3,7 +3,7 @@ module github.com/fastabc/fastconf/benchmarks/compare
 go 1.24.0
 
 require (
-	github.com/fastabc/fastconf v1.1.0
+	github.com/fastabc/fastconf v1.2.0
 	github.com/go-viper/mapstructure/v2 v2.4.0
 	github.com/ilyakaznacheev/cleanenv v1.5.0
 	github.com/kelseyhightower/envconfig v1.4.0

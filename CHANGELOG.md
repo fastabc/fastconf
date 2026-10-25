@@ -3,7 +3,7 @@
 The [migration guide](docs/cookbook/migration-v1.md) covers upgrading from
 v0.20.0 to v1.1.0. Older entries below describe their historical releases.
 
-## [Unreleased]
+## [v1.2.0]
 
 ### Added
 
@@ -24,6 +24,9 @@ v0.20.0 to v1.1.0. Older entries below describe their historical releases.
   pass `-unredacted` for plaintext. Diff now reuses snapshot diagnostics.
 
 - Examples and documentation clarify defaults, unknown fields and provider usage.
+- All 20 release modules use coordinated v1.2.0 tags. Lint covers every Go
+  module, including the separate benchmark module; formatting checks also cover
+  build-tagged examples.
 
 ### Fixed
 
@@ -34,6 +37,13 @@ v0.20.0 to v1.1.0. Older entries below describe their historical releases.
 - Azure Blob errors hide SAS URLs and document contents while preserving
   `errors.Is`/`errors.As`. The legacy `s3events.Watch` remains best-effort;
   reliable refresh-before-ack delivery uses the new SNS integration.
+- S3 and GCS loading errors hide document and transport details while preserving
+  error classification. AppConfig, GCS and Azure Blob honor cancellation while
+  waiting for another load to finish.
+- SQS acknowledgements use a separate five-second budget within the visibility
+  margin. Pub/Sub documentation now describes asynchronous acknowledgement
+  reporting accurately, and secret resource selectors reject malformed paths.
+- OPA uses the current SDK import path with existing Rego v0 syntax compatibility.
 
 - TOML dumps identify the path of null array elements without duplicate error prefixes.
 

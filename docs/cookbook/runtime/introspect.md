@@ -56,7 +56,7 @@ original source text or comments.
 
 ### `fastconfctl dump --format=yaml`
 
-In the current checkout (after v1.1.0), CLI `dump`, `diff` and `explain` mask
+Starting in v1.2.0, CLI `dump`, `diff` and `explain` mask
 common credential keys by default.
 Use `-unredacted` only when plaintext output is intended.
 

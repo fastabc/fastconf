@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net/http"
 	"sync"
 	"time"
@@ -34,7 +35,11 @@ func ReadAllMax(r io.Reader, max int64) ([]byte, error) {
 	if max <= 0 {
 		max = contracts.DefaultMaxBodyBytes
 	}
-	b, err := io.ReadAll(io.LimitReader(r, max+1))
+	limit := max
+	if limit < math.MaxInt64 {
+		limit++
+	}
+	b, err := io.ReadAll(io.LimitReader(r, limit))
 	if err != nil {
 		return nil, err
 	}

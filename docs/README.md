@@ -1,6 +1,6 @@
 # Documentation
 
-These pages follow the current checkout. Additions after v1.1.0 are marked;
+These pages document v1.2.0;
 for a released dependency, read the same path at its installed tag. Commands
 run from the repository root unless stated otherwise.
 
@@ -8,7 +8,7 @@ run from the repository root unless stated otherwise.
 
 | Need | Guide |
 |---|---|
-| Read one required file at startup | [Single file](getting-started/load.md); `LoadFile` was added after v1.1.0 |
+| Read one required file at startup | [Single file](getting-started/load.md); `LoadFile` was added in v1.2.0 |
 | Load layers once | [Basic example](../examples/basic/README.md) with `Load` |
 | Manage runtime updates | [Dynamic guide](getting-started/dynamic.md) with `New` |
 | Add a source, validator or policy | [Extensions and optional modules](getting-started/extensions.md) |

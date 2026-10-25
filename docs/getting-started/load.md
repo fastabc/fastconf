@@ -2,7 +2,7 @@
 
 适合启动时读取配置、之后随部署重启的程序。调用 `LoadFile[T](path)`，
 直接得到 `*T`，无需 context、Provider、State 或 Close。
-这个入口已加入当前源码，尚未包含在 v1.1.0 发布版中。
+这个入口新增于 v1.2.0。
 
 ```yaml
 # app.yaml

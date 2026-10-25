@@ -189,7 +189,9 @@ func WithRedactor(r SecretRedactor) Option {
 // addition to `fc:"secret"` tags. "*" matches one path segment, "**"
 // matches any number, and list elements are addressed by index. It is the
 // only way to redact map-typed configurations such as Manager[map[string]any].
-// Literal keys containing a dot cannot be addressed by these patterns.
+// Literal dots cannot be escaped for exact-key matching; use a wildcard for
+// the whole key or mask its parent. Explain masks ambiguous dotted paths
+// conservatively, which may also hide values from nested keys.
 // Repeated calls accumulate.
 func WithSecretPaths(patterns ...string) Option {
 	return func(o *options) { o.SecretPaths = append(o.SecretPaths, patterns...) }

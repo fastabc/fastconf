@@ -21,6 +21,7 @@ type pipelineState[T any] struct {
 	merged       map[string]any
 	origins      *provenance.Index
 	target       *T
+	strict       bool
 	appendSlices bool
 	mergeKeys    map[string]string
 
@@ -91,7 +92,7 @@ func (m *Manager[T]) runStages(ctx context.Context, pipeline *pipelineState[T]) 
 
 // runPipeline executes the shared commit/preview stages and hashes their result.
 func (m *Manager[T]) runPipeline(ctx context.Context, a assemblyResult, reason string, dryRun bool) (*pipelineState[T], [32]byte, error) {
-	p := &pipelineState[T]{reason: reason, staged: a.staged, appendSlices: a.appendSlices, mergeKeys: a.mergeKeys, dryRun: dryRun}
+	p := &pipelineState[T]{reason: reason, staged: a.staged, strict: a.strict, appendSlices: a.appendSlices, mergeKeys: a.mergeKeys, dryRun: dryRun}
 	if err := m.runStages(ctx, p); err != nil {
 		return nil, [32]byte{}, err
 	}

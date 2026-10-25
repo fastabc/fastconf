@@ -20,7 +20,7 @@ func runMerge[T any](_ context.Context, m *Manager[T], pipeline *pipelineState[T
 	pipeline.merged = map[string]any{}
 	pipeline.sources = make([]SourceRef, 0, len(pipeline.staged))
 	pipeline.origins = provenance.NewIndex(m.opts.Provenance)
-	mergeOpt := confmap.Options{Strict: m.opts.Strict, AppendSlices: pipeline.appendSlices, MergeKeys: pipeline.mergeKeys}
+	mergeOpt := confmap.Options{Strict: pipeline.strict, AppendSlices: pipeline.appendSlices, MergeKeys: pipeline.mergeKeys}
 	for _, l := range pipeline.staged {
 		if l.patch != nil {
 			next, err := confmap.ApplyPatch(pipeline.merged, l.patch)

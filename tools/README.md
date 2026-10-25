@@ -15,7 +15,7 @@ Pushing a root version tag starts the release workflow.
 | `make test-workspace` | Every module against the local checkout |
 | `make test-candidate` | Every module through an isolated candidate proxy/cache |
 | `make check` | Formatting, dependency boundaries, tidy metadata and tooling regression tests |
-| `make lint` | Every module, including benchmarks; runs the Makefile-pinned golangci-lint via `go run` |
+| `make lint` | Every module, including benchmarks, in an isolated candidate checkout; uses the Makefile-pinned golangci-lint |
 | `make fmt-check` | gofmt and goimports across all Go files, including build-tagged examples |
 | `make tools-check` | Requires shellcheck and actionlint |
 | `make bench` / `make bench-guard` | Benchmarks / hot-read budget |
@@ -56,13 +56,17 @@ rewrite source `go.mod` or `go.sum` files.
 
 ## Release validation
 
-`VERSION` defaults to `v1.1.0`. Candidate checks copy current tracked and unignored
+`VERSION` defaults to `v1.2.0`. Candidate checks copy current tracked and unignored
 files into a disposable repository and serve that version through a local Go
 module proxy. Dependencies and generated sums stay in the disposable copy.
 Only checksum entries for discovered modules at the candidate version are
 regenerated in that copy and its proxy archives. Third-party checksums, other
 versions and the source checkout's `go.sum` files remain unchanged. This checks
 local candidate content; it does not replace a version cached by public Go proxies.
+Preparation explicitly downloads required internal modules at `VERSION` to record
+their synthetic archive checksums. It avoids preloading unrelated transitive
+archives with `go mod download all`; tests, lint and scanners fetch external
+dependencies as needed and verify their checksums normally.
 
 - `make test-candidate VERSION=vX.Y.Z`: test candidate modules.
 - `make api-check VERSION=v1.2.0 BASE=v1.1.0`: compare the candidate to published APIs.
@@ -95,13 +99,14 @@ version and runs the root module on Linux, macOS and Windows. The release workfl
 verifies that every module tag exists at the same commit, tests candidates, then
 builds and publishes archives. Resource soak remains a separate manual workflow.
 
-CI compares the next candidate (`VERSION=v1.2.0`) against `BASE=v1.1.0`.
+CI compares the Makefile candidate (currently `VERSION=v1.2.0`) against `BASE=v1.1.0`.
 The candidate must be newer than the baseline; this check does not create a release.
 Baseline download failures fail the check; never replace them with `BASE=none`.
 
-`bash tools/check-api-negative.sh` verifies the real gorelease gate rejects
-removed root and pflag exports in disposable copies. It needs network access
-to the fixed v1.1.0 baseline and does not change the working tree.
+`BASE=v1.1.0 bash tools/check-candidate.sh bash tools/check-api-negative.sh`
+verifies the real gorelease gate rejects removed root and pflag exports in
+disposable copies, including before the candidate version is published. It needs
+network access to the fixed v1.1.0 baseline and does not change the working tree.
 
 The isolated [comparison project](../benchmarks/compare/README.md) pins competitor
 dependencies outside the runtime/release modules. Run its tests separately.
@@ -110,7 +115,8 @@ dependencies outside the runtime/release modules. Run its tests separately.
 
 The lint command and tool version are defined in the [Makefile](../Makefile);
 enabled checks live in [`.golangci.yml`](../.golangci.yml). `make lint` discovers each
-module and runs independently with that shared configuration. `make fmt-check`
+module and runs independently with that shared configuration in an isolated
+candidate checkout, so unpublished internal version pins resolve locally. `make fmt-check`
 passes all existing tracked and unignored Go files to the same pinned formatter,
 including files excluded by build tags. Both checks are read-only and run in CI.
 Override `GOLANGCI_LINT` with a compatible installed binary when needed.

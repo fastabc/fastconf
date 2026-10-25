@@ -10,7 +10,7 @@ go run ./examples/single-file -file /path/to/app.yaml
 The bundled [app.yaml](app.yaml) prints `port=8080`. [main.go](main.go) is the
 complete program: `LoadFile` directly returns the typed configuration, and there
 is no Manager to close. Unknown keys, ports outside 1–65535 and missing files fail.
-`LoadFile` is new in the current checkout and is not part of the v1.1.0 release.
+`LoadFile` is available starting in v1.2.0.
 
 The file extension selects the parser; JSON struct tags map fields even with
 YAML input. The file size limit is 4 MiB. The caller owns the returned value.

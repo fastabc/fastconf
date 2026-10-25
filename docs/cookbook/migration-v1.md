@@ -1,13 +1,13 @@
 # Migration: v0.20.0 → v1.1.0
 
-Upgrade directly from v0.20.0 to the stable v1.1.0 API. The tables below use
-v0.20.0 as the source baseline; intermediate development APIs are not migration
-steps. Update the root module and every optional module you use to v1.1.0:
+The tables document the API migration from v0.20.0 to v1.1.0. These changes
+also apply when upgrading directly to v1.2.0; intermediate development APIs
+are not migration steps. Install the current root and optional modules together:
 
 ```sh
-go get github.com/fastabc/fastconf@v1.1.0
+go get github.com/fastabc/fastconf@v1.2.0
 # Example optional module; update the adapters your application imports.
-go get github.com/fastabc/fastconf/providers/s3@v1.1.0
+go get github.com/fastabc/fastconf/providers/s3@v1.2.0
 go mod tidy
 ```
 
@@ -195,7 +195,7 @@ extracted value changes. Callbacks now follow registration order.
 Run `go test ./...` in the application and exercise its reload/rollback paths.
 Use the [runtime contract](../design/spec.md) and [examples](../../examples/README.md)
 for current behavior and configuration. This migration table targets v1.1.0;
-changes made afterward are listed in the [changelog](../../CHANGELOG.md#unreleased).
+changes made afterward are listed in the [changelog](../../CHANGELOG.md#v120).
 
 ## Preserve explicit zero values
 

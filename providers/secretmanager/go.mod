@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	cloud.google.com/go/secretmanager v1.23.0
-	github.com/fastabc/fastconf v1.1.0
+	github.com/fastabc/fastconf v1.2.0
 	github.com/googleapis/gax-go/v2 v2.26.2
 	google.golang.org/api v0.288.0
 )

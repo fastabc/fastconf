@@ -1,12 +1,60 @@
 package main
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"go/types"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestRenderSourceUnusualKeys(t *testing.T) {
+	for _, key := range []string{"api/v1", "配置", "123name"} {
+		t.Run(key, func(t *testing.T) {
+			src, err := renderSource("config", "Config", map[string]any{key: "value"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(fset, "config.go", src, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pkg, err := new(types.Config).Check("config", fset, []*ast.File{file}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			st := pkg.Scope().Lookup("Config").Type().Underlying().(*types.Struct)
+			if st.NumFields() != 1 || !st.Field(0).Exported() {
+				t.Fatalf("generated field is not exported: %s", src)
+			}
+			for _, name := range []string{"yaml", "json"} {
+				if got := reflect.StructTag(st.Tag(0)).Get(name); got != key {
+					t.Fatalf("%s tag = %q; want %q", name, got, key)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderSourceRejectsUnsupportedTagKeys(t *testing.T) {
+	for _, key := range []string{"", "-", "a`b", "a\"b", "a\\b", "a\nb"} {
+		for _, value := range []any{
+			map[string]any{key: "value"},
+			[]any{map[string]any{key: "value"}},
+		} {
+			_, err := renderSource("config", "Config", map[string]any{"nested": value})
+			if err == nil || !strings.Contains(err.Error(), "JSON struct tag") {
+				t.Fatalf("key %q: error=%v; want an unsupported tag diagnostic", key, err)
+			}
+		}
+	}
+}
 
 func TestExportName(t *testing.T) {
 	cases := map[string]string{
@@ -38,7 +86,9 @@ func TestEmit_NestedStructAndSlice(t *testing.T) {
 		},
 	}
 	var b strings.Builder
-	emit(&b, "Config", m)
+	if err := emit(&b, "Config", m); err != nil {
+		t.Fatal(err)
+	}
 	out := b.String()
 	for _, want := range []string{
 		"type Config struct",
@@ -62,7 +112,9 @@ func TestEmit_DeduplicatesCollidingFieldNames(t *testing.T) {
 		"foo_bar": int64(2),
 	}
 	var b strings.Builder
-	emit(&b, "Config", m)
+	if err := emit(&b, "Config", m); err != nil {
+		t.Fatal(err)
+	}
 	out := b.String()
 	for _, want := range []string{
 		"FooBar int64 `yaml:\"foo-bar\" json:\"foo-bar\"`",
@@ -82,7 +134,9 @@ func TestEmit_DeduplicatesNestedTypeNames(t *testing.T) {
 		"a_b": map[string]any{"y": int64(2)},
 	}
 	var b strings.Builder
-	emit(&b, "Config", m)
+	if err := emit(&b, "Config", m); err != nil {
+		t.Fatal(err)
+	}
 	out := b.String()
 	for _, want := range []string{
 		"AB ConfigAB",
@@ -104,7 +158,9 @@ func TestEmit_SliceSamplesMergeObjectFields(t *testing.T) {
 		},
 	}
 	var b strings.Builder
-	emit(&b, "Config", m)
+	if err := emit(&b, "Config", m); err != nil {
+		t.Fatal(err)
+	}
 	out := b.String()
 	for _, want := range []string{
 		"Servers []ConfigServersItem",
@@ -127,7 +183,9 @@ func TestEmit_SliceSamplesKeepConflictingFieldsAsAny(t *testing.T) {
 		},
 	}
 	var b strings.Builder
-	emit(&b, "Config", m)
+	if err := emit(&b, "Config", m); err != nil {
+		t.Fatal(err)
+	}
 	out := b.String()
 	if !strings.Contains(out, "Value any") {
 		t.Fatalf("conflicting field should be any:\n%s", out)

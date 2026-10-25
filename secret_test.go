@@ -222,6 +222,21 @@ func TestSecretOpaqueMarshalerFailsClosed(t *testing.T) {
 	}{jsonOpaqueSecret{jsonSecretCanary}, "visible"})
 }
 
+type textOpaqueSecret struct {
+	Password string `fc:"secret"`
+}
+
+func (v textOpaqueSecret) MarshalText() ([]byte, error) {
+	return []byte(v.Password), nil
+}
+
+func TestSecretOpaqueTextMarshalerFailsClosed(t *testing.T) {
+	assertSecretOutputs(t, struct {
+		Opaque textOpaqueSecret
+		Public string
+	}{textOpaqueSecret{jsonSecretCanary}, "visible"})
+}
+
 type jsonSecretShadow struct {
 	Public string `fc:"secret"`
 }
@@ -339,6 +354,25 @@ func TestSecretPathsRedactMapTypedConfig(t *testing.T) {
 	}
 	if got := (*mgr.Get())["db"].(map[string]any)["password"]; got != "hunter2" {
 		t.Fatalf("Get() must stay unredacted, got %v", got)
+	}
+}
+
+func TestSecretPathsDottedMapKeyProvenance(t *testing.T) {
+	m, err := New[map[string]any](context.Background(),
+		WithFS(fstest.MapFS{"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("api.v1:\n  password: hunter2\n")}}),
+		WithSecretPaths("*.password"), WithProvenance(ProvenanceFull),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.Close() }()
+	st := m.Snapshot()
+	if got := st.Map()["api.v1"].(map[string]any)["password"]; got != "***REDACTED***" {
+		t.Fatalf("Map password = %v", got)
+	}
+	origins := st.Explain("api.v1.password")
+	if len(origins) != 1 || origins[0].Value != "***REDACTED***" {
+		t.Fatalf("Explain exposed a wildcard-matched secret: %+v", origins)
 	}
 }
 

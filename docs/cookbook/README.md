@@ -1,6 +1,6 @@
 # Cookbook
 
-Recipes follow the current checkout; additions after v1.1.0 are marked. Start
+Recipes document v1.2.0. Start
 with the [loading guides](../README.md#start-here) or [complete examples](../../examples/README.md).
 
 Go blocks are integration fragments unless labeled as complete programs.
@@ -21,7 +21,7 @@ root. Optional modules and local workspace commands are listed in the
 | [HTTP](sources/http.md) | Remote documents, codecs, conditional requests and polling |
 | [Vault KV v2](sources/vault.md) | KV data, metadata polling and authentication choices |
 | [Consul KV](sources/consul.md) | Prefix trees, document mode and blocking queries |
-| [Embedded files and cloud sources](sources/cloud.md) | `fs.FS`, AppConfig, Parameter Store, Azure App Configuration, Secret Manager, GCS and Azure Blob (after v1.1.0) |
+| [Embedded files and cloud sources](sources/cloud.md) | `fs.FS`, AppConfig, Parameter Store, Azure App Configuration, Secret Manager, GCS and Azure Blob (added in v1.2.0) |
 | [Cloud notifications](sources/cloud-notifications.md) | SNS/SQS, Service Bus and Pub/Sub refresh-before-ack, replica fan-out and recovery |
 | [NATS / Redis Streams](sources/cross-process.md) | Transport reference implementations and resume limits |
 

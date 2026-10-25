@@ -3,7 +3,7 @@ module github.com/fastabc/fastconf/observability/otel
 go 1.26.0
 
 require (
-	github.com/fastabc/fastconf v1.1.0
+	github.com/fastabc/fastconf v1.2.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
 	go.opentelemetry.io/otel/trace v1.47.0

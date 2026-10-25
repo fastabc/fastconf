@@ -8,6 +8,21 @@ diagnostic views and audit diffs mask plaintext only when fields are tagged
 `fc:"secret"` or matched by `WithSecretPaths`. A resolver does not mark paths
 secret automatically.
 
+## Path patterns
+
+`WithSecretPaths("*.password", "**.token")` uses dot-separated segments:
+`*` matches one map key or list index, and `**` matches zero or more segments.
+Matching a container masks the whole subtree.
+
+There is no escape syntax for a literal dot in a key. For example,
+`WithSecretPaths("annotations.*")` masks values under `annotations`, including
+the literal key `example.com/token`; `annotations.example.com/token` instead
+describes nested keys. Provenance stores dotted paths without key boundaries,
+so `Explain` masks every plausible wildcard match and can hide additional values.
+Fields containing secrets that implement `json.Marshaler` or
+`encoding.TextMarshaler` are masked as a whole when their output hides the
+original field structure.
+
 ## Decryption is failure-safe
 
 If `Resolve` returns an error, the reload aborts and the previous `*State[T]` is preserved — the manager never publishes partially-decrypted state.

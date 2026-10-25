@@ -63,6 +63,7 @@ type stagedLayer struct {
 
 type assemblyResult struct {
 	staged       []stagedLayer
+	strict       bool
 	appendSlices bool
 	mergeKeys    map[string]string
 	// fingerprint identifies the inputs when every layer is a file and
@@ -104,12 +105,14 @@ func (m *Manager[T]) assemble(ctx context.Context, hostnameOverride string, extr
 	var meta assemblyMeta
 	var staged []stagedLayer
 	var watchDirs []string
+	strict := m.opts.Strict
 	if !m.opts.SkipDiscovery {
 		scanOpt, discovered, err := m.buildScanOptions(hostnameOverride)
 		if err != nil {
 			return assemblyResult{}, err
 		}
 		meta = discovered
+		strict = scanOpt.Strict
 		scanOpt.OnDir = func(dir string) { watchDirs = append(watchDirs, dir) }
 		staged, err = m.assembleFileLayers(scanOpt)
 		if err != nil {
@@ -133,6 +136,7 @@ func (m *Manager[T]) assemble(ctx context.Context, hostnameOverride string, extr
 	slices.SortStableFunc(staged, compareLayers)
 	return assemblyResult{
 		staged:       staged,
+		strict:       strict,
 		appendSlices: meta.appendSlices,
 		mergeKeys:    meta.mergeKeys,
 		fingerprint:  m.inputFingerprint(staged, meta.metaSum, generation),

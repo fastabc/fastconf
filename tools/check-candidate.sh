@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'chmod -R u+w "$TMP"; rm -rf "$TMP"' EXIT
-VERSION="${VERSION:-v1.1.0}"
+VERSION="${VERSION:-v1.2.0}"
 
 python3 - "$ROOT" "$TMP" "$VERSION" <<'PYTHON'
 import json
@@ -88,7 +88,7 @@ export GONOSUMDB=github.com/fastabc/fastconf
 export GOPRIVATE=
 export GONOPROXY=
 echo "check-candidate: $VERSION from checkout; isolated proxy/cache; GOWORK=off"
-# Tidy compares with the original metadata before any download-all preparation
+# Tidy compares with the original metadata before any download preparation
 # can fill unrelated sums. Only its explicit write mode updates the source tree.
 if [[ "${1:-}" == --tidy || "${1:-}" == --tidy-check ]]; then
   MODE="${1#--}"
@@ -112,13 +112,21 @@ PYTHON
 }
 while IFS= read -r module; do
   mod="$TMP/checkout/$module/go.mod"
-  grep -Eq "github\.com/fastabc/fastconf(/[^[:space:]]+)?[[:space:]]+$VERSION([[:space:]]|$)" "$mod" || continue
+  candidates=()
+  while read -r path version; do
+    if [[ "$version" == "$VERSION" && ("$path" == github.com/fastabc/fastconf || "$path" == github.com/fastabc/fastconf/*) ]]; then
+      candidates+=("$path@$version")
+    fi
+  done < <(awk '$1 == "require" {print $2, $3; next} {print $1, $2}' "$mod")
+  [[ ${#candidates[@]} -gt 0 ]] || continue
   floor="$(awk '$1 == "go" {print $2; exit}' "$mod")"
   if [[ "$TOOLCHAIN" != auto* && "$TOOLCHAIN" != *+auto ]] && above_toolchain "$floor"; then
     echo "check-candidate: skip $module (go $floor > go $GOVER)"
     continue
   fi
-  (cd "$TMP/checkout/$module" && go mod download all)
+  # Explicit queries record synthetic archive hashes; no-argument download
+  # can leave only go.mod hashes. Avoid unrelated transitive archives via all.
+  (cd "$TMP/checkout/$module" && go mod download "${candidates[@]}")
 done < <(bash "$TMP/checkout/tools/modules.sh" list)
 # gorelease requires a clean VCS revision. Commit only this disposable copy,
 # including its synthetic dependency sums; the source checkout is untouched.

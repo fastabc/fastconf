@@ -17,8 +17,8 @@ Prometheus and OpenTelemetry retain separate leaf modules.
 
 ## Prepare and verify
 
-For the next release, choose a version newer than `v1.1.0`. The commands below
-use `v1.2.0` as an example:
+The current release target is `v1.2.0`, checked against the stable `v1.1.0`
+baseline. Prepare it with the following steps:
 
 1. Update the changelog and any relevant migration notes.
 2. Align in-repository module requirements and the Makefile `VERSION` default to
@@ -31,6 +31,7 @@ use `v1.2.0` as an example:
 ```sh
 make tidy VERSION=v1.2.0
 make check VERSION=v1.2.0
+make lint VERSION=v1.2.0
 make test-workspace
 make test-candidate VERSION=v1.2.0
 make api-check VERSION=v1.2.0 BASE=v1.1.0
@@ -98,8 +99,8 @@ Historical scans do not validate a later source or dependency set.
 Preview and publish the complete module tag set from a clean release commit:
 
 ```sh
-bash tools/tag-release.sh v1.1.0 --dry-run
-bash tools/tag-release.sh v1.1.0 --push
+bash tools/tag-release.sh v1.2.0 --dry-run
+bash tools/tag-release.sh v1.2.0 --push
 ```
 
 The script validates all version pins before creating tags at one commit. It
@@ -126,7 +127,7 @@ the binary, LICENSE and README.md. Builds disable CGO, use `-trimpath`, and embe
 the tag through `-X main.version=<tag>`.
 
 ```sh
-make dist VERSION=v1.1.0
+make dist VERSION=v1.2.0
 make dist-verify
 ```
 

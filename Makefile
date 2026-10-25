@@ -6,7 +6,7 @@ SHELL := /bin/bash
 # Ignore personal workspaces and never update dependencies during checks.
 export GOWORK := off
 export GOFLAGS := $(GOFLAGS) -mod=readonly
-VERSION ?= v1.1.0
+VERSION ?= v1.2.0
 BASE ?= latest
 GOLANGCI_LINT ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 MODULES ?=
@@ -50,7 +50,7 @@ api-check:
 	VERSION=$(VERSION) BASE=$(BASE) bash tools/check-candidate.sh bash tools/check-api.sh
 
 lint:
-	bash tools/modules.sh lint $(MODULES) -- $(GOLANGCI_LINT)
+	VERSION=$(VERSION) bash tools/check-candidate.sh bash tools/modules.sh lint $(MODULES) -- $(GOLANGCI_LINT)
 
 fmt-check:
 	bash tools/check-repo.sh fmt $(GOLANGCI_LINT)
@@ -66,6 +66,7 @@ check: fmt-check deps-check tidy-check
 	bash tools/check-repo-test.sh
 	bash tools/modules-test.sh
 	bash tools/check-candidate-test.sh
+	bash tools/check-vulnerabilities-test.sh
 	python3 tools/tidy-candidate-test.py
 	bash tools/tag-release-test.sh
 	bash tools/bench-guard-test.sh

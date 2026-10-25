@@ -64,7 +64,7 @@ h := slog.NewJSONHandler(os.Stderr, opts)
 ## Option B: zerolog adapter
 
 ```bash
-go get github.com/fastabc/fastconf/integrations/log/zerolog@v1.1.0
+go get github.com/fastabc/fastconf/integrations/log/zerolog@v1.2.0
 ```
 
 ```go
@@ -116,7 +116,7 @@ logger variable later does not change the handler's backend configuration.
 ## Option C: phuslu/log adapter
 
 ```bash
-go get github.com/fastabc/fastconf/integrations/log/phuslu@v1.1.0
+go get github.com/fastabc/fastconf/integrations/log/phuslu@v1.2.0
 ```
 
 ```go

@@ -1,8 +1,8 @@
 # FastConf Runtime Contract
 
-This document defines the runtime contract for the current checkout.
+This document defines the runtime contract for v1.2.0.
 For a released dependency, use this document at its installed tag. Changes
-after v1.1.0 are recorded in the [changelog](../../CHANGELOG.md#unreleased).
+in v1.2.0 are recorded in the [changelog](../../CHANGELOG.md#v120).
 The root module requires Go 1.24; independent modules declare their own
 minimum versions. See [architecture.md](../architecture.md) for package
 ownership and [RELEASING.md](../../RELEASING.md) for release checks.
@@ -19,7 +19,7 @@ background work retains context values and runs until `Close` or `Shutdown`.
 `Load` shares option resolution, typed-hook setup and the initial pipeline
 with `New`, without starting background workers.
 
-The unreleased `LoadFile[T](path)` convenience entry reads exactly one required
+The `LoadFile[T](path)` convenience entry, added in v1.2.0, reads one required
 file (up to 4 MiB), skips directory/profile discovery, rejects unknown fields
 and returns a caller-owned `*T`. It uses the extension's input codec and the JSON
 struct bridge, with the same typed hooks, defaults and field metadata checks.

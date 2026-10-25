@@ -58,6 +58,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
+          check-latest: true
           cache-dependency-path: "**/go.sum"
 
       - name: Build
@@ -79,6 +80,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.x"
+          check-latest: true
           cache-dependency-path: "**/go.sum"
       - run: bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
 
@@ -115,6 +117,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.x"
+          check-latest: true
           cache-dependency-path: "**/go.sum"
       - run: make test-workspace
       - name: Run core and optional examples
@@ -122,7 +125,7 @@ jobs:
       # Use a candidate newer than the fixed baseline; do not compare a version
       # to itself or silently fall back to BASE=none.
       - name: Check compatibility with v1.1.0
-        run: make api-check BASE=v1.1.0 VERSION=v1.2.0
+        run: make api-check BASE=v1.1.0
 
   # Discover every module, including benchmarks, through the same local command.
   lint:
@@ -136,6 +139,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.26.x"
+          check-latest: true
           cache-dependency-path: "**/go.sum"
 
       - name: Lint all modules

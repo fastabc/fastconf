@@ -5,6 +5,6 @@ module github.com/fastabc/fastconf/integrations/log/phuslu
 go 1.24.0
 
 require (
-	github.com/fastabc/fastconf v1.1.0
+	github.com/fastabc/fastconf v1.2.0
 	github.com/phuslu/log v1.0.138
 )

@@ -11,7 +11,7 @@ zero-allocation read. Failed loads or validation keep the previous snapshot.
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-Documentation follows this checkout. Features added after v1.1.0 are marked;
+Documentation targets v1.2.0;
 use the documentation at your installed tag for released behavior. For v0.20.0
 upgrades, see the [migration guide](docs/cookbook/migration-v1.md).
 
@@ -21,7 +21,7 @@ The root module requires Go 1.24+. Optional modules declare their own minimum
 Go version; install only the adapters you use.
 
 ```sh
-go get github.com/fastabc/fastconf@v1.1.0
+go get github.com/fastabc/fastconf@v1.2.0
 ```
 
 ## Quick start
@@ -30,7 +30,7 @@ Choose the entry point that matches the configuration lifecycle:
 
 | Need | API | Guide |
 |---|---|---|
-| Read exactly one required file at startup | `LoadFile[T](path)` → `*T` | [Single file](docs/getting-started/load.md); added after v1.1.0 |
+| Read exactly one required file at startup | `LoadFile[T](path)` → `*T` | [Single file](docs/getting-started/load.md); added in v1.2.0 |
 | Load layers once, with options and diagnostics | `Load[T](ctx, opts...)` → `*State[T]` | [Layered example](examples/basic/README.md) |
 | Reload configuration while running | `New[T](ctx, opts...)` → `*Manager[T]` | [Dynamic guide](docs/getting-started/dynamic.md) |
 
@@ -93,7 +93,7 @@ go run ./examples/reload
 
 ### Exactly one required file
 
-`LoadFile` was added after v1.1.0. With the `Config` type and YAML above:
+`LoadFile` was added in v1.2.0. With the `Config` type and YAML above:
 
 ```go
 cfg, err := fastconf.LoadFile[Config]("conf.d/base/00-app.yaml")
@@ -213,7 +213,7 @@ expressions. See [files, profiles and patches](docs/cookbook/sources/layers.md).
 |---|---|---|---|
 | `source.NewFile` | Shared file watcher | — | Decoded document; missing file contributes an empty layer |
 | `source.NewBytes` | — | — | Copied in-memory document with an explicit codec |
-| `source.NewFS` | — | — | Required document from embedded or virtual `fs.FS`; added after v1.1.0 |
+| `source.NewFS` | — | — | Required document from embedded or virtual `fs.FS`; added in v1.2.0 |
 | `env.New` | — | — | Process environment; underscores become path separators |
 | `dotenv.New` | Shared file watcher | — | Dotenv fallback; process environment wins |
 | `cliflag.New` | — | — | Explicitly changed flags; optional pflag adapter |
@@ -252,7 +252,7 @@ reload completes; use the new consumer for refresh-before-ack behavior.
 
 See [embedded files and cloud sources](docs/cookbook/sources/cloud.md) for loading
 and limits. Cloud SDKs live in independent modules. Except for the S3 loader, the
-cloud loaders and all three notifier modules above were added after v1.1.0.
+cloud loaders and all three notifier modules above were added in v1.2.0.
 
 Providers implement `contracts.Provider` (`Name`, `Load`). Optional `Describe`
 supplies priority/file paths; optional `contracts.Watcher` supplies native events
@@ -355,9 +355,9 @@ Install from source at a matching version, or use binaries from
 [GitHub Releases](https://github.com/fastabc/fastconf/releases):
 
 ```sh
-go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.1.0
-go install github.com/fastabc/fastconf/cmd/fastconfd@v1.1.0
-go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.1.0
+go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.2.0
+go install github.com/fastabc/fastconf/cmd/fastconfd@v1.2.0
+go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.2.0
 fastconfctl dump -dir conf.d -profile prod -format yaml
 fastconfctl diff -dir conf.d -from dev -to prod -json
 fastconfctl validate -dir conf.d -profile prod
@@ -366,7 +366,7 @@ fastconfgen -in conf.d/base/00-app.yaml -pkg config -type Config
 ```
 
 `fastconfctl validate` loads a generic map; it does not validate your application's
-struct tags or business policies. In this checkout (after v1.1.0), CLI diagnostic
+struct tags or business policies. Starting in v1.2.0, CLI diagnostic
 output masks common credential keys by default; library structs need `fc:"secret"` or `WithSecretPaths`.
 See [diagnostics](docs/cookbook/runtime/introspect.md).
 

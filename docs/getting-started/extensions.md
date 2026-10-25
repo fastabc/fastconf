@@ -54,7 +54,7 @@ Extensions in the root module need no separate installation. Choose by use case:
 Install only the adapters your application imports, for example:
 
 ```sh
-go get github.com/fastabc/fastconf/providers/s3@v1.1.0
+go get github.com/fastabc/fastconf/providers/s3@v1.2.0
 ```
 
 The table below helps locate modules. Each linked `go.mod` is authoritative for
@@ -64,15 +64,15 @@ not apply to every adapter.
 | Capability | Module / manifest |
 |---|---|
 | S3 objects and event adaptation | [`providers/s3`](../../providers/s3/go.mod); includes `s3events` |
-| AWS Parameter Store | [`providers/parameterstore`](../../providers/parameterstore/go.mod); added after v1.1.0 |
-| Google Cloud Storage | [`providers/gcs`](../../providers/gcs/go.mod); added after v1.1.0 |
-| Azure Blob Storage | [`providers/azblob`](../../providers/azblob/go.mod); added after v1.1.0 |
-| AWS AppConfig | [`providers/appconfig`](../../providers/appconfig/go.mod); added after v1.1.0 |
-| Azure App Configuration | [`providers/azappconfig`](../../providers/azappconfig/go.mod); added after v1.1.0 |
-| GCP Secret Manager | [`providers/secretmanager`](../../providers/secretmanager/go.mod); added after v1.1.0 |
-| SNS through SQS | [`integrations/notify/sns`](../../integrations/notify/sns/go.mod); added after v1.1.0 |
-| Azure Service Bus | [`integrations/notify/azservicebus`](../../integrations/notify/azservicebus/go.mod); added after v1.1.0 |
-| GCP Pub/Sub | [`integrations/notify/pubsub`](../../integrations/notify/pubsub/go.mod); added after v1.1.0 |
+| AWS Parameter Store | [`providers/parameterstore`](../../providers/parameterstore/go.mod); added in v1.2.0 |
+| Google Cloud Storage | [`providers/gcs`](../../providers/gcs/go.mod); added in v1.2.0 |
+| Azure Blob Storage | [`providers/azblob`](../../providers/azblob/go.mod); added in v1.2.0 |
+| AWS AppConfig | [`providers/appconfig`](../../providers/appconfig/go.mod); added in v1.2.0 |
+| Azure App Configuration | [`providers/azappconfig`](../../providers/azappconfig/go.mod); added in v1.2.0 |
+| GCP Secret Manager | [`providers/secretmanager`](../../providers/secretmanager/go.mod); added in v1.2.0 |
+| SNS through SQS | [`integrations/notify/sns`](../../integrations/notify/sns/go.mod); added in v1.2.0 |
+| Azure Service Bus | [`integrations/notify/azservicebus`](../../integrations/notify/azservicebus/go.mod); added in v1.2.0 |
+| GCP Pub/Sub | [`integrations/notify/pubsub`](../../integrations/notify/pubsub/go.mod); added in v1.2.0 |
 | Explicit pflag arguments | [`integrations/cli/pflag`](../../integrations/cli/pflag/go.mod) |
 | go-playground validation | [`validate/playground`](../../validate/playground/go.mod) |
 | CUE validation and policies | [`cue`](../../cue/go.mod); includes `cuelang` and `policy` packages |

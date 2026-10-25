@@ -134,11 +134,18 @@ func (m *Manager[T]) runReloadRequest(req reloadRequest) {
 	// Preserve caller deadlines/values and cancel in-flight work on shutdown.
 	pipeCtx, cancel := context.WithCancel(pipeCtx)
 	stop := context.AfterFunc(m.lifetime, cancel)
-	var err error
-	if req.applyFn != nil {
-		err = req.applyFn(pipeCtx)
-	} else {
-		err = m.reload(pipeCtx, req.reason, req.key)
+	err := pipeCtx.Err()
+	if err == nil {
+		// AfterFunc may not have run yet when shutdown already canceled
+		// lifetime. Skip queued work, including context-free apply hooks.
+		err = m.lifetime.Err()
+	}
+	if err == nil {
+		if req.applyFn != nil {
+			err = req.applyFn(pipeCtx)
+		} else {
+			err = m.reload(pipeCtx, req.reason, req.key)
+		}
 	}
 	stop()
 	cancel()
