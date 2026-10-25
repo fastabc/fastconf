@@ -25,20 +25,30 @@ const bridge = `{"source":"aws.s3","detail-type":"Object Created","detail":{"buc
 func TestNotificationFormats(t *testing.T) {
 	wrapped, _ := json.Marshal(map[string]string{"Type": "Notification", "TopicArn": "topic", "Message": native})
 	cfg := Config{Source: S3, Bucket: "b", Key: "app +.json", TopicARN: "topic"}
-	for _, body := range []string{native, bridge, string(wrapped)} {
-		if ok, err := match(cfg, body); !ok || err != nil {
-			t.Fatalf("match = %t, %v", ok, err)
-		}
-	}
-	for _, body := range []string{strings.ReplaceAll(native, `"b"`, `"other"`), strings.ReplaceAll(string(wrapped), `"topic"`, `"other"`), `{"Service":"Amazon S3","Event":"s3:TestEvent"}`} {
-		if ok, err := match(cfg, body); ok || err != nil {
-			t.Fatalf("unrelated = %t, %v", ok, err)
-		}
-	}
-	for _, body := range []string{"not json", "null", `{}`, `{"source":"aws.s3"}`, strings.ReplaceAll(native, "app+%2B.json", ""), strings.ReplaceAll(native, "app+%2B.json", "%zz"), strings.Repeat("x", (1<<20)+1)} {
-		if _, err := match(cfg, body); err == nil {
-			t.Fatal("accepted invalid message")
-		}
+	for _, tc := range []struct {
+		name, body       string
+		matched, invalid bool
+	}{
+		{"native", native, true, false},
+		{"eventbridge", bridge, true, false},
+		{"sns-envelope", string(wrapped), true, false},
+		{"other-bucket", strings.ReplaceAll(native, `"b"`, `"other"`), false, false},
+		{"other-topic", strings.ReplaceAll(string(wrapped), `"topic"`, `"other"`), false, false},
+		{"s3-test-event", `{"Service":"Amazon S3","Event":"s3:TestEvent"}`, false, false},
+		{"malformed", "not json", false, true},
+		{"null", "null", false, true},
+		{"missing-identity", `{}`, false, true},
+		{"incomplete-eventbridge", `{"source":"aws.s3"}`, false, true},
+		{"empty-key", strings.ReplaceAll(native, "app+%2B.json", ""), false, true},
+		{"invalid-escape", strings.ReplaceAll(native, "app+%2B.json", "%zz"), false, true},
+		{"oversized", strings.Repeat("x", (1<<20)+1), false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			matched, err := match(cfg, tc.body)
+			if matched != tc.matched || (err != nil) != tc.invalid {
+				t.Fatalf("match=%t, err=%v; want matched=%t, invalid=%t", matched, err, tc.matched, tc.invalid)
+			}
+		})
 	}
 	ssm := Config{Source: ParameterStore, Path: "/app"}
 	for name, want := range map[string]bool{"/app/key": true, "/application/key": false} {
@@ -51,7 +61,7 @@ func TestNotificationFormats(t *testing.T) {
 	for _, event := range []string{"OnDeploymentStart", "OnDeploymentComplete", "OnDeploymentRolledBack"} {
 		body := `{"Type":"` + event + `","Application":{"Id":"a"},"Environment":{"Id":"e"},"ConfigurationProfile":{"Id":"p"}}`
 		if ok, err := match(app, body); !ok || err != nil {
-			t.Fatalf("deployment = %t, %v", ok, err)
+			t.Fatalf("deployment %s = %t, %v", event, ok, err)
 		}
 	}
 }
@@ -96,7 +106,26 @@ func TestAckWaitsForRefreshAndReportsPartialFailure(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		started, finish, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
-		go func() { done <- c.Run(ctx, func(context.Context) error { close(started); <-finish; return nil }) }()
+		go func() {
+			defer close(done)
+			done <- c.Run(ctx, func(ctx context.Context) error {
+				close(started)
+				select {
+				case <-finish:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			})
+		}()
+		t.Cleanup(func() {
+			cancel()
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("consumer did not stop after cancellation")
+			}
+		})
 		q.messages <- native
 		select {
 		case <-started:

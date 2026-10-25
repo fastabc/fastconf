@@ -14,41 +14,50 @@ const maxCachedLayers = 512
 
 type layerCacheKey struct {
 	path, codec string
-	sum         [32]byte
-	generation  uint64
 }
 
 // layerCache is owned by the single writer, shared by Reload and Plan. File
 // bytes are always read by discovery; mtime and size never bypass hashing.
 type layerCache struct {
-	entries map[layerCacheKey]map[string]any
+	entries map[layerCacheKey]*decodedLayer
 	keys    []layerCacheKey
 	next    int
 }
 
-func (c *layerCache) decoded(layer scan.Layer, sum [32]byte, dec contracts.Decoder, generation uint64) (map[string]any, error) {
-	key := layerCacheKey{layer.Path, layer.Codec, sum, generation}
-	if raw, ok := c.entries[key]; ok {
-		return confmap.DeepClone(raw), nil
+// decodedLayer is immutable after decoding. Assembly may borrow it; only a
+// clone may enter merge, whose output can alias its layer inputs.
+type decodedLayer struct {
+	sum        [32]byte
+	generation uint64
+	tree       map[string]any
+}
+
+func (l *decodedLayer) clone() map[string]any { return confmap.DeepClone(l.tree) }
+
+func (c *layerCache) decoded(layer scan.Layer, sum [32]byte, dec contracts.Decoder, generation uint64) (*decodedLayer, error) {
+	key := layerCacheKey{layer.Path, layer.Codec}
+	if cached := c.entries[key]; cached != nil && cached.sum == sum && cached.generation == generation {
+		return cached, nil
 	}
 	raw, err := dec.Decode(layer.Bytes)
 	if err != nil {
 		return nil, err
 	}
 	if c.entries == nil {
-		c.entries = make(map[layerCacheKey]map[string]any)
+		c.entries = make(map[layerCacheKey]*decodedLayer)
 	}
-	if len(c.keys) == maxCachedLayers {
-		delete(c.entries, c.keys[c.next])
-		c.keys[c.next] = key
-		c.next = (c.next + 1) % maxCachedLayers
-	} else {
-		c.keys = append(c.keys, key)
+	if c.entries[key] == nil {
+		if len(c.keys) == maxCachedLayers {
+			delete(c.entries, c.keys[c.next])
+			c.keys[c.next] = key
+			c.next = (c.next + 1) % maxCachedLayers
+		} else {
+			c.keys = append(c.keys, key)
+		}
 	}
-	c.entries[key] = raw
-	// Merge aliases layer subtrees, which later stages mutate. Never hand the
-	// cached instance to the pipeline, including on the first decode.
-	return confmap.DeepClone(raw), nil
+	entry := &decodedLayer{sum: sum, generation: generation, tree: raw}
+	c.entries[key] = entry
+	return entry, nil
 }
 
 // metaKeysCache remembers the merge-key table built for the last

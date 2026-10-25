@@ -313,7 +313,7 @@ func TestFileLayerCacheInvalidation(t *testing.T) {
 		if err != nil || len(layers) != 1 {
 			t.Fatalf("layers=%v err=%v", layers, err)
 		}
-		raw := layers[0].data
+		raw := layers[0].cached.clone()
 		if got := raw["nested"].(map[string]any)["value"]; got != want {
 			t.Fatalf("value=%v want=%v", got, want)
 		}
@@ -349,7 +349,7 @@ func TestLayerCacheBoundAndEviction(t *testing.T) {
 	for i := 0; i < maxCachedLayers+10; i++ {
 		layer := scan.Layer{Path: fmt.Sprint(i), Codec: "test", Bytes: []byte("original")}
 		raw, err := cache.decoded(layer, sha256.Sum256(layer.Bytes), dec, 0)
-		if err != nil || raw["nested"].(map[string]any)["value"] != "original" {
+		if err != nil || raw == nil || raw.tree["nested"].(map[string]any)["value"] != "original" {
 			t.Fatalf("decode %d: %v %v", i, raw, err)
 		}
 		if len(cache.entries) > maxCachedLayers || len(cache.keys) > maxCachedLayers {
@@ -474,5 +474,34 @@ func TestLayerCacheConcurrentRegistration(t *testing.T) {
 	}
 	if got := (*m.Get())["nested"].(map[string]any)["value"]; got != "final:data" {
 		t.Fatalf("stale codec result: %v", got)
+	}
+}
+
+func TestLayerCacheKeepsLatestVersion(t *testing.T) {
+	var calls atomic.Int64
+	dec := countingLayerCodec{&calls, ""}
+	var cache layerCache
+	layer := scan.Layer{Path: "same", Codec: "test"}
+	for _, version := range []string{"one", "two", "one"} {
+		layer.Bytes = []byte(version)
+		entry, err := cache.decoded(layer, sha256.Sum256(layer.Bytes), dec, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := entry.tree["nested"].(map[string]any)["value"]; got != version {
+			t.Fatalf("value=%v, want %s", got, version)
+		}
+		if len(cache.entries) != 1 || len(cache.keys) != 1 {
+			t.Fatalf("retained history: %d entries, %d keys", len(cache.entries), len(cache.keys))
+		}
+	}
+	if calls.Load() != 3 {
+		t.Fatalf("reverted content should decode again, calls=%d", calls.Load())
+	}
+	if _, err := cache.decoded(layer, sha256.Sum256(layer.Bytes), dec, 2); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 4 {
+		t.Fatal("registry generation did not invalidate latest entry")
 	}
 }

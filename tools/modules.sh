@@ -60,13 +60,23 @@ if [[ "$COMMAND" == workspace || "$COMMAND" == exec ]]; then
   for module in "${MODULES[@]}"; do PATHS+=("$ROOT/$module"); done
   (cd "$TMP" && go work init "${PATHS[@]}")
   export GOWORK="$TMP/go.work"
-  for dep in "${MODULES[@]}"; do
-    path="$(awk '$1 == "module" {print $2}' "$dep/go.mod")"
-    for module in "${MODULES[@]}"; do
-      req="$(awk -v p="$path" '$1 == p {print $2} $1 == "require" && $2 == p {print $3}' "$module/go.mod")"
-      [[ -z "$req" ]] || go work edit "-replace=$path@$req=$ROOT/$dep"
-    done
-  done
+  MODFILES=()
+  for module in "${MODULES[@]}"; do MODFILES+=("$ROOT/$module/go.mod"); done
+  REPLACES=()
+  # Read every manifest once, then resolve internal requirements after all
+  # module paths are known. Version-qualified replacements preserve MVS.
+  while IFS= read -r replacement; do
+    REPLACES+=("-replace=$replacement")
+  done < <(awk '
+    FNR == 1 { in_require = 0 }
+    $1 == "module" { dir = FILENAME; sub(/\/go.mod$/, "", dir); dirs[$2] = dir }
+    $1 == "require" && $2 == "(" { in_require = 1; next }
+    $1 == ")" { in_require = 0 }
+    $1 == "require" && $2 != "(" { requires[$2 "@" $3] = $2 }
+    in_require && $2 ~ /^v[0-9]/ { requires[$1 "@" $2] = $1 }
+    END { for (req in requires) if (requires[req] in dirs) print req "=" dirs[requires[req]] }
+  ' "${MODFILES[@]}" | LC_ALL=C sort)
+  if [[ ${#REPLACES[@]} -gt 0 ]]; then go work edit "${REPLACES[@]}"; fi
 fi
 if [[ "$COMMAND" == exec ]]; then
   "$@"

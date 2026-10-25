@@ -10,17 +10,85 @@ import (
 	"github.com/fastabc/fastconf/internal/typeinfo"
 )
 
-// ApplyJSON follows the actual output names, including literal dots in keys.
-// Opaque custom marshalers containing secrets are masked as a whole.
-func ApplyJSON(tree map[string]any, t reflect.Type, redactor Redactor) map[string]any {
+// Plan contains immutable type metadata and path rules. It is safe to share
+// between snapshots and concurrent readers; no configuration values are cached.
+type Plan struct {
+	root     *jsonPlan
+	patterns patternPlan
+}
+
+type jsonField struct {
+	name       string
+	candidates []string
+	marked     bool
+	child      *jsonPlan
+}
+
+type jsonPlan struct {
+	kind            reflect.Kind
+	opaque, secrets bool
+	fields          []jsonField
+	elem            *jsonPlan
+}
+
+// Compile builds metadata once, including cycles in recursive types.
+func Compile(t reflect.Type, patterns []string) *Plan {
+	memo := map[reflect.Type]*jsonPlan{}
+	var build func(reflect.Type) *jsonPlan
+	build = func(t reflect.Type) *jsonPlan {
+		if t == nil {
+			return nil
+		}
+		for t.Kind() == reflect.Pointer {
+			t = t.Elem()
+		}
+		if p := memo[t]; p != nil {
+			return p
+		}
+		p := &jsonPlan{kind: t.Kind(), opaque: opaqueJSONType(t), secrets: hasSecrets(t, map[reflect.Type]bool{})}
+		memo[t] = p
+		if !p.secrets || p.opaque {
+			return p
+		}
+		switch t.Kind() {
+		case reflect.Struct:
+			for _, field := range typeinfo.JSONFields(t) {
+				ft, marked := t, false
+				for _, index := range field.Field.Index {
+					for ft.Kind() == reflect.Pointer {
+						ft = ft.Elem()
+					}
+					f := ft.Field(index)
+					marked = marked || HasTag(f.Tag.Get(typeinfo.TagKey))
+					ft = f.Type
+				}
+				p.fields = append(p.fields, jsonField{field.Name, typeinfo.ResolveField(field.Field).Candidates, marked, build(ft)})
+			}
+		case reflect.Map, reflect.Array, reflect.Slice:
+			p.elem = build(t.Elem())
+		}
+		return p
+	}
+	return &Plan{root: build(t), patterns: compilePatterns(patterns)}
+}
+
+// Apply masks a detached JSON tree. The caller retains ownership of tree.
+func (p *Plan) Apply(tree map[string]any, redactor Redactor) map[string]any {
 	if redactor == nil {
 		redactor = DefaultRedactor
 	}
-	value := redactJSON(tree, t, "", redactor)
-	if out, ok := value.(map[string]any); ok {
-		return out
+	value := p.root.redact(tree, "", redactor)
+	out, ok := value.(map[string]any)
+	if !ok {
+		out = map[string]any{"$redacted": value}
 	}
-	return map[string]any{"$redacted": value}
+	redactPatterns(out, nil, p.patterns.tree, redactor)
+	return out
+}
+
+// ApplyJSON follows actual JSON names, including literal dots in keys.
+func ApplyJSON(tree map[string]any, t reflect.Type, redactor Redactor) map[string]any {
+	return Compile(t, nil).Apply(tree, redactor)
 }
 
 var marshalerTypes = [...]reflect.Type{
@@ -41,18 +109,24 @@ func opaqueJSONType(t reflect.Type) bool {
 // value omits a field or removes a list. Containers with secret descendants
 // are masked as a whole because their historical shape can differ.
 func PathHasSecrets(t reflect.Type, path string) bool {
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
+	return Compile(t, nil).PathHasSecrets(path)
+}
+
+func (p *Plan) PathHasSecrets(path string) bool { return p.root.pathHasSecrets(path) }
+
+func (p *jsonPlan) pathHasSecrets(path string) bool {
+	if p == nil || !p.secrets {
+		return false
 	}
-	if path == "" || opaqueJSONType(t) {
-		return hasSecrets(t, map[reflect.Type]bool{})
+	if path == "" || p.opaque {
+		return true
 	}
-	switch t.Kind() {
+	switch p.kind {
 	case reflect.Struct:
-		for _, field := range typeinfo.JSONFields(t) {
+		for _, field := range p.fields {
 			var rest string
 			matched := false
-			for _, name := range typeinfo.ResolveField(field.Field).Candidates {
+			for _, name := range field.candidates {
 				if strings.EqualFold(path, name) {
 					matched = true
 					break
@@ -62,30 +136,15 @@ func PathHasSecrets(t reflect.Type, path string) bool {
 					break
 				}
 			}
-			if !matched {
-				continue
-			}
-			ft := t
-			for _, index := range field.Field.Index {
-				for ft.Kind() == reflect.Pointer {
-					ft = ft.Elem()
-				}
-				f := ft.Field(index)
-				if HasTag(f.Tag.Get(typeinfo.TagKey)) {
-					return true
-				}
-				ft = f.Type
-			}
-			if PathHasSecrets(ft, rest) {
+			if matched && (field.marked || field.child.pathHasSecrets(rest)) {
 				return true
 			}
 		}
 	case reflect.Map:
-		// Dotted map keys are ambiguous in provenance; mask if any split
-		// reaches a secret rather than exposing one plausible interpretation.
+		// A dotted provenance key can represent several real path segments.
 		for {
 			_, rest, more := strings.Cut(path, ".")
-			if PathHasSecrets(t.Elem(), rest) {
+			if p.elem.pathHasSecrets(rest) {
 				return true
 			}
 			if !more {
@@ -95,58 +154,44 @@ func PathHasSecrets(t reflect.Type, path string) bool {
 		}
 	case reflect.Slice, reflect.Array:
 		_, rest, _ := strings.Cut(path, ".")
-		return PathHasSecrets(t.Elem(), rest)
+		return p.elem.pathHasSecrets(rest)
 	}
 	return false
 }
 
-func redactJSON(node any, t reflect.Type, path string, redact Redactor) any {
-	if node == nil || t == nil {
+func (p *jsonPlan) redact(node any, path string, redact Redactor) any {
+	if node == nil || p == nil || !p.secrets {
 		return node
 	}
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	if opaqueJSONType(t) && hasSecrets(t, map[reflect.Type]bool{}) {
+	if p.opaque {
 		return redact(path, node)
 	}
-	switch t.Kind() {
+	switch p.kind {
 	case reflect.Struct:
-		m, ok := node.(map[string]any)
-		if !ok {
-			return node
-		}
-		for _, field := range typeinfo.JSONFields(t) {
-			value, exists := m[field.Name]
-			if !exists {
-				continue
-			}
-			p := joinPath(path, field.Name)
-			ft, marked := t, false
-			for _, index := range field.Field.Index {
-				for ft.Kind() == reflect.Pointer {
-					ft = ft.Elem()
+		if m, ok := node.(map[string]any); ok {
+			for _, field := range p.fields {
+				value, exists := m[field.name]
+				if !exists || (!field.marked && !field.child.secrets) {
+					continue
 				}
-				f := ft.Field(index)
-				marked = marked || HasTag(f.Tag.Get(typeinfo.TagKey))
-				ft = f.Type
-			}
-			if marked {
-				m[field.Name] = redact(p, value)
-			} else {
-				m[field.Name] = redactJSON(value, ft, p, redact)
+				childPath := joinPath(path, field.name)
+				if field.marked {
+					m[field.name] = redact(childPath, value)
+				} else {
+					m[field.name] = field.child.redact(value, childPath, redact)
+				}
 			}
 		}
 	case reflect.Slice, reflect.Array:
 		if a, ok := node.([]any); ok {
 			for i, value := range a {
-				a[i] = redactJSON(value, t.Elem(), joinPath(path, strconv.Itoa(i)), redact)
+				a[i] = p.elem.redact(value, joinPath(path, strconv.Itoa(i)), redact)
 			}
 		}
 	case reflect.Map:
 		if m, ok := node.(map[string]any); ok {
 			for k, value := range m {
-				m[k] = redactJSON(value, t.Elem(), joinPath(path, k), redact)
+				m[k] = p.elem.redact(value, joinPath(path, k), redact)
 			}
 		}
 	}

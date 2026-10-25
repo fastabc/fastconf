@@ -15,6 +15,7 @@ import (
 )
 
 func TestAppRoleAuth_LoginAndRenew(t *testing.T) {
+	t.Parallel()
 	var loginCalls atomic.Int32
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/auth/approle/login", func(w http.ResponseWriter, r *http.Request) {
@@ -107,6 +108,7 @@ func TestWithRenewBeforeZeroDisablesSession(t *testing.T) {
 }
 
 func TestWatchSessionsCloseAndRenewAgain(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	p, err := New("http://vault.invalid", "app", "", WithAuth(AuthFunc(func(context.Context) (string, time.Duration, error) {
 		calls.Add(1)
@@ -117,6 +119,7 @@ func TestWatchSessionsCloseAndRenewAgain(t *testing.T) {
 	}
 	for session := 0; session < 2; session++ {
 		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
 		t.Cleanup(cancel)
 		ch, err := p.Watch(ctx, "")
 		if err != nil {
@@ -154,38 +157,51 @@ func TestWatchPollingClosesOnCancel(t *testing.T) {
 }
 
 func TestRenewFailurePreservesTTLAndRetries(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
-	p, err := New("http://vault.invalid", "app", "token", WithAuth(AuthFunc(func(context.Context) (string, time.Duration, error) {
+	retrying, resume := make(chan struct{}), make(chan struct{})
+	p, err := New("http://vault.invalid", "app", "token", WithAuth(AuthFunc(func(ctx context.Context) (string, time.Duration, error) {
 		if calls.Add(1) == 1 {
 			return "", 0, errors.New("temporary login failure")
 		}
-		return "replacement", 20 * time.Second, nil
+		close(retrying)
+		select {
+		case <-resume:
+			return "replacement", 20 * time.Second, nil
+		case <-ctx.Done():
+			return "", 0, ctx.Err()
+		}
 	})), WithRenewBefore(5*time.Second), WithInterval(0))
 	if err != nil {
 		t.Fatal(err)
 	}
 	p.tokenTTL.Store(2)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	out := make(chan contracts.Event, 1)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		p.renewLoop(ctx, out)
 	}()
-	defer func() { cancel(); <-done }()
-	deadline := time.After(3 * time.Second)
-	for calls.Load() == 0 {
+	defer func() {
+		cancel()
 		select {
-		case <-deadline:
-			t.Fatal("renewal did not run")
-		case <-time.After(time.Millisecond):
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("renew loop did not stop after cancellation")
 		}
+	}()
+	select {
+	case <-retrying:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("renewal did not retry; calls=%d", calls.Load())
 	}
-	// A failed renewal must not turn the issued two-second TTL into retry state.
+	// Entering the second Login proves the failure branch finished. Hold its
+	// result until the TTL assertion, so success cannot race this read.
 	if got := p.tokenTTL.Load(); got != 2 {
 		t.Fatalf("failed renewal changed TTL to %d", got)
 	}
+	close(resume)
 	select {
 	case <-out:
 		if got := p.tokenTTL.Load(); got != 20 || p.loadToken() != "replacement" {

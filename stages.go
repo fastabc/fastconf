@@ -42,10 +42,14 @@ func runMerge[T any](_ context.Context, m *Manager[T], pipeline *pipelineState[T
 				}
 			}
 		} else {
-			if err := confmap.Deep(pipeline.merged, l.data, mergeOpt); err != nil {
+			data := l.data
+			if l.cached != nil {
+				data = l.cached.clone()
+			}
+			if err := confmap.Deep(pipeline.merged, data, mergeOpt); err != nil {
 				return fmt.Errorf("%w: %s: %w", fcerr.ErrMerge, l.src.Path, err)
 			}
-			pipeline.origins.RecordTree("", l.data, l.src)
+			pipeline.origins.RecordTree("", data, l.src)
 		}
 		pipeline.sources = append(pipeline.sources, l.src)
 	}
@@ -117,11 +121,16 @@ func runTypedHooks[T any](_ context.Context, m *Manager[T], pipeline *pipelineSt
 func runDecode[T any](_ context.Context, m *Manager[T], pipeline *pipelineState[T]) error {
 	pipeline.target = new(T)
 	mode := m.opts.UnknownFields
-	err := decodeInto(pipeline.merged, pipeline.target, m.opts.YAMLBridge, mode != UnknownIgnore)
+	input, err := encodeInput(pipeline.merged, m.opts.YAMLBridge)
+	if err != nil {
+		return fmt.Errorf("%w: %w", fcerr.ErrDecode, err)
+	}
+	defer input.release()
+	err = input.decode(pipeline.target, mode != UnknownIgnore)
 	if mode == UnknownWarn && isUnknownField(err) {
 		m.warnUnknownField(err)
 		pipeline.target = new(T)
-		err = decodeInto(pipeline.merged, pipeline.target, m.opts.YAMLBridge, false)
+		err = input.decode(pipeline.target, false)
 	}
 	if err != nil {
 		return fmt.Errorf("%w: %w", fcerr.ErrDecode, err)

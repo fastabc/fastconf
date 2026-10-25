@@ -69,10 +69,11 @@ func (s *server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	tree := st.Map()
+	view := st.Map
 	if plain {
-		tree = st.Unredacted().Map()
+		view = st.Unredacted().Map
 	}
+	tree := view()
 	if path := r.URL.Query().Get("path"); path != "" {
 		v, ok := confmap.GetDotted(tree, path)
 		if !ok {
@@ -106,25 +107,17 @@ func (s *server) handleDump(w http.ResponseWriter, r *http.Request) {
 	if plain {
 		dump = st.Unredacted().Dump
 	}
-	format := r.URL.Query().Get("format")
-	if format == "json" {
-		b, err := dump(fastconf.JSON)
-		if err != nil {
-			s.log.LogAttrs(r.Context(), slog.LevelWarn, "fastconfd dump failed", slog.Any("err", err))
-			http.Error(w, "dump failed", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(b)
-		return
+	format, contentType := fastconf.YAML, "application/yaml"
+	if r.URL.Query().Get("format") == "json" {
+		format, contentType = fastconf.JSON, "application/json"
 	}
-	b, err := dump(fastconf.YAML)
+	b, err := dump(format)
 	if err != nil {
 		s.log.LogAttrs(r.Context(), slog.LevelWarn, "fastconfd dump failed", slog.Any("err", err))
 		http.Error(w, "dump failed", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/yaml")
+	w.Header().Set("Content-Type", contentType)
 	_, _ = w.Write(b)
 }
 

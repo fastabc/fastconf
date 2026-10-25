@@ -29,41 +29,68 @@ var jsonBufPool = sync.Pool{
 
 const jsonBufRetainMax = 64 * 1024
 
-// decodeInto populates *T through the selected JSON or YAML bridge. When
-// strict is set, keys with no matching field fail the decode.
-func decodeInto[T any](m map[string]any, target *T, yamlBridge, strict bool) error {
+// encodedInput owns the bridge bytes for one pipeline decode, including a
+// possible strict-to-loose retry. JSON buffers return to the bounded pool.
+type encodedInput struct {
+	data   []byte
+	buffer *bytes.Buffer
+	yaml   bool
+}
+
+func encodeInput(m map[string]any, yamlBridge bool) (encodedInput, error) {
 	if yamlBridge {
 		node, err := orderedYAMLNode(m)
 		if err != nil {
-			return err
+			return encodedInput{}, err
 		}
-		b, err := yaml.Marshal(node)
-		if err != nil {
-			return err
-		}
-		dec := yaml.NewDecoder(bytes.NewReader(b))
+		data, err := yaml.Marshal(node)
+		return encodedInput{data: data, yaml: true}, err
+	}
+	buf := jsonBufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	input := encodedInput{buffer: buf}
+	if err := json.NewEncoder(buf).Encode(m); err != nil {
+		input.release()
+		return encodedInput{}, err
+	}
+	input.data = buf.Bytes()
+	return input, nil
+}
+
+func (e encodedInput) release() {
+	if e.buffer != nil && e.buffer.Cap() <= jsonBufRetainMax {
+		jsonBufPool.Put(e.buffer)
+	}
+}
+
+func (e encodedInput) decode(target any, strict bool) error {
+	if e.yaml {
+		dec := yaml.NewDecoder(bytes.NewReader(e.data))
 		dec.KnownFields(strict)
 		if err := dec.Decode(target); err != nil && !errors.Is(err, io.EOF) {
 			return err
 		}
 		return nil
 	}
-	buf := jsonBufPool.Get().(*bytes.Buffer)
-	buf.Reset()
-	defer func() {
-		if buf.Cap() <= jsonBufRetainMax {
-			jsonBufPool.Put(buf)
-		}
-	}()
-	if err := json.NewEncoder(buf).Encode(m); err != nil {
-		return err
-	}
-	dec := json.NewDecoder(buf)
+	// Reset only the reader position; retries reuse the same encoded bytes.
+	*e.buffer = *bytes.NewBuffer(e.data)
+	dec := json.NewDecoder(e.buffer)
 	dec.UseNumber()
 	if strict {
 		dec.DisallowUnknownFields()
 	}
 	return dec.Decode(target)
+}
+
+// decodeInto populates target through the selected bridge. Pipeline retries
+// share encodedInput; standalone callers retain the single-decode helper.
+func decodeInto[T any](m map[string]any, target *T, yamlBridge, strict bool) error {
+	input, err := encodeInput(m, yamlBridge)
+	if err != nil {
+		return err
+	}
+	defer input.release()
+	return input.decode(target, strict)
 }
 
 // isUnknownField reports whether err is a strict decode's unknown-key error.

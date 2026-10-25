@@ -77,14 +77,14 @@ func TestState_SourcesAreCopies(t *testing.T) {
 	s := &State[int]{sources: []SourceRef{{Path: "original", Priority: 1}}}
 	sources := s.Sources()
 	sources[0] = SourceRef{Path: "mutated", Priority: 99999}
-	if got := s.Sources(); len(got) != 1 || got[0] != s.sourcesRef()[0] || got[0].Path != "original" || got[0].Priority != 1 {
+	if got := s.Sources(); len(got) != 1 || got[0] != s.sources[0] || got[0].Path != "original" || got[0].Priority != 1 {
 		t.Fatalf("Sources leaked storage: %+v", got)
 	}
 	if s.sourceCount() != 1 {
 		t.Fatalf("sourceCount = %d; want 1", s.sourceCount())
 	}
 	var empty *State[int]
-	if empty.Sources() != nil || empty.sourceCount() != 0 || empty.sourcesRef() != nil {
+	if empty.Sources() != nil || empty.sourceCount() != 0 {
 		t.Fatal("nil state source accessors must return nil/zero")
 	}
 }

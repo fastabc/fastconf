@@ -3,6 +3,7 @@ package providerutil
 import (
 	"errors"
 	"math"
+	"os"
 	"strings"
 	"testing"
 
@@ -51,5 +52,14 @@ func TestLatestAndOffer(t *testing.T) {
 	}
 	if (<-ch).Source != "first" {
 		t.Fatal("queued event was replaced")
+	}
+}
+
+func TestSafeErrorPreservesCause(t *testing.T) {
+	cause := &os.PathError{Op: "read", Path: "credential-canary", Err: os.ErrPermission}
+	err := SafeError("provider read failed", cause)
+	var found *os.PathError
+	if err.Error() != "provider read failed" || !errors.Is(err, cause) || !errors.As(err, &found) || found != cause {
+		t.Fatalf("lost safe message or cause: %v", err)
 	}
 }

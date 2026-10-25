@@ -255,7 +255,6 @@ containers:
 // boxed into the Event interface.
 func TestObserverEventsCostNothingWithoutObservers(t *testing.T) {
 	m := newRuntimeManager(t)
-	defer func() { _ = m.Close() }()
 	allocs := testing.AllocsPerRun(50, func() {
 		m.emitStage("merge", time.Millisecond, nil)
 		m.emitReload("r", time.Millisecond, nil)

@@ -17,7 +17,7 @@ ALL_TARGETS := $(sort $(TARGETS) $(EXTRA_TARGETS))
 
 .PHONY: all help build test race test-all test-workspace test-candidate \
         vulnerabilities api-check lint fmt-check deps-check tools-check check tidy tidy-check \
-        bench bench-guard cover example module-matrix versions soak \
+        bench bench-guard cover example example-optional module-matrix versions soak \
         dist dist-clean dist-verify $(addprefix dist-,$(BINS)) FORCE
 
 all: build test
@@ -63,6 +63,8 @@ tools-check:
 	actionlint
 
 check: fmt-check deps-check tidy-check
+	bash tools/check-repo.sh docs
+	python3 tools/check-doc-links-test.py
 	bash tools/check-repo-test.sh
 	bash tools/modules-test.sh
 	bash tools/check-candidate-test.sh
@@ -90,19 +92,24 @@ cover:
 example:
 	go test -count=1 -run '^Example' ./...
 	go test -count=1 ./examples/...
-	bash tools/modules.sh exec go -C integrations/cli/pflag run ../../../examples/pflag/main.go
-	bash tools/modules.sh exec go -C providers/s3 run ../../examples/s3/main.go
 	go run ./examples/fs
 	go run ./examples/cloud-reload
-	bash tools/modules.sh exec go -C providers/parameterstore run ../../examples/parameterstore/main.go
-	bash tools/modules.sh exec go -C providers/gcs run ../../examples/gcs/main.go
-	bash tools/modules.sh exec go -C providers/azblob run ../../examples/azblob/main.go
-	bash tools/modules.sh exec go -C providers/appconfig run ../../examples/appconfig/main.go
-	bash tools/modules.sh exec go -C providers/azappconfig run ../../examples/azappconfig/main.go
-	bash tools/modules.sh exec go -C providers/secretmanager run ../../examples/secretmanager/main.go
-	bash tools/modules.sh exec go -C integrations/notify/sns run ../../../examples/sns/main.go
-	bash tools/modules.sh exec go -C integrations/notify/azservicebus run ../../../examples/azservicebus/main.go
-	bash tools/modules.sh exec go -C integrations/notify/pubsub run ../../../examples/pubsub/main.go
+	# Expand GOWORK after modules.sh creates the disposable workspace.
+	bash tools/modules.sh exec bash -c 'exec "$$@" GOWORK="$$GOWORK"' -- $(MAKE) example-optional
+
+# Called inside one disposable workspace by example.
+example-optional:
+	go -C integrations/cli/pflag run ../../../examples/pflag/main.go
+	go -C providers/s3 run ../../examples/s3/main.go
+	go -C providers/parameterstore run ../../examples/parameterstore/main.go
+	go -C providers/gcs run ../../examples/gcs/main.go
+	go -C providers/azblob run ../../examples/azblob/main.go
+	go -C providers/appconfig run ../../examples/appconfig/main.go
+	go -C providers/azappconfig run ../../examples/azappconfig/main.go
+	go -C providers/secretmanager run ../../examples/secretmanager/main.go
+	go -C integrations/notify/sns run ../../../examples/sns/main.go
+	go -C integrations/notify/azservicebus run ../../../examples/azservicebus/main.go
+	go -C integrations/notify/pubsub run ../../../examples/pubsub/main.go
 
 soak:
 	go test -race -count=1 -timeout=10m -run '^TestResourceSoak$$' -v ./tests/soak

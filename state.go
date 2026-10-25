@@ -22,10 +22,11 @@ type State[T any] struct {
 	generation uint64
 	cause      ReloadCause
 
-	origins  *provenance.Index
-	redactor secret.Redactor
-	secrets  []string
-	raw      atomic.Pointer[cachedTree]
+	origins       *provenance.Index
+	redactor      secret.Redactor
+	secrets       []string
+	redactionPlan *secret.Plan
+	raw           atomic.Pointer[cachedTree]
 }
 
 type cachedTree struct{ value map[string]any }
@@ -60,15 +61,11 @@ func (s *State[T]) Sources() []SourceRef {
 }
 
 // sourceCount returns the layer count without copying the source list.
-func (s *State[T]) sourceCount() int { return len(s.sourcesRef()) }
-
-// sourcesRef returns the internal source list. Internal callers MUST treat it
-// as read-only; the public Sources accessor continues to return a copy.
-func (s *State[T]) sourcesRef() []SourceRef {
+func (s *State[T]) sourceCount() int {
 	if s == nil {
-		return nil
+		return 0
 	}
-	return s.sources
+	return len(s.sources)
 }
 
 // Generation returns a monotonically increasing counter incremented on
@@ -94,7 +91,7 @@ func (s *State[T]) Cause() ReloadCause {
 // newState builds an immutable snapshot from the completed pipeline.
 func (m *Manager[T]) newState(p *pipelineState[T], hash [32]byte, generation uint64, cause ReloadCause) *State[T] {
 	return &State[T]{value: p.target, hash: hash, sources: p.sources, generation: generation,
-		origins: p.origins, cause: cause, redactor: m.opts.SecretRedactor, secrets: m.opts.SecretPaths}
+		origins: p.origins, cause: cause, redactor: m.opts.SecretRedactor, secrets: m.opts.SecretPaths, redactionPlan: m.redactionPlan}
 }
 
 // restampState returns a snapshot with the same immutable payload as s but a new
@@ -105,14 +102,15 @@ func restampState[T any](s *State[T], generation uint64, cause ReloadCause) *Sta
 		return nil
 	}
 	next := &State[T]{
-		value:      s.value,
-		hash:       s.hash,
-		sources:    slices.Clone(s.sources),
-		generation: generation,
-		origins:    s.origins,
-		cause:      cause,
-		redactor:   s.redactor,
-		secrets:    s.secrets,
+		value:         s.value,
+		hash:          s.hash,
+		sources:       slices.Clone(s.sources),
+		generation:    generation,
+		origins:       s.origins,
+		cause:         cause,
+		redactor:      s.redactor,
+		secrets:       s.secrets,
+		redactionPlan: s.redactionPlan,
 	}
 	next.raw.Store(s.raw.Load())
 	return next
@@ -149,9 +147,10 @@ func (s *State[T]) Explain(path string) []Origin {
 	}
 	origins := s.origins.Explain(path)
 	r := s.displayRedactor()
+	plan := s.secretPlan()
 	for i := range origins {
-		if origins[i].Value != nil && (secret.PathHasSecrets(reflect.TypeFor[T](), path) ||
-			secret.PatternsMatchValue(origins[i].Value, path, s.secrets)) {
+		if origins[i].Value != nil && (plan.PathHasSecrets(path) ||
+			plan.PatternsMatchValue(origins[i].Value, path)) {
 			origins[i].Value = r(path, origins[i].Value)
 		}
 	}
@@ -198,8 +197,21 @@ func (s *State[T]) treeChecked(redactor secret.Redactor) (map[string]any, error)
 	if redactor == nil || s == nil || s.value == nil {
 		return raw, nil
 	}
-	tree := secret.ApplyJSON(raw, reflect.TypeOf(*s.value), redactor)
-	return secret.ApplyPatterns(tree, s.secrets, redactor), nil
+	plan := s.secretPlan()
+	// Interface configurations may carry a more specific runtime type.
+	if t := reflect.TypeOf(*s.value); t != reflect.TypeFor[T]() {
+		plan = secret.Compile(t, s.secrets)
+	}
+	return plan.Apply(raw, redactor), nil
+}
+
+// Hand-built internal snapshots also use the same rules; published snapshots
+// always carry the manager's immutable plan.
+func (s *State[T]) secretPlan() *secret.Plan {
+	if s.redactionPlan != nil {
+		return s.redactionPlan
+	}
+	return secret.Compile(reflect.TypeFor[T](), s.secrets)
 }
 
 // rawTreeChecked returns a shared read-only JSON view of this immutable value.

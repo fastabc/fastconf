@@ -5,10 +5,42 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/fastabc/fastconf/internal/secret"
 )
+
+func TestCompiledPlanRecursiveAndConcurrent(t *testing.T) {
+	type recursive struct {
+		Token  string         `json:"token" fc:"secret"`
+		Next   *recursive     `json:"next"`
+		Public map[string]any `json:"public"`
+	}
+	paths := []string{"public.*.token"}
+	plan := secret.Compile(reflect.TypeFor[recursive](), paths)
+	paths[0] = "changed.after.compile"
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 10 {
+				tree := map[string]any{"token": "canary", "next": map[string]any{"token": "canary"},
+					"public": map[string]any{"a.b": map[string]any{"token": "canary"}}}
+				view := plan.Apply(tree, nil)
+				if view["token"] != "***REDACTED***" || view["next"].(map[string]any)["token"] != "***REDACTED***" ||
+					view["public"].(map[string]any)["a.b"].(map[string]any)["token"] != "***REDACTED***" {
+					t.Errorf("unsafe compiled view: %+v", view)
+				}
+				if !plan.PathHasSecrets("next.next.token") || !plan.PatternsMatchValue("canary", "public.a.b.token") {
+					t.Error("compiled provenance missed recursive or dotted key")
+				}
+			}
+		}()
+	}
+	wg.Wait()
+}
 
 func TestHasTag(t *testing.T) {
 	if !secret.HasTag("secret") {

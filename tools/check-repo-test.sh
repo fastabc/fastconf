@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/repo/tools"
-cp "$ROOT/tools/check-repo.sh" "$TMP/repo/tools/"
+cp "$ROOT/tools/check-repo.sh" "$ROOT/tools/check-doc-links.py" "$TMP/repo/tools/"
 cd "$TMP/repo"
 git init -q
 printf 'package example\n' > old.go
@@ -35,4 +35,12 @@ if FORMAT_STATUS=1 bash tools/check-repo.sh fmt bash "$TMP/formatter stub"; then
   echo 'format check swallowed formatter failure' >&2
   exit 1
 fi
+printf '[source](new%%20package/new.go)\n' > README.md
+bash tools/check-repo.sh docs
+printf '[broken](missing.md)\n' >> README.md
+if bash tools/check-repo.sh docs > "$TMP/output" 2>&1; then
+  echo 'doc check missed a local file link' >&2
+  exit 1
+fi
+grep -Fq 'README.md: missing missing.md' "$TMP/output"
 echo 'check-repo: OK'

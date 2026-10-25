@@ -14,7 +14,6 @@ import (
 // shape (single atomic.Pointer.Load + struct-pointer return).
 func BenchmarkGetWarmState(b *testing.B) {
 	mgr := newRuntimeManager(b)
-	defer func() { _ = mgr.Close() }()
 	b.ReportAllocs()
 	b.ResetTimer()
 	var sink *runtimeConfig
@@ -26,7 +25,6 @@ func BenchmarkGetWarmState(b *testing.B) {
 
 func BenchmarkReloadNoop(b *testing.B) {
 	mgr := newRuntimeManager(b)
-	defer func() { _ = mgr.Close() }()
 	ctx := context.Background()
 	generation := mgr.Snapshot().Generation()
 	b.ReportAllocs()
@@ -44,7 +42,6 @@ func BenchmarkReloadNoop(b *testing.B) {
 
 func BenchmarkReloadCommitSmall(b *testing.B) {
 	mgr := newRuntimeManager(b)
-	defer func() { _ = mgr.Close() }()
 	ctx := context.Background()
 	generation := mgr.Snapshot().Generation()
 	b.ReportAllocs()
@@ -123,7 +120,6 @@ func BenchmarkReloadDocument(b *testing.B) {
 func BenchmarkSubscribeContention(b *testing.B) {
 	const subscriberCount = 100
 	mgr := newRuntimeManager(b)
-	defer func() { _ = mgr.Close() }()
 	var dummyA int
 	for range subscriberCount {
 		Subscribe(mgr,
@@ -159,7 +155,6 @@ func BenchmarkReloadManySubscribers(b *testing.B) {
 	for _, n := range []int{1, 10, 50} {
 		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
 			mgr := newRuntimeManager(b)
-			defer func() { _ = mgr.Close() }()
 			var sink int
 			cancels := make([]func(), 0, n)
 			for range n {

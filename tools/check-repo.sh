@@ -21,6 +21,7 @@ case "${1:-}" in
       "$@" fmt --config "$ROOT/.golangci.yml" --diff "${sources[@]}"
     fi
     ;;
+  docs) python3 "$ROOT/tools/check-doc-links.py" ;;
   deps)
     for package in ./internal/coalesce ./integrations/log/internal/...; do
       deps="$(go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' "$package")"
@@ -33,5 +34,5 @@ case "${1:-}" in
       fi
     done
     ;;
-  *) echo "usage: $0 fmt [formatter command ...]|deps" >&2; exit 2 ;;
+  *) echo "usage: $0 fmt [formatter command ...]|deps|docs" >&2; exit 2 ;;
 esac

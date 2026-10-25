@@ -131,15 +131,15 @@ NATS and Redis Streams are application-adaptable examples, not stable providers.
 
 ## Benchmarks
 
-Selected medians from the [2026-10-24 comparison](benchmarks/compare/REPORT.zh.md):
+Selected medians from the [2026-10-25 comparison](benchmarks/compare/REPORT.zh.md):
 Apple M5 Pro, Darwin/arm64, Go 1.26.10, GOMAXPROCS=4; ten 1 s runs per case.
-Measured against this working tree; the report records source hashes and scope.
+FastConf v1.2.0 module with local working-tree optimizations; the report records source hashes and scope.
 
 | Workload | FastConf | Viper 1.21.0 | Koanf 2.3.0 | Cleanenv 1.5.0 |
 |---|---:|---:|---:|---:|
-| 4 KiB YAML startup (ms/op) | 0.1083 | 0.0980 | 0.1249 | 0.0662 |
-| 64 KiB valid reload (ms/op) | 1.6732 | 1.5832 | 1.9488 | — |
-| Published struct hot read (ns/op) | 0.3829 | 0.4113 | 0.4065 | — |
+| 4 KiB YAML startup (ms/op) | 0.1118 | 0.0953 | 0.1234 | 0.0656 |
+| 64 KiB valid reload (ms/op) | 1.6183 | 1.5490 | 2.0167 | — |
+| Published struct hot read (ns/op) | 0.4410 | 0.4181 | 0.4241 | — |
 
 All three measured hot-read paths allocate 0 B/op and 0 allocs/op. Viper and
 Koanf use comparison adapters that decode, validate, deduplicate and atomically

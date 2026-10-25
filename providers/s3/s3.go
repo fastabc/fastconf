@@ -237,17 +237,17 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 			defer p.mu.Unlock()
 			return contracts.Snapshot{Map: confmap.DeepClone(p.lastBody), Revision: p.etag}, nil
 		}
-		return contracts.Snapshot{}, &loadError{operation: "fastconf/s3: get " + p.name + " failed", err: err}
+		return contracts.Snapshot{}, providerutil.SafeError("fastconf/s3: get "+p.name+" failed", err)
 	}
 	defer func() { _ = out.Body.Close() }()
 	body, err := providerutil.ReadAllMax(out.Body, p.maxBodyBytes)
 	if err != nil {
-		return contracts.Snapshot{}, &loadError{operation: "fastconf/s3: read " + p.name + " failed", err: err}
+		return contracts.Snapshot{}, providerutil.SafeError("fastconf/s3: read "+p.name+" failed", err)
 	}
 
 	m, derr := p.codec.Decode(body)
 	if derr != nil {
-		return contracts.Snapshot{}, &loadError{operation: "fastconf/s3: decode " + p.name + " failed", err: derr}
+		return contracts.Snapshot{}, providerutil.SafeError("fastconf/s3: decode "+p.name+" failed", derr)
 	}
 
 	// Publish the ETag only after the complete body has decoded successfully.
@@ -337,13 +337,6 @@ func FromURL(rawurl string, creds Credentials) (Config, error) {
 
 // Decoder and transport errors may include document values or credentials.
 // Preserve classification through Unwrap without displaying those details.
-type loadError struct {
-	operation string
-	err       error
-}
-
-func (e *loadError) Error() string { return e.operation }
-func (e *loadError) Unwrap() error { return e.err }
 
 // Compile-time interface assertion.
 var _ contracts.Provider = (*Provider)(nil)

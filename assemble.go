@@ -47,15 +47,16 @@ func compareLayers(a, b stagedLayer) int {
 // Assemble: build []stagedLayer from File / Generator / Provider layers.
 
 // stagedLayer is the unit produced by assemble() and consumed by commit().
-// Exactly one of `data` (merge) or `patch` (RFC 6902 JSON) is set.
+// Exactly one of data (owned), cached (borrowed file data) or patch is set.
 // Layers sort by class, then prio, then declaration order; src.Priority is
 // the diagnostic rank (source offset plus local priority).
 type stagedLayer struct {
-	src   SourceRef
-	class layerClass
-	prio  int
-	data  map[string]any
-	patch []byte
+	src    SourceRef
+	class  layerClass
+	prio   int
+	data   map[string]any
+	cached *decodedLayer
+	patch  []byte
 	// sum is the sha256 of a file layer's bytes; zero for layers that do
 	// not come from a file (providers, generators, overrides).
 	sum [32]byte
@@ -77,8 +78,6 @@ type assemblyResult struct {
 
 type assemblyMeta struct {
 	metaSum      [32]byte
-	profileEnv   string
-	defaultProf  string
 	appendSlices bool
 	mergeKeys    map[string]string
 }
@@ -161,8 +160,6 @@ func (m *Manager[T]) buildScanOptions(hostnameOverride string) (scan.ScanOptions
 			return scanOpt, metaOut, fmt.Errorf("%w: _meta.yaml: %v", fcerr.ErrDecode, err)
 		}
 		meta.Apply(&scanOpt)
-		metaOut.profileEnv = meta.Spec.ProfileEnv
-		metaOut.defaultProf = meta.Spec.DefaultProfile
 		metaOut.appendSlices = meta.Spec.AppendSlices
 	}
 	metaOut.mergeKeys = m.metaKeys.combined(metaBytes, func() map[string]string {
@@ -176,7 +173,7 @@ func (m *Manager[T]) buildScanOptions(hostnameOverride string) (scan.ScanOptions
 	})
 	// Compose the active profile set; the global match expression applies
 	// to whichever set was resolved.
-	if names := m.opts.activeProfiles(metaOut.profileEnv, metaOut.defaultProf); len(names) > 0 {
+	if names := m.opts.activeProfiles(meta.Spec.ProfileEnv, meta.Spec.DefaultProfile); len(names) > 0 {
 		scanOpt.Profiles = slices.Clone(names)
 		scanOpt.MatchAnd = m.opts.ProfileMatch
 	}
@@ -233,7 +230,7 @@ func (m *Manager[T]) assembleFileLayers(scanOpt scan.ScanOptions) ([]stagedLayer
 		if derr != nil {
 			return nil, fmt.Errorf("%w: %s: %w", fcerr.ErrDecode, layer.Path, derr)
 		}
-		staged = append(staged, stagedLayer{src: src, prio: src.Priority, data: raw, sum: sum})
+		staged = append(staged, stagedLayer{src: src, prio: src.Priority, cached: raw, sum: sum})
 	}
 	return staged, nil
 }

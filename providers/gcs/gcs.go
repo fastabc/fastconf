@@ -119,7 +119,7 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 	object := p.client.Bucket(p.bucket).Object(p.key)
 	attrs, err := object.Attrs(ctx)
 	if err != nil {
-		return contracts.Snapshot{}, &loadError{operation: p.Name() + ": metadata failed", err: err}
+		return contracts.Snapshot{}, providerutil.SafeError(p.Name()+": metadata failed", err)
 	}
 	if p.data != nil && attrs.Generation == p.generation {
 		return contracts.Snapshot{Map: confmap.DeepClone(p.data), Revision: strconv.FormatInt(p.generation, 10)}, nil
@@ -127,17 +127,17 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 
 	reader, err := object.Generation(attrs.Generation).NewReader(ctx)
 	if err != nil {
-		return contracts.Snapshot{}, &loadError{operation: p.Name() + ": read failed", err: err}
+		return contracts.Snapshot{}, providerutil.SafeError(p.Name()+": read failed", err)
 	}
 	defer func() { _ = reader.Close() }()
 	body, err := providerutil.ReadAllMax(reader, p.maxBodyBytes)
 	if err != nil {
-		return contracts.Snapshot{}, &loadError{operation: p.Name() + ": read failed", err: err}
+		return contracts.Snapshot{}, providerutil.SafeError(p.Name()+": read failed", err)
 	}
 
 	data, err := p.codec.Decode(body)
 	if err != nil {
-		return contracts.Snapshot{}, &loadError{operation: p.Name() + ": decode failed", err: err}
+		return contracts.Snapshot{}, providerutil.SafeError(p.Name()+": decode failed", err)
 	}
 
 	p.generation, p.data = attrs.Generation, data
@@ -146,13 +146,6 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 
 // Decoder and transport errors may include document values or credentials.
 // Preserve classification through Unwrap without displaying those details.
-type loadError struct {
-	operation string
-	err       error
-}
-
-func (e *loadError) Error() string { return e.operation }
-func (e *loadError) Unwrap() error { return e.err }
 
 var _ contracts.Provider = (*Provider)(nil)
 var _ contracts.Describer = (*Provider)(nil)

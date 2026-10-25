@@ -23,10 +23,11 @@ func runDump(args []string) error {
 	if err != nil {
 		return err
 	}
-	m := st.Map()
+	view := st.Map
 	if f.Unredacted {
-		m = st.Unredacted().Map()
+		view = st.Unredacted().Map
 	}
+	m := view()
 	enc := json.NewEncoder(os.Stdout)
 	if *pretty {
 		enc.SetIndent("", "  ")

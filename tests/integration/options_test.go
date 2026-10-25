@@ -374,207 +374,51 @@ func unsetEnvForTest(t *testing.T, key string) {
 	}
 }
 
-// TestOverlayAxis_FromHostname_UsesHostname verifies that when the env
-// var is absent and FromHostname is true, os.Hostname() is used as the
-// axis value and the matching overlay directory is loaded.
-func TestOverlayAxis_FromHostname_UsesHostname(t *testing.T) {
+// Each case owns its environment, filesystem and snapshot. Missing and empty
+// environment values exercise distinct fallback/opt-out branches.
+func TestOverlayAxis_FromHostname(t *testing.T) {
 	hostname, err := os.Hostname()
 	if err != nil {
-		t.Skip("os.Hostname() failed, skipping:", err)
+		t.Skip("os.Hostname:", err)
 	}
-
+	explicitHost := hostname + "-explicit"
 	type cfg struct {
-		Name string `yaml:"name"`
+		Name string `json:"name" yaml:"name"`
 	}
-
-	mfs := fstest.MapFS{
-		"conf.d/base/00.yaml":                   {Data: []byte("name: base\n")},
-		"conf.d/hosts/" + hostname + "/00.yaml": {Data: []byte("name: from-hostname\n")},
-	}
-
-	unsetEnvForTest(t, testHostAxisEnv)
-
-	mgr, err := fastconf.New[cfg](context.Background(),
-		fastconf.WithFS(mfs),
-		fastconf.WithDir("conf.d"),
-		fastconf.WithAxes(
-			fastconf.Axis{
-				Dir:          "hosts",
-				Env:          testHostAxisEnv,
-				Priority:     200,
-				FromHostname: true,
-			},
-		),
-	)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	defer func() { _ = mgr.Close() }()
-
-	if got := mgr.Get().Name; got != "from-hostname" {
-		t.Errorf("name = %q; want %q (hostname overlay should be loaded)", got, "from-hostname")
-	}
-}
-
-// TestOverlayAxis_FromHostname_EnvVarWins verifies that an explicit
-// non-empty env var value takes precedence over os.Hostname().
-func TestOverlayAxis_FromHostname_EnvVarWins(t *testing.T) {
-	hostname, err := os.Hostname()
-	if err != nil {
-		t.Skip("os.Hostname() failed, skipping:", err)
-	}
-
-	type cfg struct {
-		Name string `yaml:"name"`
-	}
-
-	mfs := fstest.MapFS{
-		"conf.d/base/00.yaml":                   {Data: []byte("name: base\n")},
-		"conf.d/hosts/" + hostname + "/00.yaml": {Data: []byte("name: from-hostname\n")},
-		"conf.d/hosts/explicit-host/00.yaml":    {Data: []byte("name: from-explicit\n")},
-	}
-
-	t.Setenv(testHostAxisEnv, "explicit-host")
-
-	mgr, err := fastconf.New[cfg](context.Background(),
-		fastconf.WithFS(mfs),
-		fastconf.WithDir("conf.d"),
-		fastconf.WithAxes(
-			fastconf.Axis{
-				Dir:          "hosts",
-				Env:          testHostAxisEnv,
-				Priority:     200,
-				FromHostname: true,
-			},
-		),
-	)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	defer func() { _ = mgr.Close() }()
-
-	if got := mgr.Get().Name; got != "from-explicit" {
-		t.Errorf("name = %q; want %q (explicit env var should win over hostname)", got, "from-explicit")
-	}
-}
-
-// TestOverlayAxis_FromHostname_EmptyEnvVarSkips verifies that when the
-// env var is explicitly set to an empty string, the axis is skipped even when
-// FromHostname is true. This is the operator opt-out path.
-func TestOverlayAxis_FromHostname_EmptyEnvVarSkips(t *testing.T) {
-	hostname, err := os.Hostname()
-	if err != nil {
-		t.Skip("os.Hostname() failed, skipping:", err)
-	}
-
-	type cfg struct {
-		Name string `yaml:"name"`
-	}
-
-	mfs := fstest.MapFS{
-		"conf.d/base/00.yaml":                   {Data: []byte("name: base\n")},
-		"conf.d/hosts/" + hostname + "/00.yaml": {Data: []byte("name: from-hostname\n")},
-	}
-
-	// Set env var to empty string to disable the axis.
-	t.Setenv(testHostAxisEnv, "")
-
-	mgr, err := fastconf.New[cfg](context.Background(),
-		fastconf.WithFS(mfs),
-		fastconf.WithDir("conf.d"),
-		fastconf.WithAxes(
-			fastconf.Axis{
-				Dir:          "hosts",
-				Env:          testHostAxisEnv,
-				Priority:     200,
-				FromHostname: true,
-			},
-		),
-	)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	defer func() { _ = mgr.Close() }()
-
-	if got := mgr.Get().Name; got != "base" {
-		t.Errorf("name = %q; want %q (empty env var should disable host overlay)", got, "base")
-	}
-}
-
-// TestOverlayAxis_FromHostname_FalseSkips verifies the default behavior
-// (FromHostname: false): when the env var is absent, the axis is skipped.
-func TestOverlayAxis_FromHostname_FalseSkips(t *testing.T) {
-	hostname, err := os.Hostname()
-	if err != nil {
-		t.Skip("os.Hostname() failed, skipping:", err)
-	}
-
-	type cfg struct {
-		Name string `yaml:"name"`
-	}
-
-	mfs := fstest.MapFS{
-		"conf.d/base/00.yaml":                   {Data: []byte("name: base\n")},
-		"conf.d/hosts/" + hostname + "/00.yaml": {Data: []byte("name: from-hostname\n")},
-	}
-
-	unsetEnvForTest(t, testHostAxisEnv)
-
-	mgr, err := fastconf.New[cfg](context.Background(),
-		fastconf.WithFS(mfs),
-		fastconf.WithDir("conf.d"),
-		fastconf.WithAxes(
-			fastconf.Axis{
-				Dir:          "hosts",
-				Env:          testHostAxisEnv,
-				Priority:     200,
-				FromHostname: false, // explicit false
-			},
-		),
-	)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	defer func() { _ = mgr.Close() }()
-
-	if got := mgr.Get().Name; got != "base" {
-		t.Errorf("name = %q; want %q (no hostname fallback when FromHostname is false)", got, "base")
-	}
-}
-
-// TestAxis_HostsFromHostname verifies that a hosts axis with FromHostname
-// falls back to os.Hostname().
-func TestAxis_HostsFromHostname(t *testing.T) {
-	// Access internal options via a white-box test approach: verify preset behavior
-	// by testing the observable outcome rather than the struct field directly.
-	hostname, err := os.Hostname()
-	if err != nil {
-		t.Skip("os.Hostname() failed, skipping:", err)
-	}
-
-	type cfg struct {
-		Name string `yaml:"name"`
-	}
-
-	// Ensure the default HOST env var is absent so hostname fallback can activate.
-	unsetEnvForTest(t, "HOST")
-
-	mfs := fstest.MapFS{
-		"conf.d/base/00.yaml":                   {Data: []byte("name: base\n")},
-		"conf.d/hosts/" + hostname + "/00.yaml": {Data: []byte("name: from-hostname\n")},
-	}
-
-	mgr, err := fastconf.New[cfg](context.Background(),
-		fastconf.WithFS(mfs),
-		fastconf.WithAxes(fastconf.Axis{Dir: "hosts", Env: "HOST", Priority: 2, FromHostname: true}),
-	)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	defer func() { _ = mgr.Close() }()
-
-	if got := mgr.Get().Name; got != "from-hostname" {
-		t.Errorf("name = %q; want %q (hosts axis should use hostname fallback)", got, "from-hostname")
+	for _, tc := range []struct {
+		name         string
+		present      bool
+		value        string
+		fromHostname bool
+		want         string
+	}{
+		{"missing/fallback", false, "", true, "from-hostname"},
+		{"explicit/fallback", true, explicitHost, true, "from-explicit"},
+		{"empty/opt-out", true, "", true, "base"},
+		{"missing/disabled", false, "", false, "base"},
+		{"explicit/disabled", true, explicitHost, false, "from-explicit"},
+		{"empty/disabled", true, "", false, "base"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.present {
+				t.Setenv(testHostAxisEnv, tc.value)
+			} else {
+				unsetEnvForTest(t, testHostAxisEnv)
+			}
+			fs := fstest.MapFS{
+				"conf.d/base/00.yaml":                       {Data: []byte("name: base\n")},
+				"conf.d/hosts/" + hostname + "/00.yaml":     {Data: []byte("name: from-hostname\n")},
+				"conf.d/hosts/" + explicitHost + "/00.yaml": {Data: []byte("name: from-explicit\n")},
+			}
+			st, err := fastconf.Load[cfg](context.Background(), fastconf.WithFS(fs),
+				fastconf.WithAxes(fastconf.Axis{Dir: "hosts", Env: testHostAxisEnv, Priority: 200, FromHostname: tc.fromHostname}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := st.Value().Name; got != tc.want {
+				t.Fatalf("name = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

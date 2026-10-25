@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -81,7 +82,13 @@ type diffEntry struct {
 // maps, retaining path segments for unambiguous value lookup. Scalar
 // equality uses JSON comparison so map ordering does not produce diffs.
 func diffMaps(prefix []string, a, b map[string]any) []diffEntry {
-	keys := map[string]struct{}{}
+	path := make([]string, len(prefix), len(prefix)+16)
+	copy(path, prefix)
+	return appendDiffs(nil, path, a, b)
+}
+
+func appendDiffs(out []diffEntry, prefix []string, a, b map[string]any) []diffEntry {
+	keys := make(map[string]struct{}, len(a)+len(b))
 	for k := range a {
 		keys[k] = struct{}{}
 	}
@@ -93,30 +100,28 @@ func diffMaps(prefix []string, a, b map[string]any) []diffEntry {
 		ordered = append(ordered, k)
 	}
 	sort.Strings(ordered)
-	var out []diffEntry
 	for _, k := range ordered {
-		segs := make([]string, len(prefix)+1)
-		copy(segs, prefix)
-		segs[len(prefix)] = k
-		full := strings.Join(segs, ".")
+		path := append(prefix, k)
 		va, oka := a[k]
 		vb, okb := b[k]
+		change := DiffModified
 		switch {
 		case oka && !okb:
-			out = append(out, diffEntry{DiffEntry: DiffEntry{Path: full, Change: DiffRemoved, Before: va}, segs: segs})
+			change = DiffRemoved
 		case !oka && okb:
-			out = append(out, diffEntry{DiffEntry: DiffEntry{Path: full, Change: DiffAdded, After: vb}, segs: segs})
+			change = DiffAdded
 		default:
 			ma, _ := va.(map[string]any)
 			mb, _ := vb.(map[string]any)
 			if ma != nil && mb != nil {
-				out = append(out, diffMaps(segs, ma, mb)...)
+				out = appendDiffs(out, path, ma, mb)
 				continue
 			}
-			if !jsonEqual(va, vb) {
-				out = append(out, diffEntry{DiffEntry: DiffEntry{Path: full, Change: DiffModified, Before: va, After: vb}, segs: segs})
+			if jsonEqual(va, vb) {
+				continue
 			}
 		}
+		out = append(out, diffEntry{DiffEntry: DiffEntry{Path: strings.Join(path, "."), Change: change, Before: va, After: vb}, segs: slices.Clone(path)})
 	}
 	return out
 }

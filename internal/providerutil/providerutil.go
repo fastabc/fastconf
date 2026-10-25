@@ -107,3 +107,15 @@ func MaybeCoerce(s string, enabled bool) any {
 	}
 	return confmap.Coerce(s, confmap.CoerceOptions{IgnoreCase: true})
 }
+
+// SafeError displays only a caller-chosen message while preserving the cause
+// for errors.Is/As. SDK errors can contain credentials or document contents.
+func SafeError(message string, cause error) error { return &safeError{message, cause} }
+
+type safeError struct {
+	message string
+	cause   error
+}
+
+func (e *safeError) Error() string { return e.message }
+func (e *safeError) Unwrap() error { return e.cause }

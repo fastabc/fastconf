@@ -43,4 +43,50 @@ if bash tools/modules.sh lint missing -- bash "$TMP/lint stub" > "$TMP/output" 2
   exit 1
 fi
 grep -Fq 'unknown module: missing' "$TMP/output"
+# Workspace setup must keep version-qualified replaces, argv and cleanup.
+cat > go.mod <<'MOD'
+module example.com/root
+
+go 1.24.0
+
+require example.com/root/provider v1.1.0
+MOD
+cat > providers/new/go.mod <<'MOD'
+module example.com/root/provider
+
+go 1.24.0
+
+require (
+ example.com/root v1.2.0
+)
+MOD
+cat > "$TMP/workspace stub" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == 'argument with spaces' ]]
+[[ "$GOWORK" != off && -f "$GOWORK" ]]
+printf '%s' "$GOWORK" > "$WORKSPACE_LOG"
+go work edit -json > "$REPLACE_LOG"
+exit "${WORKSPACE_STATUS:-0}"
+STUB
+export WORKSPACE_LOG="$TMP/workspace.log" REPLACE_LOG="$TMP/replace.json"
+bash tools/modules.sh exec bash "$TMP/workspace stub" 'argument with spaces'
+[[ ! -e "$(cat "$WORKSPACE_LOG")" ]]
+python3 - "$REPLACE_LOG" "$PWD" <<'PYTHON'
+import json
+import sys
+from pathlib import Path
+work = json.loads(Path(sys.argv[1]).read_text())
+assert {(r["Old"]["Path"], r["Old"]["Version"]): r["New"]["Path"] for r in work["Replace"]} == {
+    ("example.com/root", "v1.2.0"): sys.argv[2] + "/.",
+    ("example.com/root/provider", "v1.1.0"): sys.argv[2] + "/providers/new",
+}
+PYTHON
+if WORKSPACE_STATUS=7 bash tools/modules.sh exec bash "$TMP/workspace stub" 'argument with spaces'; then
+  echo 'exec swallowed a workspace command failure' >&2
+  exit 1
+else
+  [[ $? == 7 ]]
+fi
+[[ ! -e "$(cat "$WORKSPACE_LOG")" ]]
 echo 'modules: OK'

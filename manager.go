@@ -9,6 +9,7 @@ import (
 
 	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/internal/fcerr"
+	"github.com/fastabc/fastconf/internal/secret"
 	"github.com/fastabc/fastconf/internal/watcher"
 )
 
@@ -84,6 +85,7 @@ type Manager[T any] struct {
 	// decoder hooks built once at construction. nil when the option set
 	// disabled both defaults and extras.
 	typedHookPlan *codec.TypedHookPlan
+	redactionPlan *secret.Plan
 
 	// lastUnknownField is the last unknown-key message logged under
 	// UnknownWarn, so a persistent typo logs once rather than every reload.
@@ -165,6 +167,7 @@ func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) 
 		resume:         newResumeState(),
 		tenant:         o.Tenant,
 		typedHookPlan:  buildTypedHookPlan[T](&o),
+		redactionPlan:  secret.Compile(reflect.TypeFor[T](), o.SecretPaths),
 		customEncoding: hasCustomEncoding(reflect.TypeFor[T](), map[reflect.Type]bool{}),
 	}, nil
 }

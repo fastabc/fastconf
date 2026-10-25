@@ -124,15 +124,15 @@ Provider 之间排序。FastConf 借鉴 Kustomize 的 base/overlay 与补丁思�
 
 ## Benchmarks
 
-以下为 [2026-10-24 比较报告](benchmarks/compare/REPORT.zh.md)的部分中位数：
+以下为 [2026-10-25 比较报告](benchmarks/compare/REPORT.zh.md)的部分中位数：
 Apple M5 Pro、Darwin/arm64、Go 1.26.10、GOMAXPROCS=4；每组运行 10 次，每次 1 秒。
-本次基于当前工作树测量；完整报告记录源码校验信息与适用范围。
+FastConf v1.2.0 模块加本地工作树优化；完整报告记录源码校验信息与适用范围。
 
 | 场景 | FastConf | Viper 1.21.0 | Koanf 2.3.0 | Cleanenv 1.5.0 |
 |---|---:|---:|---:|---:|
-| 4 KiB YAML 启动加载（ms/op） | 0.1083 | 0.0980 | 0.1249 | 0.0662 |
-| 64 KiB 有效重载（ms/op） | 1.6732 | 1.5832 | 1.9488 | — |
-| 已发布结构体热读（ns/op） | 0.3829 | 0.4113 | 0.4065 | — |
+| 4 KiB YAML 启动加载（ms/op） | 0.1118 | 0.0953 | 0.1234 | 0.0656 |
+| 64 KiB 有效重载（ms/op） | 1.6183 | 1.5490 | 2.0167 | — |
+| 已发布结构体热读（ns/op） | 0.4410 | 0.4181 | 0.4241 | — |
 
 三个热读路径均为 0 B/op、0 allocs/op。Viper 和 Koanf 使用比较工程的适配器，
 完成解码、校验、去重和原子发布；热读直接读取结构体，不执行字符串键查询。

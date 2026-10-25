@@ -14,7 +14,7 @@ Pushing a root version tag starts the release workflow.
 | `make test-all` | Every module against its declared dependencies |
 | `make test-workspace` | Every module against the local checkout |
 | `make test-candidate` | Every module through an isolated candidate proxy/cache |
-| `make check` | Formatting, dependency boundaries, tidy metadata and tooling regression tests |
+| `make check` | Formatting, local Markdown file links, dependency boundaries, tidy metadata and tooling regression tests |
 | `make lint` | Every module, including benchmarks, in an isolated candidate checkout; uses the Makefile-pinned golangci-lint |
 | `make fmt-check` | gofmt and goimports across all Go files, including build-tagged examples |
 | `make tools-check` | Requires shellcheck and actionlint |
@@ -50,6 +50,12 @@ Use Go 1.26+ for the full inventory. For a release, align the internal requireme
 and the Makefile `VERSION` default, or explicitly use `make tidy VERSION=vX.Y.Z`
 and `make check VERSION=vX.Y.Z`. Checks may download dependencies but do not
 rewrite source `go.mod` or `go.sum` files.
+
+`bash tools/check-repo.sh docs` validates local file links in tracked and
+unignored Markdown, skipping fenced/inline code and external URLs. It checks file
+existence; heading anchors and translation equivalence still need review.
+Pass explicit Markdown paths to `python3 tools/check-doc-links.py PATH ...`
+to include local ignored plans.
 
 `bash tools/profile-reload.sh OUTPUT_DIRECTORY` records benchmarks and profiles.
 `MAX_NS_PER_OP`, `MAX_ALLOCS` and `BENCH_TIME` configure the benchmark guard.

@@ -142,7 +142,7 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 		if p.data != nil && errors.As(err, &response) && response.StatusCode == http.StatusNotModified {
 			return contracts.Snapshot{Map: confmap.DeepClone(p.data), Revision: string(p.etag)}, nil
 		}
-		return contracts.Snapshot{}, &loadError{operation: p.Name() + ": download failed", err: err}
+		return contracts.Snapshot{}, providerutil.SafeError(p.Name()+": download failed", err)
 	}
 	// The Azure SDK translates HTTP 304 into a successful response with an
 	// ErrorCode pointer and no Body, rather than returning ResponseError.
@@ -159,12 +159,12 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 
 	body, err := providerutil.ReadAllMax(out.Body, p.maxBodyBytes)
 	if err != nil {
-		return contracts.Snapshot{}, &loadError{operation: p.Name() + ": read failed", err: err}
+		return contracts.Snapshot{}, providerutil.SafeError(p.Name()+": read failed", err)
 	}
 
 	data, err := p.codec.Decode(body)
 	if err != nil {
-		return contracts.Snapshot{}, &loadError{operation: p.Name() + ": decode failed", err: err}
+		return contracts.Snapshot{}, providerutil.SafeError(p.Name()+": decode failed", err)
 	}
 
 	p.etag = ""
@@ -177,13 +177,6 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 
 // SDK transport errors can contain SAS URLs; decoder errors can contain data.
 // Keep those details available to errors.Is/As without displaying them by default.
-type loadError struct {
-	operation string
-	err       error
-}
-
-func (e *loadError) Error() string { return e.operation }
-func (e *loadError) Unwrap() error { return e.err }
 
 var _ contracts.Provider = (*Provider)(nil)
 var _ contracts.Describer = (*Provider)(nil)
