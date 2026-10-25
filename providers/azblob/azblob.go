@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"path"
 	"strings"
-	"sync"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	sdk "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
@@ -45,7 +44,7 @@ type Provider struct {
 	codec        contracts.Decoder
 	priority     int
 	maxBodyBytes int64
-	mu           sync.Mutex
+	loadGate     chan struct{} // Serializes loads while allowing waiting callers to cancel.
 	etag         azcore.ETag
 	data         map[string]any
 }
@@ -72,11 +71,13 @@ func New(cfg Config, client API, opts ...Option) (*Provider, error) {
 	if cfg.Container == "" || cfg.Key == "" {
 		return nil, errors.New("fastconf/azblob: container and key are required")
 	}
+
 	account, err := url.Parse(client.URL())
 	if err != nil || account.Host == "" || (account.Scheme != "http" && account.Scheme != "https") {
 		return nil, errors.New("fastconf/azblob: invalid client service URL")
 	}
 	account.RawQuery, account.Fragment, account.User = "", "", nil
+
 	name := cfg.Codec
 	if name == "" {
 		name = codec.LookupExt(path.Ext(cfg.Key))
@@ -85,11 +86,22 @@ func New(cfg Config, client API, opts ...Option) (*Provider, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fastconf/azblob: codec for %q: %w", cfg.Key, err)
 	}
+
 	priority := cfg.Priority
 	if priority == 0 {
 		priority = contracts.PriorityKV
 	}
-	p := &Provider{name: "azblob:" + strings.TrimRight(account.String(), "/") + "/" + cfg.Container + "/" + cfg.Key, client: client, container: cfg.Container, key: cfg.Key, codec: dec, priority: priority, maxBodyBytes: contracts.DefaultMaxBodyBytes}
+
+	p := &Provider{
+		name:         "azblob:" + strings.TrimRight(account.String(), "/") + "/" + cfg.Container + "/" + cfg.Key,
+		client:       client,
+		container:    cfg.Container,
+		key:          cfg.Key,
+		codec:        dec,
+		priority:     priority,
+		maxBodyBytes: contracts.DefaultMaxBodyBytes,
+		loadGate:     make(chan struct{}, 1),
+	}
 	for _, opt := range opts {
 		opt(p)
 	}
@@ -106,12 +118,20 @@ func (p *Provider) Describe() contracts.ProviderInfo {
 
 // Load sends If-None-Match after a successful decode. A 304 returns a deep copy
 // of the cached document. Rejected documents never seed the ETag cache.
+// Concurrent loads are serialized; waiting for a load honors ctx cancellation.
 func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	select {
+	case p.loadGate <- struct{}{}:
+		defer func() { <-p.loadGate }()
+	case <-ctx.Done():
+		return contracts.Snapshot{}, ctx.Err()
+	}
+
+	// Cancellation may race with acquisition of an available gate.
 	if err := ctx.Err(); err != nil {
 		return contracts.Snapshot{}, err
 	}
+
 	options := &sdk.DownloadStreamOptions{}
 	if p.data != nil && p.etag != "" {
 		options.AccessConditions = &blob.AccessConditions{ModifiedAccessConditions: &blob.ModifiedAccessConditions{IfNoneMatch: &p.etag}}
@@ -122,7 +142,7 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 		if p.data != nil && errors.As(err, &response) && response.StatusCode == http.StatusNotModified {
 			return contracts.Snapshot{Map: confmap.DeepClone(p.data), Revision: string(p.etag)}, nil
 		}
-		return contracts.Snapshot{}, fmt.Errorf("%s: download: %w", p.Name(), err)
+		return contracts.Snapshot{}, &loadError{operation: p.Name() + ": download failed", err: err}
 	}
 	// The Azure SDK translates HTTP 304 into a successful response with an
 	// ErrorCode pointer and no Body, rather than returning ResponseError.
@@ -136,14 +156,17 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 		return contracts.Snapshot{}, fmt.Errorf("%s: download returned no body", p.Name())
 	}
 	defer func() { _ = out.Body.Close() }()
+
 	body, err := providerutil.ReadAllMax(out.Body, p.maxBodyBytes)
 	if err != nil {
-		return contracts.Snapshot{}, fmt.Errorf("%s: read: %w", p.Name(), err)
+		return contracts.Snapshot{}, &loadError{operation: p.Name() + ": read failed", err: err}
 	}
+
 	data, err := p.codec.Decode(body)
 	if err != nil {
-		return contracts.Snapshot{}, fmt.Errorf("%s: decode: %w", p.Name(), err)
+		return contracts.Snapshot{}, &loadError{operation: p.Name() + ": decode failed", err: err}
 	}
+
 	p.etag = ""
 	if out.ETag != nil {
 		p.etag = *out.ETag
@@ -151,6 +174,16 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 	p.data = data
 	return contracts.Snapshot{Map: confmap.DeepClone(data), Revision: string(p.etag)}, nil
 }
+
+// SDK transport errors can contain SAS URLs; decoder errors can contain data.
+// Keep those details available to errors.Is/As without displaying them by default.
+type loadError struct {
+	operation string
+	err       error
+}
+
+func (e *loadError) Error() string { return e.operation }
+func (e *loadError) Unwrap() error { return e.err }
 
 var _ contracts.Provider = (*Provider)(nil)
 var _ contracts.Describer = (*Provider)(nil)

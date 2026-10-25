@@ -21,4 +21,18 @@ fi
 grep -Fq 'new package/new.go' "$TMP/output"
 gofmt -w 'new package/new.go'
 bash tools/check-repo.sh fmt
+
+# Formatter arguments must preserve file names and propagate check failures.
+cat > "$TMP/formatter stub" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == fmt && "$2" == --config && "$4" == --diff ]]
+[[ $# == 5 && "$5" == 'new package/new.go' ]]
+exit "${FORMAT_STATUS:-0}"
+STUB
+bash tools/check-repo.sh fmt bash "$TMP/formatter stub"
+if FORMAT_STATUS=1 bash tools/check-repo.sh fmt bash "$TMP/formatter stub"; then
+  echo 'format check swallowed formatter failure' >&2
+  exit 1
+fi
 echo 'check-repo: OK'

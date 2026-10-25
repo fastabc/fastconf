@@ -26,13 +26,16 @@ func newManager(ctx context.Context, path string) (*fastconf.Manager[Config], er
 }
 
 func run(ctx context.Context, path string) error {
+	// Complete the first load before reporting subsequent committed changes.
 	mgr, err := newManager(ctx, path)
 	if err != nil {
 		return err
 	}
+
 	unsubscribe := fastconf.Subscribe(mgr, func(c *Config) *int { return &c.Port },
 		func(_, next *int) { log.Printf("committed port=%d", *next) })
 	log.Printf("initial port=%d", mgr.Get().Port)
+
 	// The owning goroutine handles errors and shutdown. Callbacks only report.
 	for {
 		select {
@@ -49,8 +52,11 @@ func run(ctx context.Context, path string) error {
 func main() {
 	path := flag.String("file", "examples/single-file/app.yaml", "configuration file")
 	flag.Parse()
+
+	// The service owner cancels workers and closes the Manager on interruption.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+
 	if err := run(ctx, *path); err != nil {
 		log.Fatal(fmt.Errorf("dynamic: %w", err))
 	}

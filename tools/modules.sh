@@ -7,8 +7,8 @@ COMMAND="${1:-list}"
 [[ $# == 0 ]] || shift
 MODULES=()
 while IFS= read -r file; do
-  # Benchmark modules also need tidy, but never enter the release inventory.
-  if [[ "$file" == benchmarks/* && "$COMMAND" != tidy && "$COMMAND" != tidy-check ]]; then
+  # Benchmark modules need lint/tidy, but never enter the release inventory.
+  if [[ "$file" == benchmarks/* && "$COMMAND" != tidy && "$COMMAND" != tidy-check && "$COMMAND" != lint ]]; then
     continue
   fi
   [[ -f "$file" ]] || continue
@@ -28,12 +28,22 @@ case "$COMMAND" in
       sep=,
     done
     echo ']}'; exit ;;
-  test|workspace|tidy|tidy-check) ;;
+  test|workspace|tidy|tidy-check|lint) ;;
   exec) [[ $# -gt 0 ]] || { echo "exec requires a command" >&2; exit 2; } ;;
-  *) echo "usage: $0 list|matrix|test|workspace|tidy|tidy-check [module ...]|exec command ..." >&2; exit 2 ;;
+  *) echo "usage: $0 list|matrix|test|workspace|tidy|tidy-check [module ...]|lint [module ...] -- command ...|exec command ..." >&2; exit 2 ;;
 esac
 SELECTED=("${MODULES[@]}")
-if [[ "$COMMAND" != exec && $# -gt 0 ]]; then SELECTED=("$@"); fi
+LINTER=()
+if [[ "$COMMAND" == lint ]]; then
+  requested=()
+  while [[ $# -gt 0 && "$1" != -- ]]; do requested+=("$1"); shift; done
+  [[ $# -gt 1 ]] || { echo "lint requires -- followed by a command" >&2; exit 2; }
+  shift
+  LINTER=("$@")
+  if [[ ${#requested[@]} -gt 0 ]]; then SELECTED=("${requested[@]}"); fi
+elif [[ "$COMMAND" != exec && $# -gt 0 ]]; then
+  SELECTED=("$@")
+fi
 for module in "${SELECTED[@]}"; do
   if ! printf '%s\n' "${MODULES[@]}" | grep -Fxq -- "$module"; then
     echo "unknown module: $module" >&2; exit 2
@@ -65,6 +75,10 @@ fi
 FAIL=0
 for module in "${SELECTED[@]}"; do
   echo "modules: $COMMAND / $module"
-  (cd "$ROOT/$module" && go test -mod=readonly -race -count=1 -timeout=5m ./...) || FAIL=1
+  if [[ "$COMMAND" == lint ]]; then
+    (cd "$ROOT/$module" && "${LINTER[@]}" run --config "$ROOT/.golangci.yml" --timeout=5m ./...) || FAIL=1
+  else
+    (cd "$ROOT/$module" && go test -mod=readonly -race -count=1 -timeout=5m ./...) || FAIL=1
+  fi
 done
 exit "$FAIL"

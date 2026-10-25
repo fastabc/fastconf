@@ -28,6 +28,7 @@ type Config struct {
 }
 
 func run(out io.Writer) error {
+	// Merge base, the prod overlay and environment overrides before validation.
 	state, err := fastconf.Load[Config](context.Background(),
 		fastconf.WithFS(files),
 		fastconf.WithDir("conf.d"),
@@ -38,6 +39,8 @@ func run(out io.Writer) error {
 	if err != nil {
 		return err
 	}
+
+	// Consume the final typed configuration only after a successful load.
 	cfg := state.Value()
 	_, err = fmt.Fprintf(out, "port=%d timeout=%s pool=%d\n", cfg.Server.Port, cfg.Server.Timeout, cfg.Database.Pool)
 	return err

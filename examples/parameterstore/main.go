@@ -36,6 +36,8 @@ func main() {
 	client := ssm.NewFromConfig(aws.Config{
 		Region: "us-east-1", Credentials: aws.AnonymousCredentials{},
 	}, func(o *ssm.Options) { o.BaseEndpoint = aws.String(server.URL) })
+
+	// Read the full path, preserving strings and explicitly opting into decryption.
 	provider, err := parameterstore.New(parameterstore.Config{Path: "/example", Decrypt: true}, client)
 	if err != nil {
 		panic(err)
@@ -43,10 +45,12 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
 	// Applications can pass provider directly to fastconf.WithProvider.
 	snapshot, err := provider.Load(ctx)
 	if err != nil {
 		panic(err)
 	}
+
 	fmt.Println(snapshot.Map)
 }

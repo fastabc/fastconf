@@ -20,7 +20,8 @@ import (
 	"fmt"
 
 	"github.com/fastabc/fastconf/policy"
-	"github.com/open-policy-agent/opa/rego"
+	"github.com/open-policy-agent/opa/v1/ast"
+	"github.com/open-policy-agent/opa/v1/rego"
 )
 
 // Policy[T] is an OPA-backed implementation of policy.Policy[T].
@@ -39,10 +40,12 @@ func New[T any](name, module string) (*Policy[T], error) {
 	return NewWithQuery[T](name, module, "data.fastconf.deny")
 }
 
-// NewWithQuery is the explicit form. The query MUST yield a string
-// or array of strings; each element becomes one Violation.
+// NewWithQuery compiles Rego with v0 syntax compatibility. The query must yield
+// a string or array of strings; each element becomes one Violation.
 func NewWithQuery[T any](name, module, query string) (*Policy[T], error) {
 	q, err := rego.New(
+		// Preserve the grammar used by the former opa/rego compatibility package.
+		rego.SetRegoVersion(ast.RegoV0),
 		rego.Query(query),
 		rego.Module("policy.rego", module),
 	).PrepareForEval(context.Background())

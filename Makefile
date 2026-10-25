@@ -50,10 +50,10 @@ api-check:
 	VERSION=$(VERSION) BASE=$(BASE) bash tools/check-candidate.sh bash tools/check-api.sh
 
 lint:
-	$(GOLANGCI_LINT) run --timeout=5m ./...
+	bash tools/modules.sh lint $(MODULES) -- $(GOLANGCI_LINT)
 
 fmt-check:
-	bash tools/check-repo.sh fmt
+	bash tools/check-repo.sh fmt $(GOLANGCI_LINT)
 
 deps-check:
 	bash tools/check-repo.sh deps
@@ -64,6 +64,7 @@ tools-check:
 
 check: fmt-check deps-check tidy-check
 	bash tools/check-repo-test.sh
+	bash tools/modules-test.sh
 	bash tools/check-candidate-test.sh
 	python3 tools/tidy-candidate-test.py
 	bash tools/tag-release-test.sh
@@ -91,9 +92,16 @@ example:
 	bash tools/modules.sh exec go -C integrations/cli/pflag run ../../../examples/pflag/main.go
 	bash tools/modules.sh exec go -C providers/s3 run ../../examples/s3/main.go
 	go run ./examples/fs
+	go run ./examples/cloud-reload
 	bash tools/modules.sh exec go -C providers/parameterstore run ../../examples/parameterstore/main.go
 	bash tools/modules.sh exec go -C providers/gcs run ../../examples/gcs/main.go
 	bash tools/modules.sh exec go -C providers/azblob run ../../examples/azblob/main.go
+	bash tools/modules.sh exec go -C providers/appconfig run ../../examples/appconfig/main.go
+	bash tools/modules.sh exec go -C providers/azappconfig run ../../examples/azappconfig/main.go
+	bash tools/modules.sh exec go -C providers/secretmanager run ../../examples/secretmanager/main.go
+	bash tools/modules.sh exec go -C integrations/notify/sns run ../../../examples/sns/main.go
+	bash tools/modules.sh exec go -C integrations/notify/azservicebus run ../../../examples/azservicebus/main.go
+	bash tools/modules.sh exec go -C integrations/notify/pubsub run ../../../examples/pubsub/main.go
 
 soak:
 	go test -race -count=1 -timeout=10m -run '^TestResourceSoak$$' -v ./tests/soak

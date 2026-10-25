@@ -111,7 +111,7 @@ manager to close. See the [single-file guide](docs/getting-started/load.md).
 
 | Area | Capabilities and recipes |
 |---|---|
-| Sources | [Files and profiles](docs/cookbook/sources/layers.md), [INI](docs/cookbook/sources/ini.md), [env and dotenv](docs/cookbook/sources/env-replacer.md), [labels](docs/cookbook/sources/labels.md), [HTTP](docs/cookbook/sources/http.md), [Vault](docs/cookbook/sources/vault.md), [Consul](docs/cookbook/sources/consul.md) |
+| Sources | [Files and profiles](docs/cookbook/sources/layers.md), [INI](docs/cookbook/sources/ini.md), [env and dotenv](docs/cookbook/sources/env-replacer.md), [labels](docs/cookbook/sources/labels.md), [HTTP](docs/cookbook/sources/http.md), [Vault](docs/cookbook/sources/vault.md), [Consul](docs/cookbook/sources/consul.md), [AWS / Azure / GCP](docs/cookbook/sources/cloud.md) |
 | Merge and conversion | Base/overlay layers, RFC 6902 patches, [keyed lists](docs/cookbook/processing/strategic-merge.md), [generators](docs/cookbook/processing/generators.md), [typed hooks](docs/cookbook/processing/typed-hooks.md) |
 | Validation and secrets | [`fc` tags and defaults](docs/cookbook/processing/field-meta.md), [Go/OPA/CUE policies](docs/cookbook/processing/policy.md), [resolution and redaction](docs/cookbook/processing/secrets.md) |
 | Runtime updates | [Subscriptions](docs/cookbook/runtime/subscribe.md), [failure handling and overrides](docs/cookbook/runtime/reload-policy.md), [Plan](docs/cookbook/runtime/plan.md), [history and rollback](docs/cookbook/runtime/introspect.md) |
@@ -128,6 +128,29 @@ The [runtime contract](docs/design/spec.md) defines lifecycle, precedence,
 decoding and ownership. The [extensions guide](docs/getting-started/extensions.md)
 lists optional modules, including S3, pflag, validation, logging and telemetry.
 NATS and Redis Streams are application-adaptable examples, not stable providers.
+
+## Benchmarks
+
+Selected medians from the [2026-10-24 comparison](benchmarks/compare/REPORT.zh.md):
+Apple M5 Pro, Darwin/arm64, Go 1.26.10, GOMAXPROCS=4; ten 1 s runs per case.
+Measured against this working tree; the report records source hashes and scope.
+
+| Workload | FastConf | Viper 1.21.0 | Koanf 2.3.0 | Cleanenv 1.5.0 |
+|---|---:|---:|---:|---:|
+| 4 KiB YAML startup (ms/op) | 0.1083 | 0.0980 | 0.1249 | 0.0662 |
+| 64 KiB valid reload (ms/op) | 1.6732 | 1.5832 | 1.9488 | — |
+| Published struct hot read (ns/op) | 0.3829 | 0.4113 | 0.4065 | — |
+
+All three measured hot-read paths allocate 0 B/op and 0 allocs/op. Viper and
+Koanf use comparison adapters that decode, validate, deduplicate and atomically
+publish typed snapshots; hot reads do not perform string-key lookup. Sub-nanosecond
+figures measure tight-loop throughput, not request latency. Results depend on the
+workload and machine; cloud-service latency is outside this comparison.
+
+See the [comparison methodology and runner](benchmarks/compare/README.md) to
+reproduce the measurements on an idle machine, and the
+[performance contract](docs/design/perf.md) for the Get allocation guard,
+reload benchmarks and profiling commands.
 
 ## Loading and reload pipeline
 
@@ -186,22 +209,50 @@ expressions. See [files, profiles and patches](docs/cookbook/sources/layers.md).
 
 ### Providers and generators
 
-| Source | Entry point | Behavior |
-|---|---|---|
-| File / bytes | `source.NewFile(path)`, `source.NewBytes(name, codec, data)` | Auxiliary decoded documents; missing `NewFile` files contribute an empty layer |
-| Embedded / virtual filesystem | `source.NewFS(fsys, path)` | One required document from `fs.FS`; refreshed on explicit reload (after v1.1.0) |
-| Env / dotenv | `env.New("MYAPP_")`, `dotenv.New("MYAPP_", ".env")` | Underscores become path separators; dotenv is fallback, process env wins |
-| Flags | `cliflag.New(values)` | Pass explicitly changed flags; pflag has an optional adapter |
-| Labels / Downward API | `labels.New(input, opts)`, `k8s.NewDefault()` | Dotted config labels or raw namespaced pod metadata |
-| HTTP / Vault / Consul | `providers/http`, `providers/vault`, `providers/consul` | Remote documents or KV, with native polling/blocking-query watchers |
-| S3 | Separate `providers/s3` module | Object loading and optional change-event integration |
-| AWS Parameter Store | Separate `providers/parameterstore` module | Recursive path tree with string values; optional SecureString decryption (after v1.1.0) |
-| GCS / Azure Blob | Separate `providers/gcs`, `providers/azblob` modules | Document loading with generation / ETag caches (after v1.1.0) |
+| Provider / entry point | Watch changes | Notifier | Features |
+|---|---|---|---|
+| `source.NewFile` | Shared file watcher | — | Decoded document; missing file contributes an empty layer |
+| `source.NewBytes` | — | — | Copied in-memory document with an explicit codec |
+| `source.NewFS` | — | — | Required document from embedded or virtual `fs.FS`; added after v1.1.0 |
+| `env.New` | — | — | Process environment; underscores become path separators |
+| `dotenv.New` | Shared file watcher | — | Dotenv fallback; process environment wins |
+| `cliflag.New` | — | — | Explicitly changed flags; optional pflag adapter |
+| `labels.New` | — | — | Dotted configuration labels with configurable mapping |
+| `k8s.NewDefault` | Shared file watcher | — | Raw namespaced Downward API metadata |
+| `providers/http` | Native polling | — | Remote document, ETag/content hash |
+| `providers/vault` | Native metadata polling | — | KV v2, optional authentication maintenance |
+| `providers/consul` | Native blocking query | — | KV tree or document |
+| [`appconfig`](providers/appconfig) | Via notifier + periodic reload | SNS → SQS | Deployed document, session tokens, service-directed poll intervals |
+| [`s3`](providers/s3) | Via notifier + periodic reload | SNS → SQS | ETag conditional reads, optional fixed VersionID |
+| [`parameterstore`](providers/parameterstore) | Via notifier + periodic reload | EventBridge → SNS → SQS | Recursive paginated tree, string values, optional SecureString decryption |
+| [`azappconfig`](providers/azappconfig) | Via notifier + periodic reload | Event Grid → Service Bus | One prefix/label, colon-separated keys, string values |
+| [`azblob`](providers/azblob) | Via notifier + periodic reload | Event Grid → Service Bus | Blob document, ETag conditional reads |
+| [`secretmanager`](providers/secretmanager) | Via notifier + periodic reload | Pub/Sub | Version/alias document, CRC32C verification |
+| [`gcs`](providers/gcs) | Via notifier + periodic reload | Pub/Sub | Current object document, generation cache, generation-consistent reads |
 
-See [embedded files and cloud sources](docs/cookbook/sources/cloud.md) for setup.
-The three new cloud providers accept application-owned SDK clients and refresh
-on explicit reload; they do not implement native watchers. Cloud SDKs remain
-outside the root module.
+“—” means no automatic change detection. Shared file watching requires
+`WithWatch`; native provider watchers start with `New` independently of it.
+Cloud providers refresh when `Reload` calls `Load`; applications own the notifier
+loop and periodic reconciliation. AppConfig reloads also respect the service's
+next allowed poll time.
+
+| Notifier module | Acknowledgment and failure behavior |
+|---|---|
+| [`integrations/notify/sns`](integrations/notify/sns) | SNS envelopes or raw messages through SQS; delete after successful refresh; failed refresh remains available for redelivery |
+| [`integrations/notify/azservicebus`](integrations/notify/azservicebus) | Event Grid schema through Service Bus PeekLock; Complete after successful refresh, Abandon on failure |
+| [`integrations/notify/pubsub`](integrations/notify/pubsub) | GCS / Secret Manager events; Ack after successful refresh, Nack on failure |
+
+All three run a synchronous refresh callback with a bounded context. The
+application supplies SDK clients, supervises consumers, and provisions a separate
+queue/subscription for each independent replica that must receive every change.
+See [cloud notifications](docs/cookbook/sources/cloud-notifications.md) for routing,
+retries, dead letters and periodic reconciliation. The existing `s3events.Watch`
+uses best-effort EventBridge → SQS notification and acknowledges before Manager
+reload completes; use the new consumer for refresh-before-ack behavior.
+
+See [embedded files and cloud sources](docs/cookbook/sources/cloud.md) for loading
+and limits. Cloud SDKs live in independent modules. Except for the S3 loader, the
+cloud loaders and all three notifier modules above were added after v1.1.0.
 
 Providers implement `contracts.Provider` (`Name`, `Load`). Optional `Describe`
 supplies priority/file paths; optional `contracts.Watcher` supplies native events

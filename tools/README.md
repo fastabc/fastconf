@@ -15,21 +15,22 @@ Pushing a root version tag starts the release workflow.
 | `make test-workspace` | Every module against the local checkout |
 | `make test-candidate` | Every module through an isolated candidate proxy/cache |
 | `make check` | Formatting, dependency boundaries, tidy metadata and tooling regression tests |
-| `make lint` | Root module; runs the Makefile-pinned golangci-lint via `go run` |
+| `make lint` | Every module, including benchmarks; runs the Makefile-pinned golangci-lint via `go run` |
+| `make fmt-check` | gofmt and goimports across all Go files, including build-tagged examples |
 | `make tools-check` | Requires shellcheck and actionlint |
 | `make bench` / `make bench-guard` | Benchmarks / hot-read budget |
-| `make cover` / `make example` | Root coverage / godoc, scenario tests and optional S3/pflag programs |
+| `make cover` / `make example` | Root coverage / godoc, scenario tests and optional provider/notifier programs |
 | `make soak` | Resource soak test; `FASTCONF_SOAK_DURATION=5m` for an extended run |
 | `make tidy` | Update dependency metadata in the root and all submodules, including benchmarks |
 | `make tidy-check` | Tidy the same modules in isolation; report metadata drift without editing source files |
 | `make module-matrix` | CI JSON from discovered submodule Go floors |
 
-Use `MODULES=". cue"` with `test-all`, `test-workspace`, `test-candidate`, `tidy` or `tidy-check` to
+Use `MODULES=". cue"` with `test-all`, `test-workspace`, `test-candidate`, `lint`, `tidy` or `tidy-check` to
 select modules. `bash tools/modules.sh exec COMMAND ...` runs a command from the
 repository root in a temporary workspace containing all modules. Module inventory
-comes from tracked and unignored `go.mod` files, excluding benchmark-only modules
-under `benchmarks/`, not a maintained list. Inventory
-and release tools require a Git checkout; `make test` also works in source archives.
+comes from tracked and unignored `go.mod` files, not a maintained list. Lint and
+tidy include benchmark-only modules under `benchmarks/`; tests and release inventory
+exclude them. Inventory and release tools require a Git checkout; `make test` also works in source archives.
 
 Tidy commands include benchmark modules and run in the disposable candidate
 checkout with `GOWORK=off`. Internal dependencies at `VERSION` resolve through its
@@ -107,6 +108,12 @@ dependencies outside the runtime/release modules. Run its tests separately.
 
 ## Lint configuration
 
-The root lint command and tool version are defined in the [Makefile](../Makefile);
-enabled checks live in [`.golangci.yml`](../.golangci.yml). Review findings are
-point-in-time records, not a maintained inventory of current failures.
+The lint command and tool version are defined in the [Makefile](../Makefile);
+enabled checks live in [`.golangci.yml`](../.golangci.yml). `make lint` discovers each
+module and runs independently with that shared configuration. `make fmt-check`
+passes all existing tracked and unignored Go files to the same pinned formatter,
+including files excluded by build tags. Both checks are read-only and run in CI.
+Override `GOLANGCI_LINT` with a compatible installed binary when needed.
+
+Review findings are point-in-time records, not a maintained inventory of current
+failures.

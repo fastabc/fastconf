@@ -7,6 +7,7 @@ import (
 	"io"
 	nethttp "net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -175,7 +176,7 @@ func TestProvider_LoadPropagatesGetError(t *testing.T) {
 	api := &fakeAPI{err: errors.New("AccessDenied")}
 	p, _ := s3prov.NewWithClient(s3prov.Config{Bucket: "b", Key: "k.yaml"}, api)
 	_, err := p.Load(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "AccessDenied") {
+	if !errors.Is(err, api.err) {
 		t.Fatalf("expected AccessDenied error, got %v", err)
 	}
 }
@@ -185,9 +186,6 @@ func TestProvider_LoadRejectsOversizedBody(t *testing.T) {
 	api := &fakeAPI{objects: map[string]fakeObject{"b/k.yaml": {Body: big}}}
 	p, _ := s3prov.NewWithClient(s3prov.Config{Bucket: "b", Key: "k.yaml"}, api)
 	_, err := p.Load(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "limit") {
-		t.Fatalf("expected size limit error, got %v", err)
-	}
 	if !errors.Is(err, contracts.ErrTooLarge) {
 		t.Fatalf("expected errors.Is(err, contracts.ErrTooLarge), got %v", err)
 	}
@@ -485,5 +483,36 @@ func TestFromURL_RoundTripWithNew(t *testing.T) {
 	}
 	if p.Name() != "s3://b/k.yaml" {
 		t.Errorf("Name: %s", p.Name())
+	}
+}
+
+func TestLoadErrorsHideDocumentAndTransportDetails(t *testing.T) {
+	transport := &url.Error{Op: "Get", URL: "https://example.invalid/?token=FAKESECRET", Err: context.DeadlineExceeded}
+	for _, tc := range []struct {
+		name   string
+		client *fakeAPI
+	}{
+		{"decode", &fakeAPI{objects: map[string]fakeObject{"b/app.yaml": {Body: []byte("password: !!int FAKESECRET\n")}}}},
+		{"transport", &fakeAPI{err: transport}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := s3prov.NewWithClient(s3prov.Config{Bucket: "b", Key: "app.yaml"}, tc.client)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = p.Load(context.Background())
+			if err == nil || strings.Contains(err.Error(), "FAKESECRET") {
+				t.Fatalf("unsafe error: %v", err)
+			}
+			if errors.Unwrap(err) == nil {
+				t.Fatal("lost original error")
+			}
+			if tc.client.err != nil {
+				var underlying *url.Error
+				if !errors.Is(err, context.DeadlineExceeded) || !errors.As(err, &underlying) {
+					t.Fatalf("lost error classification: %v", err)
+				}
+			}
+		})
 	}
 }

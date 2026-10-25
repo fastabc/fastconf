@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/fastabc/fastconf/providers/s3"
 )
 
@@ -20,18 +22,27 @@ func main() {
 	}))
 	defer server.Close()
 
-	provider, err := s3.New(s3.Config{
-		Bucket: "example", Key: "config.yaml", Region: "us-east-1",
-		AccessKey: "example-access", SecretKey: "example-secret",
-		Endpoint: server.URL, PathStyle: true,
-	}, s3.WithMaxBodyBytes(4<<20)) // Use a 4 MiB limit instead of the 10 MiB default.
+	// Production supplies an SDK config with refreshing workload credentials.
+	client := sdk.NewFromConfig(aws.Config{
+		Region: "us-east-1", Credentials: aws.AnonymousCredentials{},
+	}, func(o *sdk.Options) {
+		o.BaseEndpoint = aws.String(server.URL)
+		o.UsePathStyle = true
+	})
+
+	// Keep client construction separate from selecting and decoding the object.
+	provider, err := s3.NewWithClient(s3.Config{
+		Bucket: "example", Key: "config.yaml",
+	}, client, s3.WithMaxBodyBytes(4<<20)) // Use a 4 MiB limit instead of the 10 MiB default.
 	if err != nil {
 		panic(err)
 	}
+
 	// Applications can pass provider directly to fastconf.WithProvider.
 	snapshot, err := provider.Load(context.Background())
 	if err != nil {
 		panic(err)
 	}
+
 	fmt.Println(snapshot.Map)
 }

@@ -106,7 +106,7 @@ log.Printf("port=%d", cfg.Server.Port)
 
 | 类别 | 能力与配方 |
 |---|---|
-| 配置来源 | [文件与 Profile](docs/cookbook/sources/layers.md)、[INI](docs/cookbook/sources/ini.md)、[环境变量与 dotenv](docs/cookbook/sources/env-replacer.md)、[Labels](docs/cookbook/sources/labels.md)、[HTTP](docs/cookbook/sources/http.md)、[Vault](docs/cookbook/sources/vault.md)、[Consul](docs/cookbook/sources/consul.md) |
+| 配置来源 | [文件与 Profile](docs/cookbook/sources/layers.md)、[INI](docs/cookbook/sources/ini.md)、[环境变量与 dotenv](docs/cookbook/sources/env-replacer.md)、[Labels](docs/cookbook/sources/labels.md)、[HTTP](docs/cookbook/sources/http.md)、[Vault](docs/cookbook/sources/vault.md)、[Consul](docs/cookbook/sources/consul.md)、[AWS / Azure / GCP](docs/cookbook/sources/cloud.md) |
 | 合并与转换 | base/overlay 分层、RFC 6902 补丁、[按键合并列表](docs/cookbook/processing/strategic-merge.md)、[生成器](docs/cookbook/processing/generators.md)、[类型钩子](docs/cookbook/processing/typed-hooks.md) |
 | 校验与密钥 | [`fc` 标签与默认值](docs/cookbook/processing/field-meta.md)、[Go/OPA/CUE 策略](docs/cookbook/processing/policy.md)、[解析与脱敏](docs/cookbook/processing/secrets.md) |
 | 动态更新 | [订阅](docs/cookbook/runtime/subscribe.md)、[失败处理与临时覆盖](docs/cookbook/runtime/reload-policy.md)、[Plan 预览](docs/cookbook/runtime/plan.md)、[历史与回滚](docs/cookbook/runtime/introspect.md) |
@@ -121,6 +121,26 @@ Provider 之间排序。FastConf 借鉴 Kustomize 的 base/overlay 与补丁思�
 生命周期、优先级、解码和所有权以[运行时契约](docs/design/spec.md)为准。
 [扩展指南](docs/getting-started/extensions.md)列出 S3、pflag、校验、日志与遥测等
 可选模块。NATS 和 Redis Streams 是需要应用适配的参考实现，不属于稳定 Provider。
+
+## Benchmarks
+
+以下为 [2026-10-24 比较报告](benchmarks/compare/REPORT.zh.md)的部分中位数：
+Apple M5 Pro、Darwin/arm64、Go 1.26.10、GOMAXPROCS=4；每组运行 10 次，每次 1 秒。
+本次基于当前工作树测量；完整报告记录源码校验信息与适用范围。
+
+| 场景 | FastConf | Viper 1.21.0 | Koanf 2.3.0 | Cleanenv 1.5.0 |
+|---|---:|---:|---:|---:|
+| 4 KiB YAML 启动加载（ms/op） | 0.1083 | 0.0980 | 0.1249 | 0.0662 |
+| 64 KiB 有效重载（ms/op） | 1.6732 | 1.5832 | 1.9488 | — |
+| 已发布结构体热读（ns/op） | 0.3829 | 0.4113 | 0.4065 | — |
+
+三个热读路径均为 0 B/op、0 allocs/op。Viper 和 Koanf 使用比较工程的适配器，
+完成解码、校验、去重和原子发布；热读直接读取结构体，不执行字符串键查询。
+亚纳秒结果表示紧循环吞吐量，不代表请求延迟。结果取决于工作负载和机器，
+没有测量真实云服务延迟。
+
+复现步骤与测量边界见[比较工程](benchmarks/compare/README.md)，请在空闲机器上运行。
+Get 零分配检查、重载基准与 profiling 命令见[性能契约](docs/design/perf.md)。
 
 ## 加载与重载流程
 
@@ -175,20 +195,45 @@ map 递归合并，标量和列表默认替换。`mergeKeys` 使用非空字符�
 
 ### Provider 与生成器
 
-| 来源 | 入口 | 行为 |
-|---|---|---|
-| 文件 / 字节 | `source.NewFile(path)`、`source.NewBytes(name, codec, data)` | 加载附加文档；`NewFile` 缺失文件视为空层 |
-| 嵌入 / 虚拟文件系统 | `source.NewFS(fsys, path)` | 从 `fs.FS` 读取一个必需文档，显式重载时重新读取（v1.1.0 之后新增） |
-| 环境变量 / dotenv | `env.New("MYAPP_")`、`dotenv.New("MYAPP_", ".env")` | 下划线映射为路径分隔符；dotenv 兜底，进程环境变量优先 |
-| 命令行参数 | `cliflag.New(values)` | 仅传入显式设置的参数；pflag 有可选适配器 |
-| Labels / Downward API | `labels.New(input, opts)`、`k8s.NewDefault()` | 展开 dotted 配置标签，或保留命名空间下的原始 Pod 元数据 |
-| HTTP / Vault / Consul | `providers/http`、`providers/vault`、`providers/consul` | 远程文档或 KV，通过原生轮询/阻塞查询监听变化 |
-| S3 | 独立模块 `providers/s3` | 对象加载及可选的变更事件集成 |
-| AWS Parameter Store | 独立模块 `providers/parameterstore` | 递归路径树，保留字符串值，可选 SecureString 解密（v1.1.0 之后新增） |
-| GCS / Azure Blob | 独立模块 `providers/gcs`、`providers/azblob` | 文档加载，使用 generation / ETag 缓存（v1.1.0 之后新增） |
+| Provider / 入口 | Watch changes（变更监听） | Notifier（通知通道） | Features（能力） |
+|---|---|---|---|
+| `source.NewFile` | 共享文件监听 | — | 解码单文档；文件缺失贡献空层 |
+| `source.NewBytes` | — | — | 复制内存文档，显式指定 codec |
+| `source.NewFS` | — | — | 从嵌入或虚拟 `fs.FS` 读取必需文档；v1.1.0 之后新增 |
+| `env.New` | — | — | 进程环境变量；下划线映射路径分隔符 |
+| `dotenv.New` | 共享文件监听 | — | Dotenv 兜底，进程环境变量优先 |
+| `cliflag.New` | — | — | 显式设置的参数；可选 pflag 适配器 |
+| `labels.New` | — | — | 展开 dotted 配置标签，支持映射选项 |
+| `k8s.NewDefault` | 共享文件监听 | — | 保留命名空间下的原始 Downward API 元数据 |
+| `providers/http` | 原生轮询 | — | 远程文档、ETag / 内容哈希 |
+| `providers/vault` | 原生元数据轮询 | — | KV v2，可选认证维护 |
+| `providers/consul` | 原生 blocking query | — | KV 树或文档 |
+| [`appconfig`](providers/appconfig) | 通知 + 定期重载 | SNS → SQS | 已部署文档、会话 token、服务端轮询间隔 |
+| [`s3`](providers/s3) | 通知 + 定期重载 | SNS → SQS | ETag 条件读取，可固定 VersionID |
+| [`parameterstore`](providers/parameterstore) | 通知 + 定期重载 | EventBridge → SNS → SQS | 递归分页树、字符串值、可选 SecureString 解密 |
+| [`azappconfig`](providers/azappconfig) | 通知 + 定期重载 | Event Grid → Service Bus | 单 prefix/label、冒号分层、字符串值 |
+| [`azblob`](providers/azblob) | 通知 + 定期重载 | Event Grid → Service Bus | Blob 文档、ETag 条件读取 |
+| [`secretmanager`](providers/secretmanager) | 通知 + 定期重载 | Pub/Sub | 版本或 alias 文档、CRC32C 校验 |
+| [`gcs`](providers/gcs) | 通知 + 定期重载 | Pub/Sub | 当前对象文档、generation 缓存，单次读取与 generation 一致 |
 
-用法见[嵌入文件与云端来源](docs/cookbook/sources/cloud.md)。三个新云端 Provider
-接收应用持有的 SDK 客户端，通过显式重载刷新，没有原生监听；云 SDK 不进入根模块。
+“—” 表示没有自动变更检测。共享文件监听需启用 `WithWatch`；原生 Provider 监听
+由 `New` 独立启动。云 Provider 在 `Reload` 调用 `Load` 时刷新，应用负责启动通知
+消费循环和定期校准；AppConfig 还需遵守服务端允许的下一次轮询时间。
+
+| Notifier 模块 | 确认与失败处理 |
+|---|---|
+| [`integrations/notify/sns`](integrations/notify/sns) | 通过 SQS 接收 SNS 包装或原始消息；刷新成功后删除，失败时保留以便重新投递 |
+| [`integrations/notify/azservicebus`](integrations/notify/azservicebus) | 通过 Service Bus PeekLock 接收 Event Grid schema；刷新成功后 Complete，失败时 Abandon |
+| [`integrations/notify/pubsub`](integrations/notify/pubsub) | 接收 GCS / Secret Manager 事件；刷新成功后 Ack，失败时 Nack |
+
+三个模块均在有界 context 内同步执行刷新回调。应用提供 SDK 客户端、监督消费循环，
+并为每个需要收到所有变更的独立副本配置单独的 queue/subscription。
+接线、重试、死信与定期校准见[云通知配方](docs/cookbook/sources/cloud-notifications.md)。
+现有 `s3events.Watch` 是 EventBridge → SQS 的尽力通知，在 Manager 重载完成前确认
+消息；需要“刷新成功后确认”的场景应使用新增消费者。
+
+加载方式与限制见[嵌入文件与云端来源](docs/cookbook/sources/cloud.md)。云 SDK 位于独立
+模块；除 S3 加载器外，表中其他云加载器和三个通知模块均在 v1.1.0 之后新增。
 
 Provider 实现 `contracts.Provider` 的 `Name` 和 `Load`。可选的 `Describe`
 提供优先级与文件路径；可选的 `contracts.Watcher` 通过 `Watch(ctx, from)` 提供

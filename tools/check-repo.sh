@@ -14,6 +14,12 @@ case "${1:-}" in
     [[ ${#sources[@]} -gt 0 ]] || exit 0
     files="$(gofmt -l "${sources[@]}")"
     if [[ -n "$files" ]]; then printf 'Files need gofmt:\n%s\n' "$files" >&2; exit 1; fi
+    # Pass the pinned formatter as an argument vector, preserving spaces in paths.
+    # Explicit files include examples hidden behind build tags and all modules.
+    shift
+    if [[ $# -gt 0 ]]; then
+      "$@" fmt --config "$ROOT/.golangci.yml" --diff "${sources[@]}"
+    fi
     ;;
   deps)
     for package in ./internal/coalesce ./integrations/log/internal/...; do
@@ -27,5 +33,5 @@ case "${1:-}" in
       fi
     done
     ;;
-  *) echo "usage: $0 fmt|deps" >&2; exit 2 ;;
+  *) echo "usage: $0 fmt [formatter command ...]|deps" >&2; exit 2 ;;
 esac

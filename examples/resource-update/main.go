@@ -42,6 +42,7 @@ func (s *slot) use(fn func(*resource)) {
 	defer s.mu.RUnlock()
 	fn(s.current)
 }
+
 func (s *slot) replace(next *resource) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -106,12 +107,16 @@ func updateResources(ctx context.Context, mgr *fastconf.Manager[Config], s *slot
 func run(out io.Writer) (err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Start with a valid configuration before constructing dependent resources.
 	mgr, err := fastconf.New[Config](ctx, fastconf.WithFS(fstest.MapFS{
 		"conf.d/base/app.yaml": {Data: []byte("database: {endpoint: A}")},
 	}), fastconf.WithUnknownFields(fastconf.UnknownError))
 	if err != nil {
 		return err
 	}
+
+	// Callbacks only signal; one worker builds and swaps resources.
 	var resources slot
 	updates := make(chan struct{}, 1)
 	results := make(chan result, 1)
@@ -130,6 +135,8 @@ func run(out io.Writer) (err error) {
 			return &resource{endpoint: cfg.Endpoint}, nil
 		})
 	}()
+
+	// Stop producers, join the worker, then release the final active resource.
 	defer func() {
 		closeErr := mgr.Close() // No more callbacks after this returns.
 		unsubscribe()
@@ -140,6 +147,8 @@ func run(out io.Writer) (err error) {
 			err = closeErr
 		}
 	}()
+
+	// A failed connection to B keeps A usable; the next update converges to C.
 	notify(updates) // Subscribe does not send initial state.
 	for _, endpoint := range []string{"A", "B", "C"} {
 		if endpoint != "A" {

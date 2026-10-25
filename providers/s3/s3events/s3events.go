@@ -25,6 +25,11 @@
 // are left for other consumers in the queue. Decoding errors and
 // unknown shapes are dropped silently (with a metric in future
 // versions) to keep the watch loop running through schema drift.
+//
+// Watch is best-effort: messages are deleted after sending an Event, before the
+// Manager finishes reloading. Pair it with periodic Reload for recovery after
+// failed reloads. For refresh-before-ack delivery and SNS/native S3 formats, use
+// the independent integrations/notify/sns module instead.
 package s3events
 
 import (
@@ -89,7 +94,8 @@ type Provider struct {
 }
 
 // New builds a real *sqs.Client using static credentials and
-// constructs the provider. For tests, use NewWithClient.
+// constructs the provider. Use NewWithClient for an application-configured
+// client, including one using workload identity or refreshing credentials.
 func New(cfg Config) (*Provider, error) {
 	if cfg.Region == "" {
 		return nil, errors.New("fastconf/s3events: region is required")
@@ -115,7 +121,8 @@ func New(cfg Config) (*Provider, error) {
 }
 
 // NewWithClient accepts an externally constructed SQS client.
-// Production code should use New; tests use NewWithClient with a fake.
+// Production code can inject an SDK client with refreshing credentials and
+// application-selected retry/transport settings. The caller owns the client.
 func NewWithClient(cfg Config, client API) (*Provider, error) {
 	if client == nil {
 		return nil, errors.New("fastconf/s3events: client is required")

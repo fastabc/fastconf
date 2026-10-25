@@ -21,6 +21,7 @@ type Config struct {
 }
 
 func run(out io.Writer) error {
+	// Load feature rules as ordinary typed configuration.
 	state, err := fastconf.Load[Config](context.Background(),
 		fastconf.WithFS(files),
 		fastconf.WithDir("conf.d"),
@@ -29,6 +30,8 @@ func run(out io.Writer) error {
 	if err != nil {
 		return err
 	}
+
+	// Evaluate targeting and repeatable percentage rollouts for each user.
 	rules := state.Value().Features
 	for _, user := range []struct{ id, tier string }{
 		{"alice", "enterprise"},
@@ -42,6 +45,8 @@ func run(out io.Writer) error {
 			return err
 		}
 	}
+
+	// A missing rule uses the caller default; a missing anchor skips its rollout.
 	_, err = fmt.Fprintf(out, "missing flag=%v missing anchor=%v\n",
 		feature.Eval(rules, "missing", nil, false),
 		feature.Eval(rules, "newCheckout", nil, false))

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"path"
 	"strconv"
-	"sync"
 
 	"cloud.google.com/go/storage"
 	"github.com/fastabc/fastconf/codec"
@@ -34,7 +33,7 @@ type Provider struct {
 	codec        contracts.Decoder
 	priority     int
 	maxBodyBytes int64
-	mu           sync.Mutex
+	loadGate     chan struct{} // Serializes loads while allowing waiting callers to cancel.
 	generation   int64
 	data         map[string]any
 }
@@ -62,6 +61,7 @@ func New(cfg Config, client *storage.Client, opts ...Option) (*Provider, error) 
 	if cfg.Bucket == "" || cfg.Key == "" {
 		return nil, errors.New("fastconf/gcs: bucket and key are required")
 	}
+
 	name := cfg.Codec
 	if name == "" {
 		name = codec.LookupExt(path.Ext(cfg.Key))
@@ -70,11 +70,21 @@ func New(cfg Config, client *storage.Client, opts ...Option) (*Provider, error) 
 	if err != nil {
 		return nil, fmt.Errorf("fastconf/gcs: codec for %q: %w", cfg.Key, err)
 	}
+
 	priority := cfg.Priority
 	if priority == 0 {
 		priority = contracts.PriorityKV
 	}
-	p := &Provider{client: client, bucket: cfg.Bucket, key: cfg.Key, codec: dec, priority: priority, maxBodyBytes: contracts.DefaultMaxBodyBytes}
+
+	p := &Provider{
+		client:       client,
+		bucket:       cfg.Bucket,
+		key:          cfg.Key,
+		codec:        dec,
+		priority:     priority,
+		maxBodyBytes: contracts.DefaultMaxBodyBytes,
+		loadGate:     make(chan struct{}, 1),
+	}
 	for _, opt := range opts {
 		opt(p)
 	}
@@ -92,36 +102,57 @@ func (p *Provider) Describe() contracts.ProviderInfo {
 // Load checks object metadata and downloads only changed generations. The read
 // is pinned to the observed generation so a concurrent replacement cannot mix
 // the revision and document. Failed reads and decodes do not update the cache.
+// Concurrent loads are serialized; waiting for a load honors ctx cancellation.
 func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	select {
+	case p.loadGate <- struct{}{}:
+		defer func() { <-p.loadGate }()
+	case <-ctx.Done():
+		return contracts.Snapshot{}, ctx.Err()
+	}
+
+	// Cancellation may race with acquisition of an available gate.
 	if err := ctx.Err(); err != nil {
 		return contracts.Snapshot{}, err
 	}
+
 	object := p.client.Bucket(p.bucket).Object(p.key)
 	attrs, err := object.Attrs(ctx)
 	if err != nil {
-		return contracts.Snapshot{}, fmt.Errorf("%s: metadata: %w", p.Name(), err)
+		return contracts.Snapshot{}, &loadError{operation: p.Name() + ": metadata failed", err: err}
 	}
 	if p.data != nil && attrs.Generation == p.generation {
 		return contracts.Snapshot{Map: confmap.DeepClone(p.data), Revision: strconv.FormatInt(p.generation, 10)}, nil
 	}
+
 	reader, err := object.Generation(attrs.Generation).NewReader(ctx)
 	if err != nil {
-		return contracts.Snapshot{}, fmt.Errorf("%s: read: %w", p.Name(), err)
+		return contracts.Snapshot{}, &loadError{operation: p.Name() + ": read failed", err: err}
 	}
 	defer func() { _ = reader.Close() }()
 	body, err := providerutil.ReadAllMax(reader, p.maxBodyBytes)
 	if err != nil {
-		return contracts.Snapshot{}, fmt.Errorf("%s: read: %w", p.Name(), err)
+		return contracts.Snapshot{}, &loadError{operation: p.Name() + ": read failed", err: err}
 	}
+
 	data, err := p.codec.Decode(body)
 	if err != nil {
-		return contracts.Snapshot{}, fmt.Errorf("%s: decode: %w", p.Name(), err)
+		return contracts.Snapshot{}, &loadError{operation: p.Name() + ": decode failed", err: err}
 	}
+
 	p.generation, p.data = attrs.Generation, data
 	return contracts.Snapshot{Map: confmap.DeepClone(data), Revision: strconv.FormatInt(p.generation, 10)}, nil
 }
+
+// Decoder and transport errors may include document values or credentials.
+// Preserve classification through Unwrap without displaying those details.
+type loadError struct {
+	operation string
+	err       error
+}
+
+func (e *loadError) Error() string { return e.operation }
+func (e *loadError) Unwrap() error { return e.err }
 
 var _ contracts.Provider = (*Provider)(nil)
 var _ contracts.Describer = (*Provider)(nil)

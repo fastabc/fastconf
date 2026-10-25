@@ -3,10 +3,9 @@
 // The provider performs a single S3 GetObject on Load and decodes the
 // response body using a FastConf codec resolved from the object key's
 // extension (or the explicit Config.Codec when supplied). It is
-// intentionally load-only: S3 has no native push notification model,
-// and FastConf's pattern for change-driven reloads is to compose a
-// dedicated watch provider (see providers/s3/s3events) rather than hide
-// polling inside this module. Provider does not implement contracts.Watcher.
+// load-only and does not implement contracts.Watcher. For change-driven reloads,
+// use integrations/notify/sns with a synchronous Manager.Reload callback and
+// periodic reloads to recover from missed notifications.
 //
 // # ETag short-circuit
 //
@@ -19,11 +18,11 @@
 //
 // # Credentials
 //
-// Credentials are explicit: callers supply AccessKey / SecretKey (and
-// an optional STS Token). No ambient AWS_PROFILE or IMDS fallback —
-// FastConf prefers configurations whose secret material is obvious
-// from the call site. Pair with WithSecretResolver to load the
-// credentials from a vault at Manager construction time.
+// New accepts explicit AccessKey / SecretKey and an optional STS Token.
+// NewWithClient borrows an application-configured SDK client, including clients
+// using the AWS credential chain, workload identity or refreshing credentials.
+// The application owns that client. Manager secret resolvers process loaded
+// configuration; they do not initialize the provider's SDK credentials.
 package s3
 
 import (
@@ -54,11 +53,11 @@ const defaultMaxBodyBytes = 10 * 1024 * 1024
 // validated at construction time by New; misconfiguration becomes a
 // hard error rather than a deferred fetch failure.
 type Config struct {
-	Region    string // AWS region, e.g. "us-east-1" (required)
+	Region    string // AWS region, e.g. "us-east-1" (required by New)
 	Bucket    string // S3 bucket name (required)
 	Key       string // Object key / path within bucket (required)
-	AccessKey string // AWS access key ID (required)
-	SecretKey string // AWS secret access key (required)
+	AccessKey string // AWS access key ID (required by New)
+	SecretKey string // AWS secret access key (required by New)
 	Token     string // STS session token — optional, leave empty if not using STS
 	Codec     string // Codec name; auto-inferred from Key extension if empty
 	Priority  int    // Provider priority; default: contracts.PriorityKV
@@ -87,8 +86,8 @@ type API interface {
 // It caches the last ETag and decoded body so
 // repeated Load() calls only pay one HEAD-equivalent round-trip when
 // the object has not changed.
-// For native change notifications, use
-// providers/s3/s3events, which translates S3 events into contracts.Event values.
+// For notifications, use integrations/notify/sns and periodic reloads.
+// The legacy s3events watcher remains available for best-effort invalidation.
 type Provider struct {
 	name         string
 	bucket       string
@@ -150,9 +149,10 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 	return newProvider(cfg, client, opts...)
 }
 
-// NewWithClient is the test-friendly constructor: it accepts a
-// pre-built API implementation instead of constructing a real AWS
-// client. Production callers should use New.
+// NewWithClient borrows an application-configured client without changing it.
+// Configure workload identity, refreshing credentials, transport limits and
+// retries on the client before construction. The caller owns its lifecycle.
+// Config's Region, credentials, Endpoint and PathStyle are not used here.
 func NewWithClient(cfg Config, client API, opts ...Option) (*Provider, error) {
 	if client == nil {
 		return nil, errors.New("fastconf/s3: client is required")
@@ -237,17 +237,20 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 			defer p.mu.Unlock()
 			return contracts.Snapshot{Map: confmap.DeepClone(p.lastBody), Revision: p.etag}, nil
 		}
-		return contracts.Snapshot{}, fmt.Errorf("fastconf/s3: get %s: %w", p.name, err)
+		return contracts.Snapshot{}, &loadError{operation: "fastconf/s3: get " + p.name + " failed", err: err}
 	}
-	defer out.Body.Close()
+	defer func() { _ = out.Body.Close() }()
 	body, err := providerutil.ReadAllMax(out.Body, p.maxBodyBytes)
 	if err != nil {
-		return contracts.Snapshot{}, fmt.Errorf("fastconf/s3: read %s: %w", p.name, err)
+		return contracts.Snapshot{}, &loadError{operation: "fastconf/s3: read " + p.name + " failed", err: err}
 	}
+
 	m, derr := p.codec.Decode(body)
 	if derr != nil {
-		return contracts.Snapshot{}, fmt.Errorf("fastconf/s3: decode %s: %w", p.name, derr)
+		return contracts.Snapshot{}, &loadError{operation: "fastconf/s3: decode " + p.name + " failed", err: derr}
 	}
+
+	// Publish the ETag only after the complete body has decoded successfully.
 	p.mu.Lock()
 	p.etag = aws.ToString(out.ETag)
 	p.lastBody = m
@@ -272,7 +275,7 @@ func isNotModified(err error) bool {
 	return false
 }
 
-// FromURL parses an s3:// (or s3+http(s) for non-AWS endpoints) URL
+// FromURL parses an s3:// URL (use the endpoint query for non-AWS stores)
 // into a Config. Credentials are passed separately so secrets never
 // appear in URLs that may be logged or persisted in YAML.
 //
@@ -331,6 +334,16 @@ func FromURL(rawurl string, creds Credentials) (Config, error) {
 	}
 	return cfg, nil
 }
+
+// Decoder and transport errors may include document values or credentials.
+// Preserve classification through Unwrap without displaying those details.
+type loadError struct {
+	operation string
+	err       error
+}
+
+func (e *loadError) Error() string { return e.operation }
+func (e *loadError) Unwrap() error { return e.err }
 
 // Compile-time interface assertion.
 var _ contracts.Provider = (*Provider)(nil)

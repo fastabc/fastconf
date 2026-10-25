@@ -7,18 +7,44 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	sdk "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/providers/azblob"
 )
+
+func TestNetworkErrorRedactsSAS(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	srv.Close()
+	client, err := sdk.NewClientWithNoCredential(srv.URL+"?sig=review-secret", &sdk.ClientOptions{
+		ClientOptions: azcore.ClientOptions{Retry: policy.RetryOptions{MaxRetries: -1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := azblob.New(azblob.Config{Container: "configs", Key: "app.json"}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = p.Load(context.Background())
+	var transport *url.Error
+	if !errors.As(err, &transport) {
+		t.Fatalf("lost transport error: %v", err)
+	}
+	if strings.Contains(err.Error(), "review-secret") || strings.Contains(err.Error(), "sig=") {
+		t.Fatalf("error leaks SAS: %v", err)
+	}
+}
 
 // Use the real SDK against HTTP so tests exercise Azure's conditional headers
 // and response-error translation as well as provider decoding.
@@ -132,6 +158,9 @@ func TestLoadErrorsAndCancellation(t *testing.T) {
 		if !errors.As(err, &response) || response.StatusCode != status {
 			t.Fatalf("status %d: %v", status, err)
 		}
+		if strings.Contains(err.Error(), "sig=") || strings.Contains(err.Error(), "secret") {
+			t.Fatalf("status error leaks SAS: %v", err)
+		}
 	}
 	s := &store{}
 	p := setup(t, s)
@@ -170,5 +199,61 @@ func TestManagerIntegration(t *testing.T) {
 	snap, err := fastconf.Load[config](context.Background(), fastconf.WithFS(fstest.MapFS{}), fastconf.WithProvider(p))
 	if err != nil || snap.Value().Host != "production" {
 		t.Fatalf("Load = %+v, %v", snap, err)
+	}
+}
+
+func TestLoadWaitHonorsCancellation(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	var once sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		once.Do(func() { close(entered) })
+		select {
+		case <-release:
+			_, _ = io.WriteString(w, `{ "ok": true }`)
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(srv.Close)
+	client, err := sdk.NewClientWithNoCredential(srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := azblob.New(azblob.Config{Container: "configs", Key: "app.json"}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	defer cancelFirst()
+	first := make(chan error, 1)
+	go func() { _, err := p.Load(firstCtx); first <- err }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("first load did not start")
+	}
+
+	waiting, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	second := make(chan error, 1)
+	go func() { _, err := p.Load(waiting); second <- err }()
+	select {
+	case err := <-second:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("load ignored cancellation while waiting")
+	}
+
+	cancelFirst()
+	select {
+	case err := <-first:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("active load ignored cancellation")
 	}
 }

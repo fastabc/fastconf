@@ -41,6 +41,7 @@ func run(out io.Writer) error {
 	if err := write("initial"); err != nil {
 		return err
 	}
+
 	// No automatic watcher: each change is inspected before manual publication.
 	mgr, err := fastconf.New[Config](ctx,
 		fastconf.WithDir(dir),
@@ -128,6 +129,7 @@ func run(out io.Writer) error {
 	if _, err := fmt.Fprintf(out, "rollback: port=%d generation=%d\n", mgr.Get().Port, mgr.Snapshot().Generation()); err != nil {
 		return err
 	}
+
 	// The file is still proposed.yaml: restoring memory does not repair it.
 	if err := mgr.Reload(ctx); err != nil {
 		return err

@@ -85,7 +85,7 @@ The installed module source was read to verify those signatures. See
 [compare.go](compare.go), [benchmarks](compare_test.go) and
 [sample tool](cmd/sample/main.go) for the complete measured work.
 
-Measured results: [2026-10-18 report (中文)](REPORT.zh.md), including raw samples
+Measured results: [2026-10-24 report (中文)](REPORT.zh.md), including raw samples
 and limitations. That report describes its recorded source and environment, not
 the performance of every later checkout.
 

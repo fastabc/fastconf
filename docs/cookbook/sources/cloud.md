@@ -1,8 +1,13 @@
 # 嵌入文件与云端来源
 
-这些入口新增于 v1.1.0 之后。`source.NewFS` 随根模块提供；Parameter Store、
-GCS 和 Azure Blob 各有独立 `go.mod`，仅导入所需模块即可，根模块没有新增云 SDK。
+这些入口新增于 v1.1.0 之后。`source.NewFS` 随根模块提供；云加载器各有独立
+`go.mod`，仅导入所需模块即可，根模块没有新增云 SDK。
 最低 Go 版本分别以各模块清单为准。
+
+Azure/GCP 模块固定 `golang.org/x/net v0.60.0` 的 HTTP/2 修复，最低 Go 为 1.26；
+这包括此前最低 Go 1.25 的 Azure Blob。语法兼容的最低版本不代表安全补丁基线：
+本次安全验收使用 Go 1.26.10，部署时应采用修复
+[GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809) 的受支持工具链版本。
 
 无需账号或凭据的完整可运行示例：[FS](../../../examples/fs/README.md)、
 [Parameter Store](../../../examples/parameterstore/README.md)、
@@ -117,3 +122,67 @@ FS/GCS/Azure Blob 限制解码前的文档字节数；Parameter Store 限制所�
 ```sh
 make test-workspace MODULES=". providers/parameterstore providers/gcs providers/azblob"
 ```
+
+## AWS AppConfig
+
+[`providers/appconfig`](../../../providers/appconfig/go.mod) 接收应用配置的
+`*appconfigdata.Client`，通过 Data API 读取部署后的内容。完整本地程序见
+[examples/appconfig](../../../examples/appconfig/README.md)。
+
+```go
+p, err := appconfig.New(appconfig.Config{
+    Application: "app-id", Environment: "environment-id", Profile: "profile-id",
+    // Codec: "yaml", // 不设置时使用响应 Content-Type
+}, appConfigDataClient)
+if err != nil { return err }
+```
+
+每个 token 仅使用一次；失败且无法确认是否消费 token 时，下次合法轮询重建 session。
+`MinimumPollInterval` 默认 60 秒，允许 15 秒到 24 小时的整秒值；实际遵守服务端返回的
+更长间隔。提前 `Load` 返回已缓存内容或上次错误，不绕过限流。空响应保留文档；解码失败后
+后续空响应仍返回错误，直到收到有效新文档。revision 是内容哈希，不暴露 token。
+需要持续调用 Reload，SNS 部署通知不能代替灰度期间的轮询。已有 AppConfig Agent 时，
+也可通过 HTTP provider 读取 Agent 的本地端点。
+
+## Azure App Configuration
+
+[`providers/azappconfig`](../../../providers/azappconfig/go.mod) 接收 `*azappconfig.Client`。
+[完整程序](../../../examples/azappconfig/README.md) 使用本地 HTTP 服务与真实 SDK。
+
+```go
+p, err := azappconfig.New(azappconfig.Config{
+    Name: "app-config-prod", Prefix: "app:", Label: "prod",
+}, appConfigClient)
+if err != nil { return err }
+```
+
+Prefix/Label 都是字面匹配，过滤器中的特殊字符会被转义。空 Label 只读无标签设置。
+去除 prefix 后，`server:host` 变为嵌套树，点号保留，值保持字符串。
+重复 key、空路径段、叶/分支冲突、分页失败均拒绝整次加载。读取完成后按排序后的
+key、label、ETag、value 计算 revision；删除 setting 会从下一次完整树中消失。
+这不代表服务端多 setting 的事务快照。Key Vault 引用和 App Configuration 特殊
+内容类型会被拒绝，不能当作已支持 secret 引用或 feature flag 求值。
+
+## GCP Secret Manager
+
+[`providers/secretmanager`](../../../providers/secretmanager/go.mod) 把一个 secret payload
+作为完整配置文档；不是字段级 secret resolver。[完整程序](../../../examples/secretmanager/README.md)
+使用真实 REST SDK，并只输出解析后的版本名。
+
+```go
+p, err := secretmanager.New(secretmanager.Config{
+    Name: "projects/my-project/secrets/app-config/versions/latest", Codec: "json",
+}, secretManagerClient)
+if err != nil { return err }
+```
+
+Name 可用固定版本、latest 或服务支持的 alias；regional resource 需应用选择对应客户端
+端点。每次 Reload 都调用 AccessSecretVersion，校验存在的 CRC32C，并以响应的版本资源名
+作为 revision。禁用/销毁返回错误，由 Manager 保留上一有效快照；这不等于立即清除进程中
+已加载的秘密，应用可自行决定遇到此类错误时停止服务。提供者不自动标注敏感字段，仍须配置
+FastConf 的 secret paths/tag；不要直接打印 Snapshot.Map。
+
+这三个加载器默认 PriorityKV、4 MiB 上限，可用 WithMaxBodyBytes 覆盖；AppConfig、
+Secret Manager 以及 Azure settings 的 SDK 会先缓冲响应，上限约束的是解码输入/累计字段，
+不是传输层内存总量。它们同样不启动 Watch。七个云来源的通知和校准方式见
+[云通知配方](cloud-notifications.md)。

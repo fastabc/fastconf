@@ -23,6 +23,7 @@ provide source/fixture links, expected output and verification commands.
 | [resource-update](resource-update/README.md) | Bounded updates, failed connection retention and draining | `go run ./examples/resource-update` |
 | [reload](reload/README.md) | Local file changes, Plan findings, rejection, commit and history rollback | `go run ./examples/reload` |
 | [features](features/README.md) | Ordered targeting, deterministic 30% rollout and fallbacks | `go run ./examples/features` |
+| [cloud-reload](cloud-reload/README.md) | Missed-notification recovery, periodic reload and consumer supervision | `go run ./examples/cloud-reload` |
 
 ```sh
 FC_EXAMPLE_SERVER_PORT=9090 go run ./examples/basic
@@ -65,14 +66,19 @@ Run the commands from the repository root:
 | [parameterstore](parameterstore/README.md) | Load two SSM pages into a nested string-valued tree | `go -C providers/parameterstore run ../../examples/parameterstore/main.go` |
 | [gcs](gcs/README.md) | Load YAML and reuse a decoded generation | `go -C providers/gcs run ../../examples/gcs/main.go` |
 | [azblob](azblob/README.md) | Load YAML and reuse cached data on HTTP 304 | `go -C providers/azblob run ../../examples/azblob/main.go` |
+| [appconfig](appconfig/README.md) | Data API session and poll-interval cache | `go -C providers/appconfig run ../../examples/appconfig/main.go` |
+| [azappconfig](azappconfig/README.md) | Prefix/label selection and nested string values | `go -C providers/azappconfig run ../../examples/azappconfig/main.go` |
+| [secretmanager](secretmanager/README.md) | Resolve a version and verify CRC32C without printing secrets | `go -C providers/secretmanager run ../../examples/secretmanager/main.go` |
+| [sns](sns/README.md) | SNS/S3 notification and Manager reload before SQS ACK | `go -C integrations/notify/sns run ../../../examples/sns/main.go` |
+| [azservicebus](azservicebus/README.md) | Event Grid filtering and refresh before Complete | `go -C integrations/notify/azservicebus run ../../../examples/azservicebus/main.go` |
+| [pubsub](pubsub/README.md) | Real Pub/Sub v2 SDK with local gRPC delivery and ACK | `go -C integrations/notify/pubsub run ../../../examples/pubsub/main.go` |
 
 These optional programs use `//go:build ignore` so root tests and `go mod tidy`
 keep SDK dependencies isolated. `make example` explicitly runs them in a
 temporary workspace against the local adapter modules; naming `main.go` bypasses
 the build constraint. No cloud account, external service or real credentials are
-needed. Each program prints a configuration map containing port 9090.
-The three new cloud examples were added after v1.1.0; use each provider's
-`go.mod` for its minimum Go version.
+needed. Expected output is listed in each README. Cloud examples other than S3
+were added after v1.1.0; use each module's `go.mod` for its minimum Go version.
 
 The adapter manifests select their declared root dependency. For validation
 against this checkout, use the temporary workspace commands below; `make example`

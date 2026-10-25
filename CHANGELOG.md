@@ -12,6 +12,11 @@ v0.20.0 to v1.1.0. Older entries below describe their historical releases.
 - Independent AWS Parameter Store, GCS and Azure Blob provider modules accept
   application-owned SDK clients; cloud SDKs stay outside the root module.
   Parameter Store expands recursive paths; GCS/Azure cache decoded versions.
+- Independent AppConfig, Azure App Configuration and GCP Secret Manager loaders
+  add deployed-session, prefix/label and version/CRC32C-aware document loading.
+- Independent SNS-over-SQS, Azure Service Bus and Pub/Sub notification consumers
+  wait for successful refresh before acknowledgement. Examples document dedicated
+  replica subscriptions, retry/dead-letter policies and periodic reconciliation.
 
 ### Changed
 
@@ -21,6 +26,14 @@ v0.20.0 to v1.1.0. Older entries below describe their historical releases.
 - Examples and documentation clarify defaults, unknown fields and provider usage.
 
 ### Fixed
+
+- Azure/GCP cloud modules pin the HTTP/2 security fixes in `golang.org/x/net`
+  v0.60.0. Azure App Configuration, Blob and Service Bus now require Go 1.26.
+  Security validation uses Go 1.26.10 to include the crypto/x509 trust fix.
+
+- Azure Blob errors hide SAS URLs and document contents while preserving
+  `errors.Is`/`errors.As`. The legacy `s3events.Watch` remains best-effort;
+  reliable refresh-before-ack delivery uses the new SNS integration.
 
 - TOML dumps identify the path of null array elements without duplicate error prefixes.
 

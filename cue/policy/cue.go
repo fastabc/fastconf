@@ -47,13 +47,16 @@ func (p *Policy[T]) Evaluate(_ context.Context, in policy.Input[T]) ([]policy.Vi
 	if err := cfg.Err(); err != nil {
 		return nil, fmt.Errorf("cue: load: %w", err)
 	}
+
+	// Report schema mismatches as violations so Manager can apply enforcement policy.
 	unified := p.schema.Unify(cfg)
+	var violations []policy.Violation
 	if err := unified.Validate(cue.Concrete(true)); err != nil {
-		return []policy.Violation{{
+		violations = []policy.Violation{{
 			Rule:     p.name,
 			Message:  err.Error(),
 			Severity: policy.SeverityError,
-		}}, nil
+		}}
 	}
-	return nil, nil
+	return violations, nil
 }

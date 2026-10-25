@@ -10,12 +10,15 @@ import (
 )
 
 func main() {
+	// Defaults define the CLI; only explicit arguments should override other sources.
 	flags := pflag.NewFlagSet("example", pflag.ContinueOnError)
 	flags.Int("server.port", 8080, "server port")
 	flags.String("server.host", "localhost", "server host")
+
 	if err := flags.Parse([]string{"--server.port=9090"}); err != nil {
 		panic(err)
 	}
+
 	// Only explicitly set flags override configuration; server.host is omitted.
 	// Pass this map to cliflag.New, then fastconf.WithProvider.
 	fmt.Println(adapter.FromChanged(flags))

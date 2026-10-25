@@ -16,10 +16,12 @@ type Config struct {
 }
 
 func run(path string, out io.Writer) error {
+	// Load exactly one required document, including its field validation.
 	cfg, err := fastconf.LoadFile[Config](path)
 	if err != nil {
 		return err
 	}
+
 	_, err = fmt.Fprintf(out, "port=%d\n", cfg.Port)
 	return err
 }
@@ -27,6 +29,7 @@ func run(path string, out io.Writer) error {
 func main() {
 	path := flag.String("file", "examples/single-file/app.yaml", "configuration file")
 	flag.Parse()
+
 	if err := run(*path, os.Stdout); err != nil {
 		log.Fatal(err)
 	}

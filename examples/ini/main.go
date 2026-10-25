@@ -27,6 +27,7 @@ type Config struct {
 }
 
 func run(out io.Writer) error {
+	// INI files use the same profile, merge and typed-validation pipeline.
 	state, err := fastconf.Load[Config](context.Background(),
 		fastconf.WithFS(files), fastconf.WithDir("conf.d"),
 		fastconf.WithProfile(fastconf.Profile{Names: []string{"prod"}}),
@@ -35,6 +36,8 @@ func run(out io.Writer) error {
 	if err != nil {
 		return err
 	}
+
+	// Inspect converted values, including booleans, durations and numeric strings.
 	cfg := state.Value()
 	_, err = fmt.Fprintf(out, "name=%s code=%s port=%d enabled=%t timeout=%s\n",
 		cfg.Name, cfg.Code, cfg.Server.Port, cfg.Server.Enabled, cfg.Server.Timeout)

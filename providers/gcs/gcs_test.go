@@ -12,12 +12,14 @@ import (
 	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"cloud.google.com/go/storage"
 	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/providers/gcs"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
@@ -60,7 +62,7 @@ func (s *store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, s.body)
 }
 
-func clientFor(t *testing.T, s *store) *storage.Client {
+func clientFor(t *testing.T, s http.Handler) *storage.Client {
 	t.Helper()
 	srv := httptest.NewServer(s)
 	t.Cleanup(srv.Close)
@@ -174,5 +176,93 @@ func TestManagerIntegration(t *testing.T) {
 	snap, err := fastconf.Load[config](context.Background(), fastconf.WithFS(fstest.MapFS{}), fastconf.WithProvider(p))
 	if err != nil || snap.Value().Host != "production" {
 		t.Fatalf("Load = %+v, %v", snap, err)
+	}
+}
+
+func TestDecodeErrorHidesDocument(t *testing.T) {
+	s := &store{body: "password: !!int FAKESECRET\n", generation: 1}
+	p, err := gcs.New(gcs.Config{Bucket: "configs", Key: "app.json", Codec: "yaml"}, clientFor(t, s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = p.Load(context.Background())
+	if err == nil || strings.Contains(err.Error(), "FAKESECRET") {
+		t.Fatalf("unsafe error: %v", err)
+	}
+	if errors.Unwrap(err) == nil {
+		t.Fatal("lost decoder error")
+	}
+}
+
+func TestSDKErrorHidesResponseDetails(t *testing.T) {
+	client := clientFor(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error":{"code":403,"message":"FAKESECRET"}}`)
+	}))
+	p, err := gcs.New(gcs.Config{Bucket: "configs", Key: "app.json"}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = p.Load(context.Background())
+	if err == nil || strings.Contains(err.Error(), "FAKESECRET") {
+		t.Fatalf("unsafe error: %v", err)
+	}
+	var cause *googleapi.Error
+	if !errors.As(err, &cause) || cause.Code != http.StatusForbidden {
+		t.Fatalf("lost SDK error classification: %v", err)
+	}
+}
+
+func TestLoadWaitHonorsCancellation(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	var once sync.Once
+	s := &store{body: `{ "ok": true }`, generation: 1}
+	client := clientFor(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		once.Do(func() { close(entered) })
+		select {
+		case <-release:
+			s.ServeHTTP(w, r)
+		case <-r.Context().Done():
+		}
+	}))
+	p, err := gcs.New(gcs.Config{Bucket: "configs", Key: "app.json"}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	defer cancelFirst()
+	first := make(chan error, 1)
+	go func() { _, err := p.Load(firstCtx); first <- err }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("first load did not start")
+	}
+
+	waiting, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	second := make(chan error, 1)
+	go func() { _, err := p.Load(waiting); second <- err }()
+	select {
+	case err := <-second:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("load ignored cancellation while waiting")
+	}
+
+	cancelFirst()
+	select {
+	case err := <-first:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("active load ignored cancellation")
 	}
 }
