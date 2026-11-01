@@ -175,7 +175,7 @@ custom unmarshaling must enforce its own rules.
 ## Collection elements
 
 Exported fields promoted from unexported embedded structs also participate
-(fixed in v1.3.0, unreleased). Unexported non-embedded fields are ignored.
+(fixed in v1.3.0). Unexported non-embedded fields are ignored.
 Nested structs and existing struct pointers
 are traversed; a nil parent pointer is skipped and is not allocated to apply
 child defaults. Put `fc:"required"` on the parent pointer if it must exist.

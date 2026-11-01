@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'chmod -R u+w "$TMP"; rm -rf "$TMP"' EXIT
-VERSION="${VERSION:-v1.2.0}"
+VERSION="${VERSION:-v1.3.0}"
 SOURCE_VERSION="$VERSION"
 if [[ "${1:-}" == --api ]]; then
   shift

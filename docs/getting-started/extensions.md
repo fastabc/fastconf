@@ -43,7 +43,7 @@ Extensions in the root module need no separate installation. Choose by use case:
 | Extra files, `fs.FS`, bytes and environment variables | `providers/source`, `providers/env`, `providers/dotenv` | [Sources and layering recipes](../cookbook/README.md#sources-and-layering) |
 | Explicit CLI arguments | `providers/cliflag` | `cliflag.New(values)` accepts a nested map without expanding dotted keys; the pflag adapter performs that conversion |
 | Remote configuration | `providers/http`, `providers/vault`, `providers/consul` | Native watchers run independently of the file-watching option |
-| Custom sources | `contracts.Provider`, optional `contracts.Watcher` / `Describer` | [Custom providers](../cookbook/sources/custom-provider.md), including v1.3.0 (unreleased) helpers |
+| Custom sources | `contracts.Provider`, optional `contracts.Watcher` / `Describer` | [Custom providers](../cookbook/sources/custom-provider.md), including v1.3.0 helpers |
 | Encoded document generation | `contracts.Generator` / `WithGenerator` | [Generators](../cookbook/processing/generators.md) |
 | Post-merge transformations | `transform` / `WithTransform` | Environment substitution, field aliases, deletion and schema migration chains |
 | Type conversion and business validation | `codec` / `WithTypedHook`, `WithValidate`, `policy.Func` | [Conversion and validation recipes](../cookbook/README.md#merge-conversion-and-validation) |
@@ -54,7 +54,7 @@ Extensions in the root module need no separate installation. Choose by use case:
 Install only the adapters your application imports, for example:
 
 ```sh
-go get github.com/fastabc/fastconf/providers/s3@v1.2.0
+go get github.com/fastabc/fastconf/providers/s3@v1.3.0
 ```
 
 The table below helps locate modules. Each linked `go.mod` is authoritative for
@@ -63,7 +63,7 @@ not apply to every adapter.
 
 | Capability | Module / manifest |
 |---|---|
-| S3 objects | [`providers/s3`](../../providers/s3/go.mod); `s3events` is deprecated in v1.3.0 (unreleased); use [`notify/sns`](../../integrations/notify/sns/go.mod) for notifications |
+| S3 objects | [`providers/s3`](../../providers/s3/go.mod); `s3events` is deprecated in v1.3.0; use [`notify/sns`](../../integrations/notify/sns/go.mod) for notifications |
 | AWS Parameter Store | [`providers/parameterstore`](../../providers/parameterstore/go.mod); added in v1.2.0 |
 | Google Cloud Storage | [`providers/gcs`](../../providers/gcs/go.mod); added in v1.2.0 |
 | Azure Blob Storage | [`providers/azblob`](../../providers/azblob/go.mod); added in v1.2.0 |

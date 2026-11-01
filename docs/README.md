@@ -1,8 +1,8 @@
 # Documentation
 
-These pages describe this checkout, including changes marked v1.3.0 (unreleased).
-For a released dependency, read the same path at its installed tag. Installation
-examples pin v1.2.0; commands run from the repository root unless stated otherwise.
+These pages and installation examples target v1.3.0. For another release,
+read the same path at its installed tag. Commands run from the repository root
+unless stated otherwise.
 
 ## Start here
 
@@ -15,6 +15,7 @@ examples pin v1.2.0; commands run from the repository root unless stated otherwi
 | Run complete programs | [Examples](../examples/README.md) |
 | Find a task-specific recipe | [Cookbook by function](cookbook/README.md) |
 | Upgrade from v0.20.0 | [Migration to v1.1.0](cookbook/migration-v1.md) |
+| Upgrade from v1.2.0 | [v1.3.0 upgrade notes](cookbook/migration-v1.md#upgrading-from-v120-to-v130) |
 
 ## Reference and development
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## [v1.3.0]
+
+### Fixed
+
+- `s3events` emits one sanitized warning per receive outage and resets the warning
+  after recovery.
+
+### Deprecated
+
+- `s3events`: use `integrations/notify/sns` for refresh-before-ack delivery.
+
 ## [v1.2.0]
 
 ### Fixed

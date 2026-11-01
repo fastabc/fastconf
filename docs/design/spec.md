@@ -1,8 +1,8 @@
 # FastConf Runtime Contract
 
-This document defines the current runtime contract, including unreleased v1.3.0 changes.
-For a released dependency, use this document at its installed tag. Pending changes
-are recorded in the [changelog](../../CHANGELOG.md#unreleased).
+This document defines the FastConf v1.3.0 runtime contract.
+For another release, use this document at its installed tag. Release changes
+are recorded in the [changelog](../../CHANGELOG.md#v130).
 The root module requires Go 1.24; independent modules declare their own
 minimum versions. See [architecture.md](../architecture.md) for package
 ownership and [RELEASING.md](../../RELEASING.md) for release checks.
@@ -109,7 +109,7 @@ call receives an empty revision; reconnects receive the last non-empty
 
 ## Discovery limits
 
-Added in v1.3.0 (unreleased): each discovered file, including root and overlay
+Added in v1.3.0: each discovered file, including root and overlay
 `_meta.yaml`, is limited to 4 MiB (exactly 4 MiB is accepted). Discovery follows
 symlinks and reads only regular files, preserving Kubernetes ConfigMap volumes.
 Non-regular layer entries are skipped unless strict mode is enabled; metadata

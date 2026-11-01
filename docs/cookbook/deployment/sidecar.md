@@ -4,7 +4,7 @@
 
 ## Run
 
-Run from this checkout to include the unreleased token-usage fix:
+Run from the v1.3.0 checkout:
 
 ```bash
 export FASTCONFD_READ_TOKEN="$(cat /var/run/secrets/read-token)"
@@ -15,7 +15,7 @@ go run ./cmd/fastconfd -dir /etc/myapp/conf.d -addr 127.0.0.1:8650
 For an installed release, use that tag's documentation and binary.
 
 Prefer environment variables for token configuration. Explicit token flags take
-precedence; v1.3.0 (unreleased) applies environment fallbacks after parsing so help
+precedence; v1.3.0 applies environment fallbacks after parsing so help
 and invalid-argument usage never print environment token values.
 
 `-reload-token` also defaults from `FASTCONFD_RELOAD_TOKEN`, which is easier to

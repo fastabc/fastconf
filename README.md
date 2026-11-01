@@ -12,9 +12,10 @@ zero-allocation read. Failed loads or validation keep the previous snapshot.
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-Documentation describes this checkout, including changes marked v1.3.0 (unreleased).
-Installation examples pin v1.2.0; use the documentation at your installed tag for
-released behavior. For v0.20.0 upgrades, see the [migration guide](docs/cookbook/migration-v1.md).
+Documentation and installation examples target v1.3.0. Use the documentation at
+your installed tag for release-specific behavior. For v0.20.0 upgrades, see the
+[migration guide](docs/cookbook/migration-v1.md); for v1.2.0, see the
+[v1.3.0 upgrade notes](docs/cookbook/migration-v1.md#upgrading-from-v120-to-v130).
 
 ## Installation
 
@@ -22,7 +23,7 @@ The root module requires Go 1.24+. Optional modules declare their own minimum
 Go version; install only the adapters you use.
 
 ```sh
-go get github.com/fastabc/fastconf@v1.2.0
+go get github.com/fastabc/fastconf@v1.3.0
 ```
 
 ## Quick start
@@ -250,7 +251,7 @@ All three run a synchronous refresh callback with a bounded context. The
 application supplies SDK clients, supervises consumers, and provisions a separate
 queue/subscription for each independent replica that must receive every change.
 See [cloud notifications](docs/cookbook/sources/cloud-notifications.md) for routing,
-retries, dead letters and periodic reconciliation. `s3events` is deprecated in v1.3.0 (unreleased); use
+retries, dead letters and periodic reconciliation. `s3events` is deprecated in v1.3.0; use
 [`integrations/notify/sns`](integrations/notify/sns). Its existing Watch
 uses best-effort EventBridge → SQS notification and acknowledges before Manager
 reload completes; use the new consumer for refresh-before-ack behavior.
@@ -362,9 +363,9 @@ Install from source at a matching version, or use binaries from
 [GitHub Releases](https://github.com/fastabc/fastconf/releases):
 
 ```sh
-go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.2.0
-go install github.com/fastabc/fastconf/cmd/fastconfd@v1.2.0
-go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.2.0
+go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.3.0
+go install github.com/fastabc/fastconf/cmd/fastconfd@v1.3.0
+go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.3.0
 fastconfctl dump -dir conf.d -profile prod -format yaml
 fastconfctl diff -dir conf.d -from dev -to prod -json
 fastconfctl validate -dir conf.d -profile prod
@@ -377,12 +378,12 @@ struct tags or business policies. Starting in v1.2.0, CLI diagnostic
 output masks common credential keys by default; library structs need `fc:"secret"` or `WithSecretPaths`.
 See [diagnostics](docs/cookbook/runtime/introspect.md).
 
-In v1.3.0 (unreleased), an empty diff `-from` selects base only, ignoring
+In v1.3.0, an empty diff `-from` selects base only, ignoring
 `APP_PROFILE` and metadata defaults. fastconfd exits if its listen address is busy.
 
 conf.d discovery accepts regular files (following symlinks), up to 4 MiB each,
 including metadata; see [discovery limits](docs/design/spec.md#discovery-limits)
-(v1.3.0, unreleased).
+(v1.3.0).
 
 ## Development and documentation
 

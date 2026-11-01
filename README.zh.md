@@ -11,16 +11,16 @@ Manager 串行执行重载并原子发布快照；`Get()` 无锁且零分配。
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-文档描述当前检出版本，包含标注为 v1.3.0（尚未发布）的变更。
-安装示例固定使用 v1.2.0；已发布版本的行为请阅读对应 tag 下的文档。
-从 v0.20.0 升级见[迁移指南](docs/cookbook/migration-v1.md)。
+文档和安装示例面向 v1.3.0；其他版本的行为请阅读对应 tag 下的文档。
+从 v0.20.0 升级见[迁移指南](docs/cookbook/migration-v1.md)；从 v1.2.0 升级见
+[v1.3.0 升级说明](docs/cookbook/migration-v1.md#upgrading-from-v120-to-v130)。
 
 ## 安装
 
 根模块要求 Go 1.24+。可选模块的最低 Go 版本以各自的 `go.mod` 为准，按需安装。
 
 ```sh
-go get github.com/fastabc/fastconf@v1.2.0
+go get github.com/fastabc/fastconf@v1.3.0
 ```
 
 ## 快速上手
@@ -234,7 +234,7 @@ map 递归合并，标量和列表默认替换。`mergeKeys` 使用非空字符�
 三个模块均在有界 context 内同步执行刷新回调。应用提供 SDK 客户端、监督消费循环，
 并为每个需要收到所有变更的独立副本配置单独的 queue/subscription。
 接线、重试、死信与定期校准见[云通知配方](docs/cookbook/sources/cloud-notifications.md)。
-`s3events` 在 v1.3.0（尚未发布）弃用，请迁移至
+`s3events` 在 v1.3.0 中弃用，请迁移至
 [`integrations/notify/sns`](integrations/notify/sns)。原 Watch 是 EventBridge → SQS 的尽力通知，在 Manager 重载完成前确认
 消息；需要“刷新成功后确认”的场景应使用新增消费者。
 
@@ -332,9 +332,9 @@ if err := mgr.Reload(ctx, fastconf.WithReason("admin"),
 中的二进制：
 
 ```sh
-go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.2.0
-go install github.com/fastabc/fastconf/cmd/fastconfd@v1.2.0
-go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.2.0
+go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.3.0
+go install github.com/fastabc/fastconf/cmd/fastconfd@v1.3.0
+go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.3.0
 fastconfctl dump -dir conf.d -profile prod -format yaml
 fastconfctl diff -dir conf.d -from dev -to prod -json
 fastconfctl validate -dir conf.d -profile prod
@@ -346,11 +346,11 @@ fastconfgen -in conf.d/base/00-app.yaml -pkg config -type Config
 v1.2.0 起，CLI 诊断默认遮蔽常见密钥名；库中的结构体需使用 `fc:"secret"` 或 `WithSecretPaths`。
 见[诊断配方](docs/cookbook/runtime/introspect.md)。
 
-v1.3.0（尚未发布）中，diff 的空 `-from` 仅选择 base，忽略 `APP_PROFILE` 和
+v1.3.0 中，diff 的空 `-from` 仅选择 base，忽略 `APP_PROFILE` 和
 元数据默认 Profile。fastconfd 的监听地址被占用时会退出。
 
 conf.d 发现层仅接受普通文件（跟随符号链接），单文件及元数据上限均为 4 MiB；
-见[发现限制](docs/design/spec.md#discovery-limits)（v1.3.0，尚未发布）。
+见[发现限制](docs/design/spec.md#discovery-limits)（v1.3.0）。
 
 ## 开发与文档
 

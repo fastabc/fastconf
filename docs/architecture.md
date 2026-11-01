@@ -83,7 +83,7 @@ module's own internal packages and two frozen compatibility paths:
   Options shape and Backend/Event method sets stay frozen until v2 for old adapters.
 
 Compile-time assertions guard these contracts. New provider implementations use
-[the public helpers](cookbook/sources/custom-provider.md), added in v1.3.0 (unreleased).
+[the public helpers](cookbook/sources/custom-provider.md), added in v1.3.0.
 
 ## Tests and checks
 

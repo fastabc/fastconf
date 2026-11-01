@@ -1,6 +1,6 @@
 # Custom providers
 
-`contracts.ReadAllMax` and `contracts.SafeError` are added in v1.3.0 (unreleased).
+`contracts.ReadAllMax` and `contracts.SafeError` are added in v1.3.0.
 This complete program loads a small document from a custom source:
 
 ```go

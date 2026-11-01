@@ -17,9 +17,9 @@ Prometheus and OpenTelemetry retain separate leaf modules.
 
 ## Prepare and verify
 
-The dependency candidate defaults to `VERSION=v1.2.0`, matching current internal
+The dependency candidate defaults to `VERSION=v1.3.0`, matching current internal
 pins. API checks compare against `BASE=v1.2.0` and target `API_VERSION=v1.3.0`
-for the unreleased additions in this checkout. Prepare the next release as follows:
+for the v1.3.0 release. Prepare and verify a release as follows:
 
 1. Update the changelog and any relevant migration notes.
 2. Align in-repository module requirements and the Makefile `VERSION` and
@@ -73,14 +73,14 @@ establishes a new baseline because public v1.0.0 proxy content conflicts with it
 immutable checksum record. Current checks default to `BASE=v1.2.0`, for example:
 
 ```sh
-make api-check BASE=v1.2.0 VERSION=v1.2.0 API_VERSION=v1.3.0
+make api-check BASE=v1.2.0 VERSION=v1.3.0 API_VERSION=v1.3.0
 ```
 
 `VERSION` controls candidate dependency pins; `API_VERSION` controls gorelease's
 release-version validation. CI uses the Makefile defaults for both. A baseline
 download failure must fail the check; do not fall back to `BASE=none`. API checks do not replace behavior regression tests.
-API checks use a reserved prerelease of the next patch (`v1.2.1-api-check` for
-`VERSION=v1.2.0`), or append `.api-check` to an existing prerelease. The temporary
+API checks use a reserved prerelease of the next patch (`v1.3.1-api-check` for
+`VERSION=v1.3.0`), or append `.api-check` to an existing prerelease. The temporary
 archives and matching internal dependency pins use that version, so the baseline
 resolves to published code even when `BASE` equals `VERSION`. Existing release
 tags do not make reruns fail. gorelease enforces the major/minor compatibility

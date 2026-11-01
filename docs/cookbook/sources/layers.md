@@ -6,7 +6,7 @@ The complete [basic example](../../../examples/basic/README.md) includes fixture
 and environment overrides.
 
 Discovery reads regular files (following symlinks), with a 4 MiB per-file limit,
-including metadata, starting in v1.3.0 (unreleased). Strict mode rejects special
+including metadata, starting in v1.3.0. Strict mode rejects special
 files; otherwise they are skipped. Invalid metadata always fails. See
 [discovery limits and errors](../../design/spec.md#discovery-limits).
 

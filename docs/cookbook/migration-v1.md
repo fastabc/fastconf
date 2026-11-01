@@ -1,19 +1,47 @@
 # Migration: v0.20.0 → v1.1.0
 
 The tables document the API migration from v0.20.0 to v1.1.0. These changes
-also apply when upgrading directly to v1.2.0; intermediate development APIs
+also apply when upgrading directly to v1.3.0; intermediate development APIs
 are not migration steps. Install the current root and optional modules together:
 
 ```sh
-go get github.com/fastabc/fastconf@v1.2.0
+go get github.com/fastabc/fastconf@v1.3.0
 # Example optional module; update the adapters your application imports.
-go get github.com/fastabc/fastconf/providers/s3@v1.2.0
+go get github.com/fastabc/fastconf/providers/s3@v1.3.0
 go mod tidy
 ```
 
 The root now requires Go 1.24 rather than Go 1.22. Optional modules can require
 a newer toolchain; check their `go.mod` files. Import paths remain under
 `github.com/fastabc/fastconf`.
+
+## Upgrading from v1.2.0 to v1.3.0
+
+Public v1 APIs remain compatible. Update the root and optional modules together
+using the commands above. Custom providers can use `contracts.ReadAllMax` and
+`contracts.SafeError` without importing frozen internal helpers.
+
+Review these behavior changes before upgrading:
+
+- Directory files and metadata have a 4 MiB limit. Discovery follows symlinks
+  but rejects non-regular metadata; strict mode also rejects special layer files.
+  Root metadata is honored with virtual filesystem roots such as `WithDir(".")`.
+- Non-empty axis values must be single directory names. Unsafe values are
+  skipped with a warning; an explicitly empty environment value disables the axis.
+- fc `min`, `max` and `oneof` check non-nil pointers' values and skip nil pointers.
+  `required` still checks the pointer itself for nil. Promoted fields from
+  unexported embedded structs also receive defaults and constraints.
+- An empty `fastconfctl diff -from` selects base only, ignoring profile environment
+  variables and metadata defaults. fastconfd exits if it cannot bind its address.
+- Dotenv conflicts resolve in file/line order; expanded Kubernetes metadata
+  resolves conflicts in lexical key order. Later entries win in those orders.
+- `transform.CurrentVersion` accepts decimal string versions, including INI
+  input. Playground validation errors omit field values and retain field/rule names.
+- `providers/s3/s3events` is deprecated. Use `integrations/notify/sns` for
+  refresh-before-ack delivery.
+
+See the [v1.3.0 changelog](../../CHANGELOG.md#v130) for the complete fixes,
+including file-reload backpressure, Consul retries and YAML `inline` handling.
 
 ## Constructors and options
 
@@ -195,7 +223,7 @@ extracted value changes. Callbacks now follow registration order.
 Run `go test ./...` in the application and exercise its reload/rollback paths.
 Use the [runtime contract](../design/spec.md) and [examples](../../examples/README.md)
 for current behavior and configuration. This migration table targets v1.1.0;
-changes made afterward are listed in the [changelog](../../CHANGELOG.md#v120).
+changes made afterward are listed in the [changelog](../../CHANGELOG.md#v130).
 
 ## Preserve explicit zero values
 

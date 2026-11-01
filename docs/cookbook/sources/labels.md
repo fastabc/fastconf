@@ -17,7 +17,7 @@ and providers as used below.
 ## Dotted configuration labels
 
 `labels.New` accepts `[]string` / `[]any` containing `key=value` strings, or
-`map[string]string` / `map[string]any`. Starting in v1.3.0 (unreleased),
+`map[string]string` / `map[string]any`. Starting in v1.3.0,
 `[]confmap.LabelPair` is also accepted; its slice is copied before normalization:
 
 ```go
@@ -167,5 +167,5 @@ Expansion reshapes keys; choose the raw metadata mode when that would change
 application meaning. See [configuration ownership](../../design/spec.md#configuration-and-ownership)
 for provider setup and snapshot immutability.
 
-In v1.3.0 (unreleased), routing preserves `=` inside map-form label keys,
+In v1.3.0, routing preserves `=` inside map-form label keys,
 matching ordinary expansion. String-form labels still split at the first `=`.

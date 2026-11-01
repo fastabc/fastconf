@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.2
 	github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig v1.2.0
-	github.com/fastabc/fastconf v1.2.0
+	github.com/fastabc/fastconf v1.3.0
 )
 
 require (

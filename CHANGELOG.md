@@ -1,9 +1,12 @@
 # Changelog
 
 The [migration guide](docs/cookbook/migration-v1.md) covers upgrading from
-v0.20.0 to v1.1.0. Older entries below describe their historical releases.
+v0.20.0 to v1.1.0 and from v1.2.0 to v1.3.0. Older entries below describe their
+historical releases.
 
 ## [Unreleased]
+
+## [v1.3.0]
 
 ### Added
 

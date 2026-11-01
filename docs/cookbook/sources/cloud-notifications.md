@@ -62,7 +62,7 @@ notify.Config{QueueURL: queueURL, TopicARN: topicARN, Source: notify.ParameterSt
 
 消费者每次接收一条，长轮询 20 秒；visibility 为刷新超时向上取整加 10 秒，刷新必须尊重 context。刷新失败不删除，确认失败和 `DeleteMessageBatch.Failed` 都会报告。SDK HTTP 超时必须覆盖长轮询；确认使用独立的 5 秒超时，剩余 5 秒余量留给传输开销。超时/重投由幂等 Reload 和周期校准收敛。
 
-`providers/s3/s3events` 在 v1.3.0（unreleased）标记 Deprecated，v2 前保留。
+`providers/s3/s3events` 在 v1.3.0 中标记 Deprecated，v2 前保留。
 迁移时保留 S3 数据加载器，将旧通知 Provider 替换为上面的 SNS Consumer，
 使用同步 Reload 回调并保留周期校准。
 
