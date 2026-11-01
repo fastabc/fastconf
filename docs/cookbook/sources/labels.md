@@ -17,7 +17,8 @@ and providers as used below.
 ## Dotted configuration labels
 
 `labels.New` accepts `[]string` / `[]any` containing `key=value` strings, or
-`map[string]string` / `map[string]any`:
+`map[string]string` / `map[string]any`. Starting in v1.3.0 (unreleased),
+`[]confmap.LabelPair` is also accepted; its slice is copied before normalization:
 
 ```go
 import labelprovider "github.com/fastabc/fastconf/providers/labels"
@@ -78,8 +79,9 @@ p := labelprovider.New(input, labelprovider.Options{
 | `Raw` | Retain all values without scalar/list conversion | `false` |
 | `LowercaseKeys` | Lowercase keys before expansion | `false` |
 
-`NoListSplit` still permits scalar coercion; `Raw` disables both. Add raw
-suffixes or disable splitting when expression values contain commas.
+A missing gate allows the set; duplicate gate entries use the last value in
+slice order. `NoListSplit` still permits scalar coercion; `Raw` disables both.
+Add raw suffixes or disable splitting when expression values contain commas.
 
 ## Labels inside a configuration document
 
@@ -159,7 +161,11 @@ expansion when consumers need the original selector/annotation key spelling.
 ## Input limits
 
 Strings split at the first `=`; missing delimiters and empty keys are skipped.
-The input is a string list or map, not a list of `{key, value}` objects.
+A YAML-decoded `[]any` must contain strings; `{key, value}` map entries are skipped.
+Typed Go callers may use `[]confmap.LabelPair`.
 Expansion reshapes keys; choose the raw metadata mode when that would change
 application meaning. See [configuration ownership](../../design/spec.md#configuration-and-ownership)
 for provider setup and snapshot immutability.
+
+In v1.3.0 (unreleased), routing preserves `=` inside map-form label keys,
+matching ordinary expansion. String-form labels still split at the first `=`.

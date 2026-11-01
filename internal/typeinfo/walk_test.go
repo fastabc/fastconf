@@ -60,33 +60,22 @@ func TestWalk_FieldDiscovery(t *testing.T) {
 	}
 }
 
-func TestFieldName_PrefersJSON(t *testing.T) {
-	type S struct {
-		F string `json:"x" yaml:"y"`
-	}
-	f, _ := reflect.TypeOf(S{}).FieldByName("F")
-	if got := typeinfo.FieldName(f); got != "x" {
-		t.Fatalf("got %q want x", got)
-	}
-}
-
-func TestFieldName_FallsBackToYAML(t *testing.T) {
-	type S struct {
-		F string `yaml:"y"`
-	}
-	f, _ := reflect.TypeOf(S{}).FieldByName("F")
-	if got := typeinfo.FieldName(f); got != "y" {
-		t.Fatalf("got %q want y", got)
-	}
-}
-
-func TestFieldName_DefaultsLower(t *testing.T) {
-	type S struct {
-		Foo string
-	}
-	f, _ := reflect.TypeOf(S{}).FieldByName("Foo")
-	if got := typeinfo.FieldName(f); got != "foo" {
-		t.Fatalf("got %q want foo", got)
+func TestResolveField_Canonical(t *testing.T) {
+	for _, tc := range []struct {
+		name, field string
+		tag         reflect.StructTag
+		want        string
+	}{
+		{"FieldName_PrefersJSON", "F", `json:"x" yaml:"y"`, "x"},
+		{"FieldName_FallsBackToYAML", "F", `yaml:"y"`, "y"},
+		{"FieldName_DefaultsLower", "Foo", "", "foo"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := reflect.StructField{Name: tc.field, Tag: tc.tag}
+			if got := typeinfo.ResolveField(f).Canonical; got != tc.want {
+				t.Fatalf("name=%q want=%q", got, tc.want)
+			}
+		})
 	}
 }
 

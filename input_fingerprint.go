@@ -8,6 +8,7 @@ import (
 	"reflect"
 
 	"github.com/fastabc/fastconf/codec"
+	"github.com/fastabc/fastconf/internal/typeinfo"
 	"gopkg.in/yaml.v3"
 )
 
@@ -20,38 +21,20 @@ var customEncodingTypes = []reflect.Type{
 
 // Inspect once per manager. Nested hooks can make identical file inputs
 // produce different typed values, so they disable the input shortcut.
-func hasCustomEncoding(t reflect.Type, seen map[reflect.Type]bool) bool {
-	if seen[t] {
-		return false
-	}
-	seen[t] = true
-	for _, iface := range customEncodingTypes {
-		if t.Implements(iface) || reflect.PointerTo(t).Implements(iface) {
-			return true
-		}
-	}
-	switch t.Kind() {
-	case reflect.Pointer, reflect.Slice, reflect.Array:
-		return hasCustomEncoding(t.Elem(), seen)
-	case reflect.Map:
-		return hasCustomEncoding(t.Key(), seen) || hasCustomEncoding(t.Elem(), seen)
-	case reflect.Struct:
-		for i := 0; i < t.NumField(); i++ {
-			if f := t.Field(i); f.IsExported() && hasCustomEncoding(f.Type, seen) {
+func hasCustomEncoding(t reflect.Type) bool {
+	return typeinfo.Reaches(t, func(t reflect.Type) bool {
+		for _, iface := range customEncodingTypes {
+			if t.Implements(iface) || reflect.PointerTo(t).Implements(iface) {
 				return true
 			}
 		}
-	}
-	return false
+		return false
+	})
 }
 
-// inputFingerprint hashes the ordered file layers (path, rank, codec,
-// content), _meta.yaml and the codec generation. It returns the zero value
-// — never short-circuit — whenever the pipeline could produce a different
-// result from identical files: a non-file layer (provider, generator,
-// override), any user code in the pipeline (transforms, secret resolver,
-// typed hooks, validators, policies, a Defaulter on *T), or registered
-// observers (they are owed StageFinished events). Conservative on purpose.
+// inputFingerprint hashes ordered file inputs, metadata and codec generation.
+// Non-file layers, user code and observers disable this shortcut; see
+// docs/design/perf.md for the full eligibility rules.
 func (m *Manager[T]) inputFingerprint(staged []stagedLayer, metaSum [32]byte, generation uint64) [32]byte {
 	o := &m.opts
 	// A concurrent registration may have changed a decoder during assembly.

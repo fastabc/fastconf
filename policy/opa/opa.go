@@ -1,17 +1,5 @@
-// Package opa adapts an OPA Rego policy bundle to fastconf.policy.Policy.
-//
-// This is a thin wrapper: the heavy
-// github.com/open-policy-agent/opa dependency stays out of the core
-// module and lives here in a dedicated Go submodule. Users who do
-// not need OPA pay no compile-time or binary-size cost.
-//
-// Usage:
-//
-//	rego := `package fastconf
-//	deny[msg] { input.config.debug == true; input.config.profile == "prod"; msg := "no debug in prod" }`
-//	p, err := opa.New[MyApp]("no-debug-in-prod", rego)
-//	if err != nil { ... }
-//	mgr, _ := fastconf.New[MyApp](ctx, fastconf.WithPolicy(p))
+// Package opa adapts prepared Rego policies to fastconf.policy.Policy.
+// OPA stays in this optional module; see docs/cookbook/processing/policy.md.
 package opa
 
 import (

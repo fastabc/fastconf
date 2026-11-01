@@ -13,23 +13,8 @@ import (
 	"github.com/fastabc/fastconf/internal/watcher"
 )
 
-// Manager owns lifecycle and reads; reload_queue.go serializes writes.
-
-// Manager is the strongly-typed, lock-free configuration manager.
-//
-// Typical usage:
-//
-//	cfg, err := fastconf.New[MyConfig](ctx,
-//	    fastconf.WithDir("conf.d"),
-//	    fastconf.WithProfile(fastconf.Profile{Env: "APP_PROFILE"}),
-//	    fastconf.WithProvider(env.New("APP_")),
-//	    fastconf.WithWatch(fastconf.Watch{}),
-//	)
-//	defer cfg.Close()
-//	app := cfg.Get()
-//
-// Internally Manager serializes the write path (one reload goroutine)
-// while keeping the read path completely lock-free.
+// Manager publishes immutable typed snapshots with lock-free reads and one writer.
+// Call Close or Shutdown to release workers. See ExampleNew for construction.
 type Manager[T any] struct {
 	state      atomic.Pointer[State[T]]
 	opts       options
@@ -57,6 +42,7 @@ type Manager[T any] struct {
 	// Background goroutines spawned by startWatcher / startProviderWatchers.
 	bgWG        sync.WaitGroup
 	fileWatcher *watcher.Watcher
+	fileReloads sync.Map // directory key → *fileReloadSlot
 	// scannedDirs holds the directories the last reload scanned (writer-owned).
 	scannedDirs []string
 
@@ -65,9 +51,7 @@ type Manager[T any] struct {
 	// A single pending refresh survives provider notification overflow.
 	resyncCh chan struct{}
 
-	// errsCh is the drop-on-full ring fed by reloadLoop after every failed
-	// reload attempt; reloadLoop is its only writer. Consumers iterate via
-	// m.Errors(); closed during Close() once reloadLoop has returned.
+	// Writer-owned, evict-oldest error queue; closed after the reload loop exits.
 	errsCh chan fcerr.ReloadError
 
 	// Optional in-memory history ring + watch-pause toggle.
@@ -81,9 +65,7 @@ type Manager[T any] struct {
 	// Tenant tag used by policy evaluation and committed events.
 	tenant string
 
-	// typedHookPlan holds the precomputed type-paired tree of typed
-	// decoder hooks built once at construction. nil when the option set
-	// disabled both defaults and extras.
+	// Immutable hook metadata, nil when all hooks are disabled.
 	typedHookPlan *codec.TypedHookPlan
 	redactionPlan *secret.Plan
 
@@ -94,14 +76,9 @@ type Manager[T any] struct {
 	customEncoding bool
 }
 
-// New constructs a Manager and runs the first reload synchronously.
-// On failure no goroutine is started. ctx bounds that initial reload only;
-// canceling it later does not stop watchers, which run until
-// Close or Shutdown. Values carried by ctx remain visible to background work.
-//
-// Once construction succeeds, read with Get, react with Subscribe and
-// Errors, preview future changes with Plan, and recover retained snapshots
-// through History when WithHistory was configured.
+// New loads synchronously, then starts the writer and configured watchers.
+// ctx bounds initialization only; background work retains its values until Close
+// or Shutdown. A failed initial load starts no workers.
 func New[T any](ctx context.Context, opts ...Option) (*Manager[T], error) {
 	m, err := newManager[T](ctx, opts)
 	if err != nil {
@@ -118,13 +95,8 @@ func New[T any](ctx context.Context, opts ...Option) (*Manager[T], error) {
 	return m, nil
 }
 
-// Load performs the initial pipeline synchronously without starting the
-// manager reload loop, file watcher, provider watchers.
-// The returned state is detached from manager lifecycle ownership and remains
-// valid for read-only inspection.
-//
-// Load resolves options exactly like New, including file discovery via
-// WithDir / WithFS / WithProfile.
+// Load resolves options and runs New's initial pipeline without starting workers.
+// The returned State remains valid for read-only inspection without a Close call.
 func Load[T any](ctx context.Context, opts ...Option) (*State[T], error) {
 	m, err := newManager[T](ctx, opts)
 	if err != nil {
@@ -168,7 +140,7 @@ func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) 
 		tenant:         o.Tenant,
 		typedHookPlan:  buildTypedHookPlan[T](&o),
 		redactionPlan:  secret.Compile(reflect.TypeFor[T](), o.SecretPaths),
-		customEncoding: hasCustomEncoding(reflect.TypeFor[T](), map[reflect.Type]bool{}),
+		customEncoding: hasCustomEncoding(reflect.TypeFor[T]()),
 	}, nil
 }
 

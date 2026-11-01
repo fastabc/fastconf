@@ -12,6 +12,12 @@ import (
 	"github.com/fastabc/fastconf/cmd/internal/cli"
 )
 
+func TestFlags_BaseOnlyRejectsProfile(t *testing.T) {
+	if _, err := (cli.Flags{BaseOnly: true, Profile: "prod"}).Options(); err == nil {
+		t.Fatal("base-only flags accepted an explicit profile")
+	}
+}
+
 func TestRegisterFlags_Defaults(t *testing.T) {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	var f cli.Flags

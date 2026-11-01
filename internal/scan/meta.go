@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path"
 )
 
 // MetaFile is the deserialization target for conf.d/_meta.yaml. Compile-time defaults are used
@@ -53,13 +54,12 @@ func (m *MetaFile) Apply(opt *ScanOptions) {
 	}
 }
 
-// LoadMeta tries to read root/_meta.yaml. A missing file returns (nil, nil) — _meta.yaml is
-// optional. Any other read error (permission, IO) is propagated: _meta.yaml changes merge
-// semantics (strict, appendSlices, mergeKeys), so silently treating an unreadable file as "absent"
-// would run with surprising semantics and no signal.
+// LoadMeta reads optional root/_meta.yaml with the discovery file limits.
+// Missing returns (nil, nil); every other error propagates because metadata changes
+// merge semantics and must not silently fall back to defaults.
 func LoadMeta(fsys fs.FS, root string) ([]byte, error) {
-	p := root + "/_meta.yaml"
-	data, err := readFile(fsys, p)
+	p := path.Join(root, "_meta.yaml")
+	data, _, err := readLayer(fsys, p, true)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil

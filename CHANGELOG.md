@@ -3,6 +3,54 @@
 The [migration guide](docs/cookbook/migration-v1.md) covers upgrading from
 v0.20.0 to v1.1.0. Older entries below describe their historical releases.
 
+## [Unreleased]
+
+### Added
+
+- `contracts.ReadAllMax` and `contracts.SafeError` for custom providers. Old
+  providerutil entry points and logging internals remain compatible with v1 modules.
+
+### Fixed
+
+- YAML fields named `inline` retain typed hooks; only tag options enable inlining.
+- Axis values cannot traverse outside their overlay directory.
+- Root metadata paths are normalized for virtual filesystems, including `WithDir(".")`.
+- fc range and enumeration constraints validate pointed-to scalar values.
+- File-triggered reloads retain one pending refresh per directory while busy.
+- Consul changes remain pending until Load succeeds, including decoding failures.
+- Dotenv path conflicts resolve in file and line order, with later entries winning.
+- Expanded Kubernetes metadata resolves conflicting keys in lexical key order.
+- `fastconfctl diff` starts from base only when `-from` is empty.
+- fastconfd exits on listen failure and shuts down on unexpected serving errors.
+- Secret maps named `inline` no longer mask unrelated provenance paths.
+- String schema versions no longer cause already-applied migrations to run again.
+- Playground validation errors omit field values, preventing secret disclosure.
+- conf.d special files cannot block discovery; files and metadata are bounded at 4 MiB.
+- Discovery errors wrap `ErrDecode`; oversized files retain `ErrTooLarge`.
+- fastconfd help and invalid-argument usage hide environment token values.
+- fc defaults and constraints apply to promoted fields from unexported embeds.
+- Routing labels preserve equals signs inside map-form keys.
+- s3events logs one sanitized warning per receive outage, resetting on recovery.
+- API checks distinguish candidate dependency pins from the intended minor release;
+  cross-module dependency checks also inspect untracked Go files.
+
+### Changed
+
+- fc `min`, `max` and `oneof` dereference non-nil pointers and skip nil pointers;
+  `required` continues to check the pointer itself for nil.
+- An empty diff `-from` ignores environment and metadata profile defaults.
+- `transform.CurrentVersion` accepts decimal integer strings with surrounding
+  whitespace, all built-in signed/unsigned integer widths and integral floats.
+- Playground validation messages retain field names and rules without `got=` values.
+- Reflection plans share field/type primitives; tests use compiled production paths.
+- Provider retry backoff and fastconfctl dump loading share one implementation each.
+- Root providers use the public bounded-read helper; old internal entry points
+  remain compatibility shims. Routing normalizes copied label pairs in place.
+
+### Deprecated
+
+- `providers/s3/s3events`: use `integrations/notify/sns` for refresh-before-ack delivery.
+
 ## [v1.2.0]
 
 ### Added

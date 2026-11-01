@@ -13,7 +13,6 @@ import (
 	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/internal/providerutil"
 )
 
 // Config selects an object. Codec defaults to the key's extension; Priority
@@ -119,7 +118,7 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 	object := p.client.Bucket(p.bucket).Object(p.key)
 	attrs, err := object.Attrs(ctx)
 	if err != nil {
-		return contracts.Snapshot{}, providerutil.SafeError(p.Name()+": metadata failed", err)
+		return contracts.Snapshot{}, contracts.SafeError(p.Name()+": metadata failed", err)
 	}
 	if p.data != nil && attrs.Generation == p.generation {
 		return contracts.Snapshot{Map: confmap.DeepClone(p.data), Revision: strconv.FormatInt(p.generation, 10)}, nil
@@ -127,17 +126,17 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 
 	reader, err := object.Generation(attrs.Generation).NewReader(ctx)
 	if err != nil {
-		return contracts.Snapshot{}, providerutil.SafeError(p.Name()+": read failed", err)
+		return contracts.Snapshot{}, contracts.SafeError(p.Name()+": read failed", err)
 	}
 	defer func() { _ = reader.Close() }()
-	body, err := providerutil.ReadAllMax(reader, p.maxBodyBytes)
+	body, err := contracts.ReadAllMax(reader, p.maxBodyBytes)
 	if err != nil {
-		return contracts.Snapshot{}, providerutil.SafeError(p.Name()+": read failed", err)
+		return contracts.Snapshot{}, contracts.SafeError(p.Name()+": read failed", err)
 	}
 
 	data, err := p.codec.Decode(body)
 	if err != nil {
-		return contracts.Snapshot{}, providerutil.SafeError(p.Name()+": decode failed", err)
+		return contracts.Snapshot{}, contracts.SafeError(p.Name()+": decode failed", err)
 	}
 
 	p.generation, p.data = attrs.Generation, data

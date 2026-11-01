@@ -1,13 +1,6 @@
-// Package watcher subscribes to filesystem changes and feeds them into a
-// coalescer.
-//
-// Why parent-directory watching? Kubernetes ConfigMap mounts use a `..data`
-// symlink that is atomically swapped on update. Watching the target file
-// directly loses events because the inode changes; watching the parent
-// directory and reacting to CREATE / CHMOD on the symlink path is the
-// recommended pattern. The Watcher detects the canonical K8s "..data"
-// rename and tags it as a swap-commit so the coalescer can drain the
-// burst on the SwapHint window instead of the full Quiet window.
+// Package watcher sends parent-directory events to a coalescer. Watching parents
+// survives Kubernetes symlink inode replacement; ..data renames trigger SwapHint.
+// See docs/cookbook/deployment/k8s.md.
 package watcher
 
 import (
@@ -21,11 +14,8 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// Watcher fans fsnotify events out to a Coalescer keyed by parent
-// directory. It recovers from directory replacement: when a watched
-// directory is removed or renamed its registration is dropped, the nearest
-// existing ancestor is watched instead, and the directory is re-added once
-// it is created again (e.g. a pod's volume re-mount).
+// Watcher feeds fsnotify events to a parent-keyed coalescer. On directory replacement
+// it watches the nearest existing ancestor until the target can be registered again.
 type Watcher struct {
 	fsw *fsnotify.Watcher
 	co  *coalesce.Coalescer
@@ -58,11 +48,8 @@ func New(paths []string, co *coalesce.Coalescer) (*Watcher, error) {
 	return w, nil
 }
 
-// AddPath registers a path. If path is an existing directory, the directory
-// itself is watched (non-recursively). Otherwise the nearest existing
-// ancestor is watched — for a file that is its parent, the K8s ConfigMap
-// pattern, since the inode of the leaf file changes during atomic swap.
-// Idempotent; a no-op after Close.
+// AddPath watches an existing directory non-recursively, otherwise its nearest
+// existing ancestor. It is idempotent and a no-op after Close.
 func (w *Watcher) AddPath(path string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -175,12 +162,8 @@ func (w *Watcher) Run(ctx context.Context) {
 	}
 }
 
-// isK8sSwapCommit returns true for the canonical "..data" rename or
-// create that signals a K8s ConfigMap atomic swap has just committed.
-//
-// We also accept the transient "..data_tmp_*" name that some kubelet
-// versions create immediately before the rename — observing that file
-// at all is enough to know the swap is in flight.
+// isK8sSwapCommit recognizes CREATE/RENAME of ..data or transient ..data_tmp_*
+// entries, treating either as a signal to shorten the coalescing window.
 func isK8sSwapCommit(op fsnotify.Op, base string) bool {
 	if op&(fsnotify.Create|fsnotify.Rename) == 0 {
 		return false

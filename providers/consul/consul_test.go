@@ -9,11 +9,108 @@ import (
 	nethttp "net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestProvider_FailedLoadDoesNotLoseChange(t *testing.T) {
+	for _, failure := range []struct {
+		name string
+		next uint64
+	}{{"transport", 11}, {"decode", 11}, {"rollback", 5}} {
+		t.Run(failure.name, func(t *testing.T) {
+			var index atomic.Uint64
+			index.Store(10)
+			var fail atomic.Bool
+			var mu sync.Mutex
+			var requests []string
+			p, err := New("http://consul.invalid", "app", WithWait(50*time.Millisecond),
+				WithClient(consulDoerFunc(func(r *nethttp.Request) (*nethttp.Response, error) {
+					cursor := r.URL.Query().Get("index")
+					mu.Lock()
+					requests = append(requests, cursor)
+					mu.Unlock()
+					body := `[{"Key":"app/v","Value":"eA=="}]`
+					if cursor == "" && fail.Load() {
+						if failure.name != "decode" {
+							return nil, io.ErrUnexpectedEOF
+						}
+						body = `[{"Key":"app/v","Value":"invalid-base64"}]`
+					}
+					if cursor == fmt.Sprint(index.Load()) {
+						select {
+						case <-time.After(50 * time.Millisecond):
+						case <-r.Context().Done():
+							return nil, r.Context().Err()
+						}
+					}
+					return &nethttp.Response{StatusCode: nethttp.StatusOK,
+						Header: nethttp.Header{"X-Consul-Index": []string{fmt.Sprint(index.Load())}},
+						Body:   io.NopCloser(strings.NewReader(body))}, nil
+				})))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := p.Load(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			index.Store(failure.next)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			events, err := p.Watch(ctx, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-events:
+			case <-time.After(time.Second):
+				t.Fatal("missing initial change")
+			}
+			fail.Store(true)
+			if _, err := p.Load(ctx); err == nil {
+				t.Fatal("injected load failure was ignored")
+			}
+			p.mu.Lock()
+			accepted := p.index
+			p.mu.Unlock()
+			if accepted != 10 {
+				t.Errorf("failed load advanced accepted index to %d", accepted)
+			}
+			select {
+			case ev := <-events:
+				if ev.Reason != "consul-index-retry" {
+					t.Fatalf("retry reason = %q", ev.Reason)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("failed load lost its change notification")
+			}
+			fail.Store(false)
+			if _, err := p.Load(ctx); err != nil {
+				t.Fatal(err)
+			}
+			p.mu.Lock()
+			accepted = p.index
+			p.mu.Unlock()
+			if accepted != failure.next {
+				t.Fatalf("successful load index = %d, want %d", accepted, failure.next)
+			}
+			select {
+			case ev := <-events:
+				t.Fatalf("retry after successful load: %+v", ev)
+			case <-time.After(150 * time.Millisecond):
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(requests) < 4 || requests[1] != "10" || !slices.Contains(requests, fmt.Sprint(failure.next)) {
+				t.Fatalf("blocking-query cursors = %v", requests)
+			}
+		})
+	}
+}
 
 type consulDoerFunc func(*nethttp.Request) (*nethttp.Response, error)
 

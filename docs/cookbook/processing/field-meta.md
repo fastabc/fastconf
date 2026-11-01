@@ -2,7 +2,7 @@
 
 `fc:"…"` adds FastConf metadata to exported struct fields. `json` / `yaml`
 tags name input keys; `fc` describes defaults, constraints and diagnostic
-redaction. It works automatically with `LoadFile[T]` (new in the current checkout),
+redaction. It works automatically with `LoadFile[T]` (added in v1.2.0),
 `Load[T]` and `New[T]`, without enabling
 a separate validator. Use matching JSON and YAML names when both bridges are used.
 
@@ -21,6 +21,7 @@ type Config struct {
 | `required` | reject a Go zero value; does not check whether an input key was present | `field-meta` (before `validate`) |
 | `min=N` / `max=N` | inclusive bounds for numeric fields; not string length or collection size | `field-meta` |
 | `oneof=a\|b\|c` | match the field's `fmt.Sprint` representation; strings and numeric scalars can be enumerated | `field-meta` |
+| Pointer fields | `required` checks for nil; `min` / `max` / `oneof` check the pointed-to value and skip nil pointers | `field-meta` |
 | `default=…` | populate zero-valued string, bool, integer or float fields after decode | `decode` |
 | `secret` | mark for diagnostic redaction | display only — see [secrets.md](secrets.md) for *decryption* |
 | `desc=…` | human-readable source annotation; ignored by the runtime | none |
@@ -173,11 +174,14 @@ custom unmarshaling must enforce its own rules.
 
 ## Collection elements
 
-Only exported fields participate. Nested structs and existing struct pointers
+Exported fields promoted from unexported embedded structs also participate
+(fixed in v1.3.0, unreleased). Unexported non-embedded fields are ignored.
+Nested structs and existing struct pointers
 are traversed; a nil parent pointer is skipped and is not allocated to apply
 child defaults. Put `fc:"required"` on the parent pointer if it must exist.
-On a scalar pointer, `required` checks for nil, while numeric bounds do not
-dereference it. Use `WithValidate` for constraints on the pointed-to scalar.
+On a scalar pointer, `required` checks for nil. Numeric bounds and `oneof`
+dereference non-nil pointers, including multiple pointer levels; nil pointers
+skip these optional constraints.
 
 Defaults and validation tags (`default`, `required`, `min`, `max`, `oneof`)
 traverse nested structs and pointers, but do not traverse slice, array, or map

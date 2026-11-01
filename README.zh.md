@@ -11,8 +11,9 @@ Manager 串行执行重载并原子发布快照；`Get()` 无锁且零分配。
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-文档对应 v1.2.0；使用其他版本时，请阅读对应 tag
-下的文档。从 v0.20.0 升级见[迁移指南](docs/cookbook/migration-v1.md)。
+文档描述当前检出版本，包含标注为 v1.3.0（尚未发布）的变更。
+安装示例固定使用 v1.2.0；已发布版本的行为请阅读对应 tag 下的文档。
+从 v0.20.0 升级见[迁移指南](docs/cookbook/migration-v1.md)。
 
 ## 安装
 
@@ -183,6 +184,8 @@ assemble -> merge -> transform -> secret -> typed-hooks -> decode
 依次加载 `base/*`、匹配的 `overlays/*`，以及 `WithAxes` 指定的 region/host 等
 维度目录。文件和匹配的 Profile 目录按字典序合并；`Profile.Names` 的顺序不决定
 覆盖优先级。
+非空的 axis 值（包括主机名兜底）必须是单段目录名；`.` / `..` 和路径分隔符
+会被拒绝，并记录 axis 警告。
 
 ```go
 fastconf.WithProfile(fastconf.Profile{Names: []string{"prod"}})
@@ -231,7 +234,8 @@ map 递归合并，标量和列表默认替换。`mergeKeys` 使用非空字符�
 三个模块均在有界 context 内同步执行刷新回调。应用提供 SDK 客户端、监督消费循环，
 并为每个需要收到所有变更的独立副本配置单独的 queue/subscription。
 接线、重试、死信与定期校准见[云通知配方](docs/cookbook/sources/cloud-notifications.md)。
-现有 `s3events.Watch` 是 EventBridge → SQS 的尽力通知，在 Manager 重载完成前确认
+`s3events` 在 v1.3.0（尚未发布）弃用，请迁移至
+[`integrations/notify/sns`](integrations/notify/sns)。原 Watch 是 EventBridge → SQS 的尽力通知，在 Manager 重载完成前确认
 消息；需要“刷新成功后确认”的场景应使用新增消费者。
 
 加载方式与限制见[嵌入文件与云端来源](docs/cookbook/sources/cloud.md)。云 SDK 位于独立
@@ -265,6 +269,8 @@ type Database struct {
 false、0 或空字符串时，将默认值放入 base 层。字段约束先于 `WithValidate` 和
 `WithPolicy` 执行；策略警告允许发布，错误级发现阻止发布。标签约束不遍历集合元素，
 此类检查使用自定义 validator。
+对指针字段，`required` 检查是否为 nil；`min`、`max` 和 `oneof` 检查指向的值，
+并跳过 nil 指针。
 
 `SecretResolver` 在类型解码前解析引用；SOPS/age/KMS 等格式需要应用实现适配。
 `fc:"secret"` 和 `WithSecretPaths` 独立控制诊断脱敏。`Get()`、`Value()` 仍向
@@ -340,6 +346,12 @@ fastconfgen -in conf.d/base/00-app.yaml -pkg config -type Config
 v1.2.0 起，CLI 诊断默认遮蔽常见密钥名；库中的结构体需使用 `fc:"secret"` 或 `WithSecretPaths`。
 见[诊断配方](docs/cookbook/runtime/introspect.md)。
 
+v1.3.0（尚未发布）中，diff 的空 `-from` 仅选择 base，忽略 `APP_PROFILE` 和
+元数据默认 Profile。fastconfd 的监听地址被占用时会退出。
+
+conf.d 发现层仅接受普通文件（跟随符号链接），单文件及元数据上限均为 4 MiB；
+见[发现限制](docs/design/spec.md#discovery-limits)（v1.3.0，尚未发布）。
+
 ## 开发与文档
 
 ```sh
@@ -356,6 +368,8 @@ make check       # Repository checks; see tools/README.md
 - [性能说明](docs/design/perf.md)：可复现测量与读路径预算。
 - [发布指南](RELEASING.md)：统一模块标签与分发流程。
 - [API 参考](https://pkg.go.dev/github.com/fastabc/fastconf)：已发布的 Go API。
+
+- [自定义 Provider](docs/cookbook/sources/custom-provider.md)：公开工具与契约测试。
 
 ## License
 

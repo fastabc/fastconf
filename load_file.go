@@ -8,21 +8,14 @@ import (
 
 	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/internal/providerutil"
 	"github.com/fastabc/fastconf/providers/source"
 )
 
-// LoadFile loads exactly one required file and returns its typed configuration.
-// The extension selects the input codec (YAML, JSON, TOML or INI by default);
-// json struct tags name fields regardless of the input format. Unknown fields
-// are rejected, and typed hooks, fc tag defaults, Defaulter and fc validation
-// run through the standard loading pipeline.
-//
-// LoadFile does not discover conf.d, profiles or environment overrides, and
-// starts no background workers. The file is limited to 4 MiB. The caller owns
-// the returned value; there is no State or Manager to close. Use Load when
-// options, custom validation or diagnostic snapshots are needed, and New for
-// runtime updates.
+// LoadFile reads one required file (at most 4 MiB), using its extension's codec
+// and JSON field tags. Unknown fields fail; typed hooks, fc defaults, Defaulter
+// and field validation run normally. It skips discovery, profiles and environment
+// overrides, starts no workers and returns a caller-owned *T. Use Load for options
+// or diagnostics and New for runtime updates.
 func LoadFile[T any](path string) (*T, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -33,7 +26,7 @@ func LoadFile[T any](path string) (*T, error) {
 	if _, ok := codec.ByContentType(ext); !ok {
 		return nil, fmt.Errorf("%w: %s: %w: extension %q", ErrDecode, path, codec.ErrUnknownCodec, ext)
 	}
-	data, err := providerutil.ReadAllMax(file, contracts.DefaultMaxBodyBytes)
+	data, err := contracts.ReadAllMax(file, contracts.DefaultMaxBodyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %w", ErrProvider, path, err)
 	}

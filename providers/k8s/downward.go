@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/fastabc/fastconf/confmap"
@@ -62,12 +63,7 @@ type Options struct {
 	// AnnotationsMode controls whether annotations preserve raw keys or expand
 	// them. Zero value MetadataRaw is the safe default.
 	AnnotationsMode MetadataMode
-	// At, when non-empty, grafts the entire loaded tree under this
-	// dotted path. Useful for namespacing K8s metadata away from
-	// application configuration:
-	//
-	//	Options{At: "k8s.metadata"}
-	//	// → {"k8s":{"metadata":{"labels":{...},"annotations":{...}}}}
+	// At grafts the loaded tree under a dotted path, e.g. k8s.metadata.
 	At string
 	// MustExist, when true, fails Load if a configured (non-empty)
 	// path does not exist. Default false: missing files are silently
@@ -201,7 +197,12 @@ func (p *DownwardProvider) loadBucket(path string, mode MetadataMode) (map[strin
 		}
 		return raw, nil
 	}
-	return confmap.ExpandLabels(pairs, confmap.LabelOptions{
+	ordered := make([]confmap.LabelPair, 0, len(pairs))
+	for key, value := range pairs {
+		ordered = append(ordered, confmap.LabelPair{Key: key, Value: value})
+	}
+	slices.SortFunc(ordered, func(a, b confmap.LabelPair) int { return strings.Compare(a.Key, b.Key) })
+	return confmap.ExpandLabels(ordered, confmap.LabelOptions{
 		Separators: p.opts.Separators,
 	}), nil
 }

@@ -1,10 +1,5 @@
-// Package cue adapts a CUE schema to fastconf.policy.Policy. The
-// CUE evaluator validates the typed config against a constraint
-// expression; any unification error becomes a SeverityError
-// Violation.
-//
-// Like the OPA backend, this lives in its own Go submodule so the
-// 30 MB cuelang.org/go transitive dependency is opt-in.
+// Package cue adapts a CUE schema to policy.Policy, reporting unification failures
+// as SeverityError violations. CUE is confined to its optional module.
 package cue
 
 import (

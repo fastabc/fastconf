@@ -1,13 +1,17 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/fastabc/fastconf/contracts"
 
 	"github.com/fastabc/fastconf"
 )
@@ -208,4 +212,27 @@ func drain(t *testing.T, ch <-chan fastconf.ReloadError, n int, timeout time.Dur
 		}
 	}
 	return out
+}
+
+func TestErrors_DiscoveryFailuresWrapSentinels(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts []fastconf.Option
+		want error
+	}{
+		{"strict missing base", []fastconf.Option{fastconf.WithDir(filepath.Join(t.TempDir(), "missing")), fastconf.WithStrictMerge(true)}, fastconf.ErrDecode},
+		{"unknown extension", []fastconf.Option{fastconf.WithFS(fstest.MapFS{"conf.d/base/x.unknown": {Data: []byte("a")}}), fastconf.WithStrictMerge(true)}, fastconf.ErrDecode},
+		{"oversized file", []fastconf.Option{fastconf.WithFS(fstest.MapFS{"conf.d/base/a.yaml": {Data: bytes.Repeat([]byte("#"), int(contracts.DefaultMaxBodyBytes)+1)}})}, fastconf.ErrTooLarge},
+		{"oversized metadata", []fastconf.Option{fastconf.WithFS(fstest.MapFS{"conf.d/_meta.yaml": {Data: bytes.Repeat([]byte("#"), int(contracts.DefaultMaxBodyBytes)+1)}})}, fastconf.ErrTooLarge},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := fastconf.Load[map[string]any](context.Background(), tc.opts...)
+			if !errors.Is(err, tc.want) || !errors.Is(err, fastconf.ErrFastConf) {
+				t.Fatalf("err=%v; want %v and ErrFastConf", err, tc.want)
+			}
+			if tc.want == fastconf.ErrTooLarge && errors.Is(err, fastconf.ErrDecode) {
+				t.Fatalf("size error misclassified: %v", err)
+			}
+		})
+	}
 }

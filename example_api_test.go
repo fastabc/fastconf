@@ -38,8 +38,7 @@ func ExampleNew() {
 }
 
 // ExampleSubscribe demonstrates reacting to a typed subtree after a successful
-// commit. Subscribe fires only when the extracted value actually changes;
-// callers no longer need an inline equality check.
+// commit. Subscribe compares extracted values and fires only when they change.
 func ExampleSubscribe() {
 	mgr, err := fastconf.New[apiExampleConfig](context.Background(),
 		fastconf.WithFS(fstest.MapFS{

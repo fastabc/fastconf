@@ -1,35 +1,13 @@
-// Package s3events translates S3 → EventBridge → SQS object-mutation
-// events into FastConf contracts.Event values, providing the watch
-// half of the S3 configuration story.
+// Package s3events turns matching S3 EventBridge/SQS messages into reload triggers.
+// Load contributes an empty map; pair with providers/s3 for data. Unrelated messages
+// are left in the queue; malformed/unknown envelopes are ignored. Receive failures
+// emit one sanitized warning per outage.
 //
-// Pair this provider with providers/s3 (which is load-only):
+// Watch deletes accepted messages after delivery, before Manager reload completes.
+// It is best-effort: retain periodic Reload for recovery from missed or failed refreshes.
+// See docs/cookbook/sources/cloud-notifications.md for migration.
 //
-//	loader, _ := s3.New(s3.Config{ /* ... */ })           // load + ETag short-circuit
-//	notifier, _ := s3events.New(s3events.Config{ /* ... */ }) // watch via SQS
-//	mgr, _ := fastconf.New[App](ctx,
-//	    fastconf.WithProvider(loader),
-//	    fastconf.WithProvider(notifier),
-//	)
-//
-// The notifier contributes nothing to the merged configuration —
-// its Load returns an empty map. Its only job is to fan SQS
-// events into FastConf's reload loop. When an SQS message arrives
-// whose EventBridge envelope describes an Object-Created mutation
-// on the configured bucket (and optional key prefix), a
-// contracts.Event fires; Manager's watcher promotes that into a
-// Reload(ctx), which then calls every provider's Load — including
-// the s3 loader, which now sees a fresh ETag and re-decodes.
-//
-// The provider only deletes messages it has accepted (matching
-// source / detail-type / bucket / key prefix); unrelated messages
-// are left for other consumers in the queue. Decoding errors and
-// unknown shapes are dropped silently (with a metric in future
-// versions) to keep the watch loop running through schema drift.
-//
-// Watch is best-effort: messages are deleted after sending an Event, before the
-// Manager finishes reloading. Pair it with periodic Reload for recovery after
-// failed reloads. For refresh-before-ack delivery and SNS/native S3 formats, use
-// the independent integrations/notify/sns module instead.
+// Deprecated: Use integrations/notify/sns for refresh-before-ack delivery.
 package s3events
 
 import (
@@ -37,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -83,14 +62,16 @@ type API interface {
 // returns an empty map; Watch fans matched SQS messages into a
 // contracts.Event channel.
 type Provider struct {
-	name      string
-	queueURL  string
-	bucket    string
-	keyPrefix string
-	priority  int
-	maxMsgs   int32
-	waitSecs  int32
-	client    API
+	name       string
+	queueURL   string
+	bucket     string
+	keyPrefix  string
+	priority   int
+	maxMsgs    int32
+	waitSecs   int32
+	client     API
+	logger     *slog.Logger
+	retryDelay time.Duration
 }
 
 // New builds a real *sqs.Client using static credentials and
@@ -165,6 +146,7 @@ func newProvider(cfg Config, client API) (*Provider, error) {
 		maxMsgs:   maxMsgs,
 		waitSecs:  waitSecs,
 		client:    client,
+		logger:    slog.Default(),
 	}, nil
 }
 
@@ -193,20 +175,20 @@ func (p *Provider) Watch(ctx context.Context, from string) (<-chan contracts.Eve
 	go func() {
 		defer close(out)
 		gap := from != ""
+		failing := false
 		for {
 			if err := ctx.Err(); err != nil {
 				return
 			}
-			p.poll(ctx, out, &gap)
+			p.poll(ctx, out, &gap, &failing)
 		}
 	}()
 	return out, nil
 }
 
 // poll executes one ReceiveMessage cycle and forwards matching events
-// to out. Transient errors are swallowed; the loop keeps the watch alive
-// through network blips.
-func (p *Provider) poll(ctx context.Context, out chan<- contracts.Event, gap *bool) {
+// to out. Each receive outage emits one sanitized warning.
+func (p *Provider) poll(ctx context.Context, out chan<- contracts.Event, gap, failing *bool) {
 	in := &sqs.ReceiveMessageInput{
 		QueueUrl:            aws.String(p.queueURL),
 		MaxNumberOfMessages: p.maxMsgs,
@@ -217,13 +199,22 @@ func (p *Provider) poll(ctx context.Context, out chan<- contracts.Event, gap *bo
 		if ctx.Err() != nil {
 			return
 		}
+		if !*failing {
+			*failing = true
+			p.logger.Warn("fastconf/s3events: receive failed; retrying", "queue", p.queueURL)
+		}
+		delay := p.retryDelay
+		if delay <= 0 {
+			delay = time.Second
+		}
 		// Back off briefly so a misconfigured queue does not pin a CPU.
 		select {
-		case <-time.After(time.Second):
+		case <-time.After(delay):
 		case <-ctx.Done():
 		}
 		return
 	}
+	*failing = false
 	var matched []sqstypes.Message
 	for _, msg := range resp.Messages {
 		ev, ok := p.decodeAndMatch(msg)

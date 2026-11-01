@@ -19,46 +19,23 @@ type JSONField struct {
 // YAML tags) deliberately do not affect JSON output.
 func JSONFields(t reflect.Type) []JSONField {
 	var candidates []JSONField
-	var visit func(reflect.Type, []int, map[reflect.Type]bool)
-	visit = func(t reflect.Type, index []int, stack map[reflect.Type]bool) {
-		for t.Kind() == reflect.Pointer {
-			t = t.Elem()
-		}
-		if t.Kind() != reflect.Struct || stack[t] {
+	StructFields(t, EmbedJSON, func(f reflect.StructField, index []int) {
+		tag := f.Tag.Get("json")
+		if tag == "-" {
 			return
 		}
-		stack[t] = true
-		defer delete(stack, t)
-		for i := 0; i < t.NumField(); i++ {
-			f := t.Field(i)
-			ft := f.Type
-			if ft.Kind() == reflect.Pointer {
-				ft = ft.Elem()
-			}
-			if !f.IsExported() && (!f.Anonymous || ft.Kind() != reflect.Struct) {
-				continue
-			}
-			tag := f.Tag.Get("json")
-			if tag == "-" {
-				continue
-			}
-			name := strings.Split(tag, ",")[0]
-			if !validJSONName(name) {
-				name = ""
-			}
-			f.Index = append(append([]int(nil), index...), i)
-			if f.Anonymous && name == "" && ft.Kind() == reflect.Struct {
-				visit(ft, f.Index, stack)
-				continue
-			}
-			tagged := name != ""
-			if name == "" {
-				name = f.Name
-			}
-			candidates = append(candidates, JSONField{Name: name, Field: f, tagged: tagged})
+		name := stripTag(tag)
+		if !validJSONName(name) {
+			name = ""
 		}
-	}
-	visit(t, nil, map[reflect.Type]bool{})
+		tagged := name != ""
+		if name == "" {
+			name = f.Name
+		}
+		f.Index = append([]int(nil), index...)
+		candidates = append(candidates, JSONField{Name: name, Field: f, tagged: tagged})
+	})
+
 	sort.Slice(candidates, func(i, j int) bool {
 		a, b := candidates[i], candidates[j]
 		if a.Name != b.Name {

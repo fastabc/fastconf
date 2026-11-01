@@ -26,21 +26,6 @@ func compilePatterns(patterns []string) patternPlan {
 	return out
 }
 
-// ApplyPatterns masks paths using real tree segments: * matches one key,
-// ** matches zero or more. Matched containers are masked as a whole.
-func ApplyPatterns(tree map[string]any, patterns []string, redactor Redactor) map[string]any {
-	if redactor == nil {
-		redactor = DefaultRedactor
-	}
-	redactPatterns(tree, nil, compilePatterns(patterns).tree, redactor)
-	return tree
-}
-
-// PatternsMatchValue checks historical values and their ancestors/descendants.
-func PatternsMatchValue(value any, path string, patterns []string) bool {
-	return compilePatterns(patterns).matchesValue(value, path)
-}
-
 func (p *Plan) PatternsMatchValue(value any, path string) bool {
 	return p.patterns.matchesValue(value, path)
 }

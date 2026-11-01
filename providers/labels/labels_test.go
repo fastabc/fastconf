@@ -10,74 +10,46 @@ import (
 	provider "github.com/fastabc/fastconf/providers/labels"
 )
 
-func TestProvider_ListForm(t *testing.T) {
-	p := provider.New([]string{
-		"routing.http.services.dummy-svc.loadbalancer.server.port=9999",
-		"routing.enable=true",
-	}, provider.Options{})
-	gotSnapshot, err := p.Load(context.Background())
-	got := gotSnapshot.Map
-	if err != nil {
-		t.Fatal(err)
-	}
-	port, _ := confmap.GetDotted(got, "routing.http.services.dummy-svc.loadbalancer.server.port")
-	if port != "9999" {
-		t.Fatalf("port got %v", port)
-	}
-}
-
-func TestProvider_MapForm(t *testing.T) {
-	p := provider.New(map[string]string{
-		"app.kubernetes.io/name":      "web",
-		"app.kubernetes.io/component": "frontend",
-	}, provider.Options{Separators: []string{"/"}})
-	gotSnapshot, err := p.Load(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := gotSnapshot.Map
-	// Separator="/" makes "app.kubernetes.io/name" split into
-	// ["app.kubernetes.io", "name"] — two segments. GetDotted splits its
-	// query on ".", so we use Get with explicit segments instead.
-	if v, _ := confmap.Get(got, "app.kubernetes.io", "name"); v != "web" {
-		t.Fatalf("name got %v", v)
+func TestProvider_InputForms(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input any
+		opts  provider.Options
+		path  []string
+		want  any
+	}{
+		{"Provider_ListForm", []string{"routing.http.services.dummy-svc.loadbalancer.server.port=9999", "routing.enable=true"}, provider.Options{}, []string{"routing", "http", "services", "dummy-svc", "loadbalancer", "server", "port"}, "9999"},
+		// Explicit segments preserve dots within Kubernetes metadata keys.
+		{"Provider_MapForm", map[string]string{"app.kubernetes.io/name": "web", "app.kubernetes.io/component": "frontend"}, provider.Options{Separators: []string{"/"}}, []string{"app.kubernetes.io", "name"}, "web"},
+		{"Provider_DottedMapForm", map[string]string{"server.addr": ":9090"}, provider.Options{}, []string{"server", "addr"}, ":9090"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snap, err := provider.New(tc.input, tc.opts).Load(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, ok := confmap.Get(snap.Map, tc.path...); !ok || got != tc.want {
+				t.Fatalf("value=%v present=%v want=%v", got, ok, tc.want)
+			}
+		})
 	}
 }
 
-func TestProvider_DefaultPriorityIsStatic(t *testing.T) {
-	p := provider.New([]string{"k=v"}, provider.Options{})
-	if got := contracts.Describe(p).Priority; got != contracts.PriorityStatic {
-		t.Fatalf("priority got %d want PriorityStatic %d", got, contracts.PriorityStatic)
-	}
-}
-
-func TestProvider_ExplicitK8sPriorityRetained(t *testing.T) {
-	p := provider.New([]string{"k=v"}, provider.Options{
-		Priority: contracts.PriorityK8s,
-	})
-	if got := contracts.Describe(p).Priority; got != contracts.PriorityK8s {
-		t.Fatalf("priority got %d want PriorityK8s %d", got, contracts.PriorityK8s)
-	}
-}
-
-func TestProvider_ExplicitCLIPriorityRetained(t *testing.T) {
-	p := provider.New([]string{"routing.enable=true"}, provider.Options{
-		Priority: contracts.PriorityCLI,
-	})
-	if got := contracts.Describe(p).Priority; got != contracts.PriorityCLI {
-		t.Fatalf("priority got %d want PriorityCLI %d", got, contracts.PriorityCLI)
-	}
-}
-
-func TestProvider_DottedMapForm(t *testing.T) {
-	p := provider.New(map[string]string{"server.addr": ":9090"}, provider.Options{})
-	gotSnapshot, err := p.Load(context.Background())
-	got := gotSnapshot.Map
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v, _ := confmap.GetDotted(got, "server.addr"); v != ":9090" {
-		t.Fatalf("server.addr got %v", v)
+func TestProvider_Priority(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		priority, want int
+	}{
+		{"Provider_DefaultPriorityIsStatic", 0, contracts.PriorityStatic},
+		{"Provider_ExplicitK8sPriorityRetained", contracts.PriorityK8s, contracts.PriorityK8s},
+		{"Provider_ExplicitCLIPriorityRetained", contracts.PriorityCLI, contracts.PriorityCLI},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := provider.New([]string{"k=v"}, provider.Options{Priority: tc.priority})
+			if got := contracts.Describe(p).Priority; got != tc.want {
+				t.Fatalf("priority=%d want=%d", got, tc.want)
+			}
+		})
 	}
 }
 

@@ -59,13 +59,8 @@ func (c DiffChange) String() string {
 	}
 }
 
-// DiffEntry is a single structured difference between two State snapshots.
-// Consumers (PR-bots, audit sinks, fastconfctl plan) can filter or sort
-// by Change / Path without parsing a rendered string.
-//
-//   - Before is nil for DiffAdded.
-//   - After  is nil for DiffRemoved.
-//   - Both are populated for DiffModified.
+// DiffEntry describes one diagnostic difference: Before is nil for DiffAdded,
+// After is nil for DiffRemoved, and both are populated for DiffModified.
 type DiffEntry struct {
 	Path   string
 	Change DiffChange
@@ -144,10 +139,8 @@ func jsonEqual(a, b any) bool {
 	return string(ja) == string(jb)
 }
 
-// FormatDiff renders a DiffEntry sequence as the human-readable line
-// list that earlier FastConf versions returned from Diff. Rendering is
-// not part of any SemVer contract — callers that need stable machine
-// output should consume DiffEntry fields directly.
+// FormatDiff renders human-readable lines. Rendering is outside the SemVer
+// contract; consume DiffEntry fields for stable machine output.
 func FormatDiff(entries []DiffEntry) []string {
 	if len(entries) == 0 {
 		return nil

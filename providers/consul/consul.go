@@ -105,12 +105,7 @@ func New(addr, prefix string, opts ...Option) (*Provider, error) {
 		priority:     contracts.PriorityKV,
 		wait:         5 * time.Minute,
 		maxBodyBytes: contracts.DefaultMaxBodyBytes,
-		// Default to an isolated *http.Client — never net/http.DefaultClient.
-		// We intentionally do NOT set Timeout: Watch() uses blocking
-		// queries that legitimately wait up to p.wait (default 5m), and a
-		// fixed Timeout would tear those down prematurely. Cancellation
-		// now flows through ctx so per-request lifetimes remain
-		// under caller control.
+		// Blocking queries use caller cancellation, not a fixed client timeout.
 		client: providerutil.HTTPClient(0),
 	}
 	for _, opt := range opts {
@@ -147,10 +142,14 @@ func (p *Provider) loadMap(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	m, err := p.decode(pairs)
+	if err != nil {
+		return nil, err
+	}
 	p.mu.Lock()
 	p.index = idx
 	p.mu.Unlock()
-	return p.decode(pairs)
+	return m, nil
 }
 
 // Watch implements contracts.Watcher with a blocking-query loop. Returning a closed channel is
@@ -163,8 +162,8 @@ func (p *Provider) Watch(ctx context.Context, _ string) (<-chan contracts.Event,
 
 func (p *Provider) watchLoop(ctx context.Context, out chan<- contracts.Event) {
 	defer close(out)
-	backoff := 250 * time.Millisecond
-	const maxBackoff = 30 * time.Second
+	backoff := providerutil.Backoff{Min: 250 * time.Millisecond, Max: 30 * time.Second}
+	var cursor, loaded uint64
 	for {
 		if err := ctx.Err(); err != nil {
 			return
@@ -172,7 +171,12 @@ func (p *Provider) watchLoop(ctx context.Context, out chan<- contracts.Event) {
 		p.mu.Lock()
 		idx := p.index
 		p.mu.Unlock()
-		_, newIdx, err := p.fetch(ctx, idx)
+		// Only a new successful Load may advance a reset watch cursor.
+		if idx != loaded {
+			cursor = max(cursor, idx)
+			loaded = idx
+		}
+		_, newIdx, err := p.fetch(ctx, cursor)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -180,49 +184,43 @@ func (p *Provider) watchLoop(ctx context.Context, out chan<- contracts.Event) {
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(backoff):
+			case <-time.After(backoff.Next()):
 			}
-			if backoff < maxBackoff {
-				backoff *= 2
-				if backoff > maxBackoff {
-					backoff = maxBackoff
-				}
-			}
+
 			continue
 		}
-		backoff = 250 * time.Millisecond
+		backoff.Reset()
 		if newIdx == 0 {
 			// Older Consul servers can return a zero X-Consul-Index. Keep
 			// the next request in blocking-query mode instead of spinning
 			// on a cold, non-blocking read.
-			p.mu.Lock()
-			if p.index == 0 || p.index > 1 {
-				p.index = 1
-			}
-			p.mu.Unlock()
+			cursor = 1
 			continue
 		}
-		if idx > 0 && newIdx < idx {
+		if cursor > 0 && newIdx < cursor {
 			// A server restart can move the index backwards. Reset the
 			// wait cursor and let the next full read establish a baseline.
-			p.mu.Lock()
-			p.index = 1
-			p.mu.Unlock()
+			cursor = 1
 			continue
 		}
-		if newIdx == idx {
-			continue
-		}
+		reason := "consul-index"
 		p.mu.Lock()
-		p.index = newIdx
+		accepted := p.index
 		p.mu.Unlock()
+		if newIdx == cursor {
+			if newIdx == accepted {
+				continue
+			}
+			reason = "consul-index-retry"
+		}
+		cursor = newIdx
 		select {
 		case <-ctx.Done():
 			return
-		case out <- contracts.Event{Source: p.name, Reason: "consul-index", At: time.Now()}:
+		case out <- contracts.Event{Source: p.name, Reason: reason, At: time.Now()}:
 		default:
 			// Reload pipeline already busy; the next iteration will
-			// observe the latest index regardless.
+			// retry until Load accepts the latest index.
 		}
 	}
 }
@@ -269,7 +267,7 @@ func (p *Provider) fetch(ctx context.Context, index uint64) ([]kvPair, uint64, e
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, 0, fmt.Errorf("consul: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	body, err := providerutil.ReadAllMax(resp.Body, p.maxBodyBytes)
+	body, err := contracts.ReadAllMax(resp.Body, p.maxBodyBytes)
 	if err != nil {
 		return nil, 0, fmt.Errorf("consul: read body: %w", err)
 	}

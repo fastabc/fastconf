@@ -10,12 +10,9 @@ import (
 // manual and coalesced file reloads wait for space or cancellation.
 const reloadChanCap = 16
 
-// reloadRequest is the unit consumed by reloadLoop.
-//
-// ctx propagates caller cancellation to providers, secret resolvers and stage
-// boundaries. Hooks without a context must return before the writer can finish.
-// Events enqueued directly by provider watchers leave ctx nil; reloadLoop uses
-// the manager lifetime for those requests.
+// reloadRequest carries caller cancellation through the writer and pipeline.
+// A nil ctx from watcher triggers uses the manager lifetime; hooks without a
+// context must return before the writer can finish.
 type reloadRequest struct {
 	ctx     context.Context
 	reason  string
@@ -24,12 +21,8 @@ type reloadRequest struct {
 	doneCh  chan error
 }
 
-// requestReload posts a reload request to the single-writer goroutine
-// and waits for the result. Returns fcerr.ErrClosed if the manager has been
-// closed, or ctx.Err() if the caller's context expires first.
-//
-// The caller's ctx is attached to the request so the pipeline itself
-// (not just the wait) can be cancelled.
+// requestReload queues work with the caller's context and waits for its result,
+// ErrClosed, or cancellation. Cancellation also reaches the in-flight pipeline.
 func (m *Manager[T]) requestReload(ctx context.Context, reason, key string) error {
 	return m.enqueue(ctx, reloadRequest{reason: reason, key: key})
 }

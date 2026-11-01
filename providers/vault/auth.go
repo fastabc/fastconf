@@ -38,15 +38,9 @@ func TokenAuth(token string) Auth {
 	})
 }
 
-// AppRoleAuth performs a POST against /v1/auth/approle/login with
-// role_id and secret_id, returning the issued client token + lease
-// TTL. The Doer is reused across renewals. A supplied Doer must prevent
-// redirects from replaying the secret-bearing request body to another origin.
-//
-// When client is nil, AppRoleAuth uses an isolated *http.Client with a
-// 10s timeout and automatic redirects disabled — never net/http.DefaultClient. Sharing the default client
-// across managers can leak idle connections after Close and entangle
-// timeouts across processes.
+// AppRoleAuth posts role_id/secret_id and returns the token and lease TTL, reusing
+// Doer across renewals. A supplied Doer must prevent secret-bearing redirects.
+// Nil uses an isolated client with a 10 s timeout and redirects disabled.
 func AppRoleAuth(addr, roleID, secretID string, client Doer) Auth {
 	if client == nil {
 		client = providerutil.HTTPClient(10 * time.Second)

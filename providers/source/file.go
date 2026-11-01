@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/internal/providerutil"
 )
 
 // File reads a single auxiliary file (yaml/json/toml/ini/...) at load time and decodes it by
@@ -59,7 +58,7 @@ func (f *File) read(_ context.Context) ([]byte, string, string, error) {
 		return nil, "", "", fmt.Errorf("file source: %w", err)
 	}
 	defer func() { _ = file.Close() }()
-	data, err := providerutil.ReadAllMax(file, f.maxBodyBytes)
+	data, err := contracts.ReadAllMax(file, f.maxBodyBytes)
 	if err != nil {
 		return nil, contentTypeForPath(f.path), "", fmt.Errorf("file source: %w", err)
 	}

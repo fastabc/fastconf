@@ -50,130 +50,37 @@ func TestRouting_TypedLeavesListsAndIndexes(t *testing.T) {
 	}
 }
 
-func TestRouting_RawSuffixesProtectExpressions(t *testing.T) {
-	p := provider.New([]string{
-		"routing.http.routers.api.rule=Host(`a.example`,`b.example`)",
-		"routing.http.middlewares.api.headers.headersregexp=foo,bar",
-	}, provider.Options{Routing: &provider.Routing{}})
-
-	gotSnapshot, err := p.Load(context.Background())
-	got := gotSnapshot.Map
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v, _ := confmap.GetDotted(got, "routing.http.routers.api.rule"); v != "Host(`a.example`,`b.example`)" {
-		t.Fatalf("rule got %#v", v)
-	}
-	if v, _ := confmap.GetDotted(got, "routing.http.middlewares.api.headers.headersregexp"); v != "foo,bar" {
-		t.Fatalf("headersregexp got %#v", v)
-	}
-}
-
-func TestRouting_ExplicitEmptyRawSuffixesDisableProtection(t *testing.T) {
-	p := provider.New([]string{
-		"routing.http.routers.api.rule=a,b",
-	}, provider.Options{Routing: &provider.Routing{KeepRawSuffixes: []string{}}})
-
-	gotSnapshot, err := p.Load(context.Background())
-	got := gotSnapshot.Map
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v, _ := confmap.GetDotted(got, "routing.http.routers.api.rule"); !reflect.DeepEqual(v, []any{"a", "b"}) {
-		t.Fatalf("rule got %#v", v)
-	}
-}
-
-func TestRouting_EnableGateSkipsDisabledSet(t *testing.T) {
-	p := provider.New([]string{
-		"routing.enable=false",
-		"routing.http.routers.api.entrypoints=web,websecure",
-	}, provider.Options{Routing: &provider.Routing{EnableGate: "routing.enable"}})
-
-	gotSnapshot, err := p.Load(context.Background())
-	got := gotSnapshot.Map
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("disabled set should be empty, got %#v", got)
-	}
-}
-
-func TestRouting_EnableGateAllowsAbsentOrTruthySet(t *testing.T) {
-	cases := []struct {
-		name   string
-		labels []string
+func TestRouting_ListOptions(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		labels  []string
+		options provider.Routing
+		want    map[string]any
 	}{
-		{name: "absent", labels: []string{"routing.http.routers.api.priority=10"}},
-		{name: "truthy", labels: []string{"routing.enable=on", "routing.http.routers.api.priority=10"}},
-	}
-	for _, tc := range cases {
+		{"Routing_RawSuffixesProtectExpressions", []string{"routing.http.routers.api.rule=Host(`a.example`,`b.example`)", "routing.http.middlewares.api.headers.headersregexp=foo,bar"}, provider.Routing{}, map[string]any{"routing.http.routers.api.rule": "Host(`a.example`,`b.example`)", "routing.http.middlewares.api.headers.headersregexp": "foo,bar"}},
+		{"Routing_ExplicitEmptyRawSuffixesDisableProtection", []string{"routing.http.routers.api.rule=a,b"}, provider.Routing{KeepRawSuffixes: []string{}}, map[string]any{"routing.http.routers.api.rule": []any{"a", "b"}}},
+		{"Routing_EnableGateSkipsDisabledSet", []string{"routing.enable=false", "routing.http.routers.api.entrypoints=web,websecure"}, provider.Routing{EnableGate: "routing.enable"}, nil},
+		{"Routing_EnableGateAllowsAbsentOrTruthySet/absent", []string{"routing.http.routers.api.priority=10"}, provider.Routing{EnableGate: "routing.enable"}, map[string]any{"routing.http.routers.api.priority": int64(10)}},
+		{"Routing_EnableGateAllowsAbsentOrTruthySet/truthy", []string{"routing.enable=on", "routing.http.routers.api.priority=10"}, provider.Routing{EnableGate: "routing.enable"}, map[string]any{"routing.http.routers.api.priority": int64(10)}},
+		{"Routing_LowercaseKeysNormalizesGateAndTree", []string{"Routing.Enable=true", "Routing.HTTP.Routers.API.EntryPoints=web,websecure"}, provider.Routing{EnableGate: "Routing.Enable", LowercaseKeys: true}, map[string]any{"routing.http.routers.api.entrypoints": []any{"web", "websecure"}}},
+		{"Routing_RawAndNoListSplitOptOuts/raw", []string{"routing.enable=true", "routing.http.routers.api.entrypoints=web,websecure"}, provider.Routing{Raw: true}, map[string]any{"routing.enable": "true", "routing.http.routers.api.entrypoints": "web,websecure"}},
+		{"Routing_RawAndNoListSplitOptOuts/no-list-split", []string{"routing.http.routers.api.entrypoints=web,websecure"}, provider.Routing{NoListSplit: true}, map[string]any{"routing.http.routers.api.entrypoints": "web,websecure"}},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := provider.New(tc.labels, provider.Options{Routing: &provider.Routing{EnableGate: "routing.enable"}})
-			gotSnapshot, err := p.Load(context.Background())
-			got := gotSnapshot.Map
+			snap, err := provider.New(tc.labels, provider.Options{Routing: &tc.options}).Load(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
-			if v, _ := confmap.GetDotted(got, "routing.http.routers.api.priority"); v != int64(10) {
-				t.Fatalf("priority got %#v", v)
+			if tc.want == nil && len(snap.Map) != 0 {
+				t.Fatalf("disabled set=%v", snap.Map)
+			}
+			for path, want := range tc.want {
+				if got, ok := confmap.GetDotted(snap.Map, path); !ok || !reflect.DeepEqual(got, want) {
+					t.Fatalf("%s=%#v present=%v want=%#v", path, got, ok, want)
+				}
 			}
 		})
 	}
-}
-
-func TestRouting_LowercaseKeysNormalizesGateAndTree(t *testing.T) {
-	p := provider.New([]string{
-		"Routing.Enable=true",
-		"Routing.HTTP.Routers.API.EntryPoints=web,websecure",
-	}, provider.Options{Routing: &provider.Routing{
-		EnableGate:    "Routing.Enable",
-		LowercaseKeys: true,
-	}})
-
-	gotSnapshot, err := p.Load(context.Background())
-	got := gotSnapshot.Map
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v, _ := confmap.GetDotted(got, "routing.http.routers.api.entrypoints"); !reflect.DeepEqual(v, []any{"web", "websecure"}) {
-		t.Fatalf("normalized entrypoints got %#v", v)
-	}
-}
-
-func TestRouting_RawAndNoListSplitOptOuts(t *testing.T) {
-	t.Run("raw", func(t *testing.T) {
-		p := provider.New([]string{
-			"routing.enable=true",
-			"routing.http.routers.api.entrypoints=web,websecure",
-		}, provider.Options{Routing: &provider.Routing{Raw: true}})
-		gotSnapshot, err := p.Load(context.Background())
-		got := gotSnapshot.Map
-		if err != nil {
-			t.Fatal(err)
-		}
-		if v, _ := confmap.GetDotted(got, "routing.enable"); v != "true" {
-			t.Fatalf("raw enable got %#v", v)
-		}
-		if v, _ := confmap.GetDotted(got, "routing.http.routers.api.entrypoints"); v != "web,websecure" {
-			t.Fatalf("raw entrypoints got %#v", v)
-		}
-	})
-
-	t.Run("no-list-split", func(t *testing.T) {
-		p := provider.New([]string{
-			"routing.http.routers.api.entrypoints=web,websecure",
-		}, provider.Options{Routing: &provider.Routing{NoListSplit: true}})
-		gotSnapshot, err := p.Load(context.Background())
-		got := gotSnapshot.Map
-		if err != nil {
-			t.Fatal(err)
-		}
-		if v, _ := confmap.GetDotted(got, "routing.http.routers.api.entrypoints"); v != "web,websecure" {
-			t.Fatalf("entrypoints got %#v", v)
-		}
-	})
 }
 
 func TestRouting_IndexedPromotionLeavesMixedBaseUntouched(t *testing.T) {
@@ -253,5 +160,56 @@ func TestRouting_IndexLimit(t *testing.T) {
 	}
 	if items := tree["items"].([]any); len(items) != provider.MaxRoutingIndex+1 || items[1023] != "x" {
 		t.Fatalf("items len = %d", len(items))
+	}
+}
+
+func TestRouting_KeyContainingEqualsMatchesPlainMode(t *testing.T) {
+	in := map[string]string{"weird=key.name": "v"}
+	plain, err := provider.New(in, provider.Options{}).Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	routed, err := provider.New(in, provider.Options{Routing: &provider.Routing{}}).Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(plain.Map, routed.Map) {
+		t.Fatalf("routing %v != plain %v", routed.Map, plain.Map)
+	}
+}
+
+func TestRouting_LabelPairsPreserveInputAndGateOrder(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		gates   []string
+		blocked bool
+	}{
+		{"absent", nil, false},
+		{"last gate enables", []string{"false", "true"}, false},
+		{"last gate disables", []string{"true", "false"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pairs := []confmap.LabelPair{{Key: "Routing.Backend.Port", Value: "8080"}}
+			for _, value := range tc.gates {
+				pairs = append(pairs, confmap.LabelPair{Key: "Routing.Enable", Value: value})
+			}
+			before := append([]confmap.LabelPair(nil), pairs...)
+			snapshot, err := provider.New(pairs, provider.Options{Routing: &provider.Routing{EnableGate: "Routing.Enable", LowercaseKeys: true}}).Load(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(pairs, before) {
+				t.Fatalf("caller input changed: %v", pairs)
+			}
+			if tc.blocked {
+				if len(snapshot.Map) != 0 {
+					t.Fatalf("disabled set=%v", snapshot.Map)
+				}
+				return
+			}
+			if got, ok := confmap.GetDotted(snapshot.Map, "routing.backend.port"); !ok || got != int64(8080) {
+				t.Fatalf("port=%v present=%v", got, ok)
+			}
+		})
 	}
 }

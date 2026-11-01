@@ -6,13 +6,69 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/fastabc/fastconf"
+	"github.com/fastabc/fastconf/contracts"
 	k8s "github.com/fastabc/fastconf/providers/k8s"
 	"github.com/fastabc/fastconf/providers/source"
 )
+
+type slowFileWatchProvider struct{ loads atomic.Int64 }
+
+func (*slowFileWatchProvider) Name() string { return "slow-file-watch" }
+
+func (p *slowFileWatchProvider) Load(ctx context.Context) (contracts.Snapshot, error) {
+	p.loads.Add(1)
+	select {
+	case <-time.After(100 * time.Millisecond):
+		return contracts.Snapshot{Map: map[string]any{}}, nil
+	case <-ctx.Done():
+		return contracts.Snapshot{}, ctx.Err()
+	}
+}
+
+func TestFileWatch_ChurnDoesNotBuildBacklog(t *testing.T) {
+	conf := t.TempDir()
+	path := filepath.Join(conf, "base", "a.yaml")
+	writeFile(t, path, "v: initial\n")
+	p := &slowFileWatchProvider{}
+	mgr, err := fastconf.New[map[string]string](context.Background(), fastconf.WithDir(conf),
+		fastconf.WithProvider(p), fastconf.WithWatch(fastconf.Watch{
+			Quiet: 5 * time.Millisecond, MaxLag: 20 * time.Millisecond,
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = mgr.Close() }()
+	manual := make(chan error, 1)
+	started := time.Now()
+	requested := false
+	for time.Since(started) < time.Second {
+		writeFile(t, path, "v: changing\n")
+		if !requested && time.Since(started) > 600*time.Millisecond {
+			requested = true
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+				defer cancel()
+				manual <- mgr.Reload(ctx)
+			}()
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	stoppedAt := p.loads.Load()
+	writeFile(t, path, "v: last\n")
+	if err := <-manual; err != nil {
+		t.Errorf("manual reload starved during file churn: %v", err)
+	}
+	time.Sleep(1500 * time.Millisecond)
+	if delta := p.loads.Load() - stoppedAt; delta > 2 {
+		t.Errorf("file reload backlog: %d loads after writes stopped, want <= 2", delta)
+	}
+	waitFor(t, func() bool { return (*mgr.Get())["v"] == "last" }, "last file change")
+}
 
 func TestWatcher_HotReloadOnFileChange(t *testing.T) {
 	dir := t.TempDir()

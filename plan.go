@@ -42,13 +42,9 @@ func WithPlanHostname(host string) PlanOption {
 	return func(c *planConfig) { c.hostname = host }
 }
 
-// Plan runs the reload pipeline as a dry run and returns what a Reload
-// would publish, without mutating Manager state. The preview is dispatched
-// onto the single-writer reload goroutine, so it never interleaves with a
-// concurrent reload: user hooks (transforms/validators/SecretResolver/
-// Policy) are still only ever invoked from one goroutine at a time. Plan
-// therefore queues behind any in-flight reload (and vice versa). A failing
-// preview is also published on Errors().
+// Plan previews the pipeline without publication. It queues on the same writer as
+// Reload, so user hooks remain serialized. Hooks may still have external effects;
+// a failed preview also reaches Errors. Inspect both Validators and Policies.
 func (m *Manager[T]) Plan(ctx context.Context, opts ...PlanOption) (*PlanResult[T], error) {
 	if m == nil {
 		return nil, ErrClosed

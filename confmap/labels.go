@@ -1,6 +1,9 @@
 package confmap
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // LabelOptions controls how ExpandLabels reshapes flat labels into a nested map[string]any.
 type LabelOptions struct {
@@ -16,13 +19,8 @@ type LabelOptions struct {
 	// K8s recommended labels with both "/" and "."). When both fields are
 	// set, Separators wins.
 	Separator string
-	// Separators is the ordered list of delimiters applied to each key.
-	// Splits happen left-to-right: the input is first split by Separators[0],
-	// then each segment is split by Separators[1], and so on. This lets
-	// K8s-style "app.kubernetes.io/name" decompose coherently — e.g.
-	// {"/", "."} produces parts ["app", "kubernetes", "io", "name"].
-	// When empty, Separator (singular) is used; when both are empty, "."
-	// is the fallback.
+	// Separators splits keys left-to-right by each delimiter, overriding Separator.
+	// Empty falls back to Separator, then dot; {"/", "."} expands Kubernetes-style keys.
 	Separators []string
 	// Coerce, when true, converts "true" / "false" / int-like / float-like
 	// values into their typed forms (matching provider env coercion).
@@ -30,17 +28,8 @@ type LabelOptions struct {
 	Coerce bool
 }
 
-// ExpandLabels reshapes a flat list / map of "dotted.key=value" labels into a
-// nested map[string]any. Accepted input shapes:
-//
-//   - []string{"a.b=1", "a.c=2"}            — Compose / docker CLI form
-//   - []any{"a.b=1", "a.c=2"}               — YAML-decoded form
-//   - map[string]string{"a.b":"1","a.c":"2"}— Docker engine / K8s annotation form
-//   - map[string]any{"a.b":"1","a.c":"2"}   — already-decoded YAML map
-//
-// Malformed entries (no '=' separator, empty key after prefix trim) are
-// silently dropped. The result is a freshly allocated tree; callers may merge
-// it into an existing root via Deep.
+// ExpandLabels reshapes NormalizeLabelInput's accepted shapes into a fresh nested tree.
+// Malformed entries or keys empty after prefix trimming are skipped.
 func ExpandLabels(input any, opts LabelOptions) map[string]any {
 	seps := resolveSeparators(opts)
 	out := map[string]any{}
@@ -124,27 +113,21 @@ func coerceLabelValue(s string) any {
 	return Coerce(s, CoerceOptions{})
 }
 
-// LabelPair is an ordered key/value pair as produced by NormalizeLabelInput. Order matters:
-// callers that need gate-style "first matching key wins" semantics rely on the input order being
-// preserved.
+// LabelPair is a label key/value pair. NormalizeLabelInput preserves slice order;
+// ExpandLabels applies pairs in order, so later writes to the same path win.
 type LabelPair struct {
 	Key   string
 	Value string
 }
 
-// NormalizeLabelInput converts the common label-input shapes into an
-// ordered slice of (key, value) pairs:
-//
-//   - []string{"key=value", ...}   matching the Compose / docker CLI form
-//   - []any{"key=value", ...}      matching YAML-decoded slice form
-//   - map[string]string            matching the Docker engine / K8s form
-//   - map[string]any (values must be strings)
-//
-// Inputs that are not one of these shapes return nil. Entries that lack an
-// '=' separator are silently dropped. Order is preserved for slice inputs;
-// map inputs follow Go's randomized iteration order.
+// NormalizeLabelInput accepts []LabelPair, []string or []any containing key=value,
+// and map[string]string or map[string]any with string values. Other shapes return nil;
+// string entries without '=' are skipped. Slice order is preserved and copied;
+// map order is unspecified. Pair keys preserve literal equals signs.
 func NormalizeLabelInput(input any) []LabelPair {
 	switch x := input.(type) {
+	case []LabelPair:
+		return slices.Clone(x)
 	case []string:
 		out := make([]LabelPair, 0, len(x))
 		for _, kv := range x {

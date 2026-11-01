@@ -19,18 +19,10 @@ import (
 // override earlier ones for single-valued settings. nil values are ignored.
 type Option func(*options)
 
-// Axis is one extra overlay dimension (region, tier, host, ...). The
-// directory WithDir/<Dir>/<value> is layered above base and profile
-// overlays, where value resolves as:
-//
-//  1. Env present + non-empty       → use that value
-//  2. Env present + empty           → skip axis (operator opt-out)
-//  3. Env absent + FromHostname     → fall back to os.Hostname()
-//  4. otherwise                     → skip axis
-//
-// Priority orders axes among themselves (higher wins); declaration order
-// breaks ties. Every axis sits above the profile overlays and below
-// generators and providers.
+// Axis adds WithDir/<Dir>/<value> above profile overlays and below generators.
+// A present Env variable supplies its value; an empty value disables the axis.
+// When absent, FromHostname uses os.Hostname. Higher Priority wins; declaration
+// order breaks ties. See docs/cookbook/sources/layers.md.
 type Axis struct {
 	Dir          string
 	Env          string
@@ -38,18 +30,12 @@ type Axis struct {
 	FromHostname bool
 }
 
-// WithDecodeFormat selects how the merged tree is decoded into *T: JSON (the
-// default, honoring `json:` struct tags) or YAML (honoring `yaml:` tags).
-// Source file formats are independent of this choice; JSON numbers also
-// remain numeric when decoded through the YAML bridge.
-// The final typed value is hashed using this format too. Custom marshalers
-// must be deterministic and include all relevant configuration fields.
-// Map, Dump and Diff still use the JSON view, excluding json:"-" fields.
-// FastConf reads `fc:` metadata separately for defaults, field-meta and
-// secret redaction either way. Symptoms that the default does not match
-// your struct: snake_case keys silently dropped (the field only declares a
-// `yaml:` tag — New logs a one-time warning), or time.Time fields failing
-// to parse. Any other Format fails construction.
+// WithDecodeFormat selects the struct bridge and typed-value hashing format:
+// JSON (default, json tags) or YAML (yaml tags). Source formats are independent;
+// JSON numbers remain numeric in the YAML bridge. Custom marshalers must include
+// all relevant fields deterministically. Diagnostic views still use JSON names and
+// omit json:"-"; fc metadata applies with either bridge. Other formats fail construction.
+// See docs/design/spec.md#decoding.
 func WithDecodeFormat(f Format) Option {
 	return func(o *options) {
 		switch f {
@@ -91,18 +77,13 @@ func WithDir(dir string) Option { return func(o *options) { o.Dir = dir } }
 // WithFS uses f instead of the OS filesystem; file watching is disabled.
 func WithFS(f fs.FS) Option { return func(o *options) { o.FS = f } }
 
-// WithStrictMerge toggles strict overlay/merge handling. When enabled the
-// overlay scanner rejects files with unknown extensions, requires the
-// base directory to exist, and deep-merge type conflicts become hard
-// errors instead of last-write-wins. Unknown keys are governed separately
-// by WithUnknownFields. A true spec.strict in root _meta.yaml also enables
-// strict handling; passing false here does not override it.
+// WithStrictMerge rejects unknown file extensions, special files, a missing base
+// directory and raw merge type conflicts. WithUnknownFields governs struct keys.
+// A true spec.strict in root metadata also enables strictness; false cannot undo it.
 func WithStrictMerge(strict bool) Option { return func(o *options) { o.Strict = strict } }
 
-// WithLogger overrides the default silent slog logger, including the destination
-// for UnknownWarn diagnostics. Passing nil records a
-// deferred error so a misconfigured logger fails loudly at New(), rather
-// than silently routing every log line into the default backend.
+// WithLogger replaces the default silent logger, including UnknownWarn output.
+// A nil logger fails construction.
 func WithLogger(l *slog.Logger) Option {
 	return func(o *options) {
 		if l == nil {
@@ -114,16 +95,10 @@ func WithLogger(l *slog.Logger) Option {
 	}
 }
 
-// Watch configures the file watcher for WithDir layers and provider
-// WatchPaths. Passing WithWatch turns the watcher on; provider Watch
-// channels run regardless.
-//
-// A burst of filesystem events on one watched directory collapses into one
-// reload: it fires after Quiet without further events, or MaxLag after the
-// burst started, whichever comes first. SwapHint shortens the wait when a
-// Kubernetes ConfigMap atomic swap (..data symlink rename) is recognised.
-// Profile selects a timing preset (ProfileK8s, the default, or
-// ProfileLocalDev); non-zero Quiet / MaxLag / SwapHint override it.
+// Watch configures directory coalescing: Quiet after the last event or MaxLag
+// since the first, shortened by SwapHint for Kubernetes swaps. ProfileK8s is the
+// default preset; non-zero timing fields override it. WithWatch enables file
+// watching for directory layers and provider WatchPaths; native Watch runs independently.
 type Watch struct {
 	Paths    []string
 	Quiet    time.Duration
@@ -184,15 +159,10 @@ func WithRedactor(r SecretRedactor) Option {
 	return func(o *options) { o.SecretRedactor = r }
 }
 
-// WithSecretPaths marks dotted paths as secret for every redacted view
-// (Map, Dump, Explain, Plan and committed diffs), in
-// addition to `fc:"secret"` tags. "*" matches one path segment, "**"
-// matches any number, and list elements are addressed by index. It is the
-// only way to redact map-typed configurations such as Manager[map[string]any].
-// Literal dots cannot be escaped for exact-key matching; use a wildcard for
-// the whole key or mask its parent. Explain masks ambiguous dotted paths
-// conservatively, which may also hide values from nested keys.
-// Repeated calls accumulate.
+// WithSecretPaths accumulates dotted secret patterns for every diagnostic view,
+// including map targets. * matches one segment, ** any number; lists use indices.
+// Literal dots cannot be escaped: mask their parent or use wildcards. Explain
+// conservatively masks ambiguous dotted paths, potentially hiding nested keys.
 func WithSecretPaths(patterns ...string) Option {
 	return func(o *options) { o.SecretPaths = append(o.SecretPaths, patterns...) }
 }
@@ -299,14 +269,10 @@ func WithValidate[T any](fns ...func(*T) error) Option {
 	}
 }
 
-// Profile selects overlay directories under WithDir's overlays/.
-//
-// The active profile set is Names when non-empty; otherwise the
-// comma-separated value of the Env environment variable (default
-// DefaultProfileEnv, "APP_PROFILE"); otherwise Default; otherwise
-// _meta.yaml's spec.defaultProfile. An overlay directory is included when
-// its _meta.yaml match expression (or, lacking one, its name) is satisfied
-// by the set; Match is an extra expression every overlay must satisfy.
+// Profile selects overlays using Names, then comma-separated Env (default APP_PROFILE),
+// then Default, then root spec.defaultProfile. Each directory's match expression
+// (or its name when absent) must match the active set; Match adds a global filter.
+// See docs/cookbook/sources/layers.md for metadata and selection examples.
 type Profile struct {
 	Names   []string
 	Env     string

@@ -168,8 +168,6 @@ func resolveOptions(opts []Option) (options, error) {
 	return o, nil
 }
 
-// Defaults and coalescing presets are overridden by per-manager options.
-
 // Default configuration values.
 const (
 	// DefaultDir is the configuration root directory used when WithDir is

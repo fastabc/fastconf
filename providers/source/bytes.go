@@ -13,12 +13,8 @@ import (
 	"github.com/fastabc/fastconf/contracts"
 )
 
-// Bytes holds a copied in-memory document implementing contracts.Provider. Use it
-// for tests, examples and bootstrap code that wants to inject inline
-// configuration without writing a temporary file.
-//
-// contentType selects the codec: bare extensions ("yaml"), dotted forms
-// (".yaml") or MIME types ("application/yaml") all work.
+// Bytes implements contracts.Provider with copied document bytes. contentType accepts
+// extensions, dotted extensions or MIME types; use for bootstrap or in-memory input.
 type Bytes struct {
 	name         string
 	contentType  string

@@ -12,9 +12,9 @@ zero-allocation read. Failed loads or validation keep the previous snapshot.
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-Documentation targets v1.2.0;
-use the documentation at your installed tag for released behavior. For v0.20.0
-upgrades, see the [migration guide](docs/cookbook/migration-v1.md).
+Documentation describes this checkout, including changes marked v1.3.0 (unreleased).
+Installation examples pin v1.2.0; use the documentation at your installed tag for
+released behavior. For v0.20.0 upgrades, see the [migration guide](docs/cookbook/migration-v1.md).
 
 ## Installation
 
@@ -196,6 +196,8 @@ unknown struct keys; the default `UnknownWarn` needs `WithLogger` to be visible.
 `base/*` loads first, followed by matched `overlays/*`, then `WithAxes` directories
 such as region or host. Files and matching profile directories use lexical
 order; the order of names in `Profile.Names` does not set overlay precedence.
+Non-empty axis values (including hostname fallbacks) must be single directory
+names; `.` / `..` and path separators are rejected with an axis warning.
 
 ```go
 fastconf.WithProfile(fastconf.Profile{Names: []string{"prod"}})
@@ -248,7 +250,8 @@ All three run a synchronous refresh callback with a bounded context. The
 application supplies SDK clients, supervises consumers, and provisions a separate
 queue/subscription for each independent replica that must receive every change.
 See [cloud notifications](docs/cookbook/sources/cloud-notifications.md) for routing,
-retries, dead letters and periodic reconciliation. The existing `s3events.Watch`
+retries, dead letters and periodic reconciliation. `s3events` is deprecated in v1.3.0 (unreleased); use
+[`integrations/notify/sns`](integrations/notify/sns). Its existing Watch
 uses best-effort EventBridge → SQS notification and acknowledges before Manager
 reload completes; use the new consumer for refresh-before-ack behavior.
 
@@ -289,6 +292,8 @@ Use base-layer defaults when explicit false, 0 or empty strings must survive.
 Field constraints run before `WithValidate` and `WithPolicy`; policy warnings
 allow publication and error-severity findings reject it. Tags do not validate
 collection elements; use a validator for those checks.
+For pointers, `required` checks for nil; `min`, `max` and `oneof` check the
+pointed-to value and skip nil pointers.
 
 `SecretResolver` resolves references before typed decoding; it does not decrypt
 SOPS/age/KMS formats without an application adapter. `fc:"secret"` and
@@ -372,6 +377,13 @@ struct tags or business policies. Starting in v1.2.0, CLI diagnostic
 output masks common credential keys by default; library structs need `fc:"secret"` or `WithSecretPaths`.
 See [diagnostics](docs/cookbook/runtime/introspect.md).
 
+In v1.3.0 (unreleased), an empty diff `-from` selects base only, ignoring
+`APP_PROFILE` and metadata defaults. fastconfd exits if its listen address is busy.
+
+conf.d discovery accepts regular files (following symlinks), up to 4 MiB each,
+including metadata; see [discovery limits](docs/design/spec.md#discovery-limits)
+(v1.3.0, unreleased).
+
 ## Development and documentation
 
 ```sh
@@ -388,6 +400,8 @@ make check       # repository checks; see tools/README.md
 - [Performance notes](docs/design/perf.md): reproducible measurements and read-path budget.
 - [Release guide](RELEASING.md): coordinated module tags and distribution.
 - [API reference](https://pkg.go.dev/github.com/fastabc/fastconf): published Go API.
+
+- [Custom providers](docs/cookbook/sources/custom-provider.md): public helpers and conformance tests.
 
 ## License
 

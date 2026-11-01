@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -20,6 +21,21 @@ import (
 	"github.com/fastabc/fastconf/cmd/internal/cli"
 	"github.com/fastabc/fastconf/internal/testutil"
 )
+
+func TestListen_ReportsBindFailure(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	other, err := listen(ln.Addr().String())
+	if other != nil {
+		_ = other.Close()
+	}
+	if err == nil {
+		t.Fatal("occupied listen address was accepted")
+	}
+}
 
 func newTestServer(t *testing.T) (*server, func()) {
 	t.Helper()
@@ -355,5 +371,29 @@ func TestServer_DumpErrorNotEchoed(t *testing.T) {
 				t.Fatalf("missing detail: %s", logs.String())
 			}
 		})
+	}
+}
+
+func TestParseFlags_TokensNeverPrinted(t *testing.T) {
+	env := map[string]string{"FASTCONFD_RELOAD_TOKEN": "reload-secret", "FASTCONFD_READ_TOKEN": "read-secret", "FASTCONFD_UNREDACTED_TOKEN": "plain-secret"}
+	getenv := func(k string) string { return env[k] }
+	for _, args := range [][]string{{"-bogus"}, {"-h"}} {
+		var stderr bytes.Buffer
+		if _, err := parseFlags(args, getenv, &stderr); err == nil {
+			t.Fatal("want parse error")
+		}
+		for _, v := range env {
+			if strings.Contains(stderr.String(), v) {
+				t.Fatalf("usage leaked %q", v)
+			}
+		}
+	}
+	f, err := parseFlags(nil, getenv, io.Discard)
+	if err != nil || f.token != "reload-secret" || f.readToken != "read-secret" || f.unredactedToken != "plain-secret" {
+		t.Fatalf("fallback failed: %v", err)
+	}
+	f, err = parseFlags([]string{"-reload-token", "flag-wins", "-read-token", "read-wins", "-unredacted-token", "plain-wins"}, getenv, io.Discard)
+	if err != nil || f.token != "flag-wins" || f.readToken != "read-wins" || f.unredactedToken != "plain-wins" {
+		t.Fatalf("flag precedence failed: %v", err)
 	}
 }

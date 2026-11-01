@@ -23,6 +23,7 @@ func runDiff(args []string) error {
 	}
 	fa, fb := f, f
 	fa.Profile = *from
+	fa.BaseOnly = *from == ""
 	fb.Profile = *to
 	a, err := loadSnapshot(fa)
 	if err != nil {

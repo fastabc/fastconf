@@ -56,8 +56,8 @@ type Provider struct {
 	opts   Options
 }
 
-// New returns a provider for labels given as []string / []any of "key=value" entries, or as
-// map[string]string / map[string]any.
+// New accepts []confmap.LabelPair, []string / []any of "key=value" entries,
+// or map[string]string / map[string]any with string values.
 func New(labels any, opts Options) *Provider {
 	if opts.Priority == 0 {
 		opts.Priority = contracts.PriorityStatic
@@ -103,7 +103,7 @@ func (p *Provider) loadRouting() (map[string]any, error) {
 	if routingGateBlocks(pairs, normalizeRoutingKey(r.EnableGate, r.LowercaseKeys)) {
 		return map[string]any{}, nil
 	}
-	tree := confmap.ExpandLabels(routingPairsAsList(pairs), confmap.LabelOptions{
+	tree := confmap.ExpandLabels(pairs, confmap.LabelOptions{
 		Prefix:      normalizeRoutingKey(p.opts.Prefix, r.LowercaseKeys),
 		StripPrefix: p.opts.StripPrefix,
 		Separators:  p.opts.Separators,

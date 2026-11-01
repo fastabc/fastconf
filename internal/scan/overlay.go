@@ -2,21 +2,19 @@ package scan
 
 import (
 	"cmp"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"slices"
+	"strings"
 )
 
-// AxisSpec describes a single multi-axis overlay layer. Root fastconf
-// builds it from fastconf.Axis (WithAxes).
-//
-// Resolution order in ResolveAxes (matches the documented
-// fastconf.Axis semantics):
-//
-//  1. EnvVar present + non-empty  → use that value
-//  2. EnvVar present + empty      → skip axis (operator opt-out)
-//  3. EnvVar absent + DefaultFromHostname → fall back to hostFn()
-//  4. otherwise                   → skip axis
+var errUnsafeAxisValue = errors.New("scan: axis value must be a single path segment")
+
+// AxisSpec is the scanner form of fastconf.Axis; see docs/cookbook/sources/layers.md
+// for environment presence, empty opt-out, hostname fallback and priority rules.
 type AxisSpec struct {
 	// Dir is the directory name relative to config root, e.g. "hosts".
 	Dir string
@@ -31,20 +29,14 @@ type AxisSpec struct {
 }
 
 // AxisError reports a non-fatal resolution failure for a single axis, so the caller can log the
-// cause and continue. Used today only for hostname lookup failures.
+// cause and continue.
 type AxisError struct {
 	Axis string // axis Dir
 	Err  error
 }
 
-// ResolveAxes walks specs and returns the ExtraOverlays that should be
-// appended to ScanOptions.ExtraOverlays. hostFn is invoked when an axis
-// needs its DefaultFromHostname fallback; pass os.Hostname for normal
-// runtime use, or a closure that returns a pinned value for
-// fastconfctl-plan-style dry-runs.
-//
-// Errors are non-fatal: the offending axis is skipped and reported via
-// the second return value so the caller can log/forward them.
+// ResolveAxes selects and orders extra overlays; hostFn supplies absent-env hostname
+// fallbacks. Failed axes are skipped and reported separately as non-fatal errors.
 func ResolveAxes(specs []AxisSpec, hostFn func() (string, error)) ([]ExtraOverlay, []AxisError) {
 	out := make([]ExtraOverlay, 0, len(specs))
 	var errs []AxisError
@@ -72,6 +64,10 @@ func ResolveAxes(specs []AxisSpec, hostFn func() (string, error)) ([]ExtraOverla
 			val = h
 		}
 		if val == "" {
+			continue
+		}
+		if val == "." || val == ".." || strings.ContainsAny(val, `/\`) || !fs.ValidPath(val) {
+			errs = append(errs, AxisError{Axis: ax.Dir, Err: fmt.Errorf("%w: %q", errUnsafeAxisValue, val)})
 			continue
 		}
 		out = append(out, ExtraOverlay{

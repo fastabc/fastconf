@@ -1,7 +1,5 @@
-// Package secret implements the redaction and resolver primitives that
-// back fastconf's `fc:"secret"` tag and WithSecretResolver hook.
-// The root fastconf package keeps thin facades; the redaction walk and
-// resolver tree walk live here so the root can stay public-API-only.
+// Package secret implements the redaction and resolver primitives behind
+// fastconf's `fc:"secret"` tag and WithSecretResolver hook.
 package secret
 
 import (

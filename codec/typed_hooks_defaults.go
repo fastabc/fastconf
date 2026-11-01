@@ -106,16 +106,9 @@ func (RegexHook) Convert(raw any) (any, error) {
 	return s, nil
 }
 
-// StringPrimitiveHook converts string raw values into the primitive
-// kind expected by the destination struct field: bool, int family, uint
-// family, or float family. Named primitive types (e.g. time.Duration)
-// are deliberately skipped so dedicated hooks (DurationHook) win the
-// dispatch instead.
-//
-// The hook is a no-op when the raw value is not a string, so YAML/JSON
-// layers that already decoded values to typed forms pass through
-// unchanged. It is registered in DefaultTypedHooks so the typical
-// "env value lands in a typed struct field" path works out of the box.
+// StringPrimitiveHook converts strings to bool, integer, unsigned or float kinds.
+// Named primitives are left to dedicated hooks; non-string inputs pass through.
+// It is included in DefaultTypedHooks.
 type StringPrimitiveHook struct{}
 
 // Match accepts unnamed (builtin) primitive numeric / bool types. Named types (PkgPath != "") are

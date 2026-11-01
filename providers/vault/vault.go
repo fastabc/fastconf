@@ -192,11 +192,8 @@ func (p *Provider) watchLoop(ctx context.Context, out chan<- contracts.Event) {
 		if err != nil || v == 0 {
 			continue
 		}
-		// Delivering the event does not mean the version was accepted:
-		// only a successful Load advances p.version. notified merely
-		// suppresses duplicates until the triggered Load runs. It is set
-		// before the send so that Load, which may run before the send
-		// returns, always clears it afterwards.
+		// Only successful Load advances version. Mark notified before sending so
+		// a racing Load always clears duplicate suppression afterwards.
 		p.mu.Lock()
 		skip := v == p.version || v == p.notified
 		if !skip {
@@ -256,7 +253,7 @@ func (p *Provider) readData(ctx context.Context) (map[string]any, int, error) {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, 0, fmt.Errorf("vault: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	body, err := providerutil.ReadAllMax(resp.Body, p.maxBodyBytes)
+	body, err := contracts.ReadAllMax(resp.Body, p.maxBodyBytes)
 	if err != nil {
 		return nil, 0, fmt.Errorf("vault: read body: %w", err)
 	}
@@ -288,7 +285,7 @@ func (p *Provider) readMetadataVersion(ctx context.Context) (int, error) {
 	if resp.StatusCode != nethttp.StatusOK {
 		return 0, fmt.Errorf("vault metadata: status %d", resp.StatusCode)
 	}
-	body, err := providerutil.ReadAllMax(resp.Body, p.maxBodyBytes)
+	body, err := contracts.ReadAllMax(resp.Body, p.maxBodyBytes)
 	if err != nil {
 		return 0, fmt.Errorf("vault metadata: read body: %w", err)
 	}

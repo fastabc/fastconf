@@ -17,25 +17,27 @@ Prometheus and OpenTelemetry retain separate leaf modules.
 
 ## Prepare and verify
 
-The candidate defaults to `v1.2.0`, checked against the published `v1.2.0`
-baseline. Prepare the next release with the following steps:
+The dependency candidate defaults to `VERSION=v1.2.0`, matching current internal
+pins. API checks compare against `BASE=v1.2.0` and target `API_VERSION=v1.3.0`
+for the unreleased additions in this checkout. Prepare the next release as follows:
 
 1. Update the changelog and any relevant migration notes.
-2. Align in-repository module requirements and the Makefile `VERSION` default to
-   the release version. Do not
+2. Align in-repository module requirements and the Makefile `VERSION` and
+   `API_VERSION` defaults to the release version. Do not
    commit local `replace` directives or synthetic checksums in release modules.
    The standalone benchmark module is excluded from release inventory.
 3. Run the checks against the final source, then merge the reviewed release
-   commit before tagging.
+   commit before tagging. The commands below assume step 2 has aligned pins
+   for the planned v1.3.0 release.
 
 ```sh
-make tidy VERSION=v1.2.0
-make check VERSION=v1.2.0
-make lint VERSION=v1.2.0
+make tidy VERSION=v1.3.0
+make check VERSION=v1.3.0
+make lint VERSION=v1.3.0
 make test-workspace
-make test-candidate VERSION=v1.2.0
-make api-check VERSION=v1.2.0 BASE=v1.2.0
-VERSION=v1.2.0 bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
+make test-candidate VERSION=v1.3.0
+make api-check VERSION=v1.3.0 API_VERSION=v1.3.0 BASE=v1.2.0
+VERSION=v1.3.0 bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
 ```
 
 Tidy uses the isolated candidate proxy for internal dependencies at `VERSION`,
@@ -52,7 +54,7 @@ commits remain in its disposable checkout. This verifies a source combination
 without publishing it. To test one candidate module:
 
 ```sh
-VERSION=v1.2.0 bash tools/check-candidate.sh bash tools/modules.sh test providers/s3
+VERSION=v1.3.0 bash tools/check-candidate.sh bash tools/modules.sh test providers/s3
 ```
 
 After publication, `make test-all` checks independent resolution of the published
@@ -71,17 +73,19 @@ establishes a new baseline because public v1.0.0 proxy content conflicts with it
 immutable checksum record. Current checks default to `BASE=v1.2.0`, for example:
 
 ```sh
-make api-check BASE=v1.2.0 VERSION=v1.2.0
+make api-check BASE=v1.2.0 VERSION=v1.2.0 API_VERSION=v1.3.0
 ```
 
-CI uses that explicit comparison. A baseline download failure must fail the check;
-do not fall back to `BASE=none`. API checks do not replace behavior regression tests.
+`VERSION` controls candidate dependency pins; `API_VERSION` controls gorelease's
+release-version validation. CI uses the Makefile defaults for both. A baseline
+download failure must fail the check; do not fall back to `BASE=none`. API checks do not replace behavior regression tests.
 API checks use a reserved prerelease of the next patch (`v1.2.1-api-check` for
 `VERSION=v1.2.0`), or append `.api-check` to an existing prerelease. The temporary
 archives and matching internal dependency pins use that version, so the baseline
 resolves to published code even when `BASE` equals `VERSION`. Existing release
-tags do not make reruns fail, and the same major/minor compatibility rules still
-apply. Source manifests stay unchanged. Never publish these check versions.
+tags do not make reruns fail. gorelease enforces the major/minor compatibility
+rules against `API_VERSION` (or the candidate `VERSION` when invoked directly
+without `API_VERSION`). Source manifests stay unchanged. Never publish these check versions.
 
 Explicit baseline tags must be available locally (`git fetch --tags` for a shallow
 checkout). Candidate checks retain that tag's tree. A module whose `go.mod` does
@@ -115,8 +119,8 @@ bash tools/check-candidate.sh env GOOS=windows GOARCH=amd64 \
 Preview and publish the complete module tag set from a clean release commit:
 
 ```sh
-bash tools/tag-release.sh v1.2.0 --dry-run
-bash tools/tag-release.sh v1.2.0 --push
+bash tools/tag-release.sh v1.3.0 --dry-run
+bash tools/tag-release.sh v1.3.0 --push
 ```
 
 The script validates all version pins before creating tags at one commit. It
@@ -143,7 +147,7 @@ the binary, LICENSE and README.md. Builds disable CGO, use `-trimpath`, and embe
 the tag through `-X main.version=<tag>`.
 
 ```sh
-make dist VERSION=v1.2.0
+make dist VERSION=v1.3.0
 make dist-verify
 ```
 

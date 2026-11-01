@@ -17,7 +17,6 @@ import (
 	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/internal/providerutil"
 )
 
 // API is implemented by *azblob.Client and test clients.
@@ -142,7 +141,7 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 		if p.data != nil && errors.As(err, &response) && response.StatusCode == http.StatusNotModified {
 			return contracts.Snapshot{Map: confmap.DeepClone(p.data), Revision: string(p.etag)}, nil
 		}
-		return contracts.Snapshot{}, providerutil.SafeError(p.Name()+": download failed", err)
+		return contracts.Snapshot{}, contracts.SafeError(p.Name()+": download failed", err)
 	}
 	// The Azure SDK translates HTTP 304 into a successful response with an
 	// ErrorCode pointer and no Body, rather than returning ResponseError.
@@ -157,14 +156,14 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 	}
 	defer func() { _ = out.Body.Close() }()
 
-	body, err := providerutil.ReadAllMax(out.Body, p.maxBodyBytes)
+	body, err := contracts.ReadAllMax(out.Body, p.maxBodyBytes)
 	if err != nil {
-		return contracts.Snapshot{}, providerutil.SafeError(p.Name()+": read failed", err)
+		return contracts.Snapshot{}, contracts.SafeError(p.Name()+": read failed", err)
 	}
 
 	data, err := p.codec.Decode(body)
 	if err != nil {
-		return contracts.Snapshot{}, providerutil.SafeError(p.Name()+": decode failed", err)
+		return contracts.Snapshot{}, contracts.SafeError(p.Name()+": decode failed", err)
 	}
 
 	p.etag = ""

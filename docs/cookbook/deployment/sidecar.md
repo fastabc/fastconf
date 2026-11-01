@@ -4,13 +4,19 @@
 
 ## Run
 
+Run from this checkout to include the unreleased token-usage fix:
+
 ```bash
-go run github.com/fastabc/fastconf/cmd/fastconfd@v1.2.0 \
-  -dir /etc/myapp/conf.d \
-  -addr 127.0.0.1:8650 \
-  -read-token "$(cat /var/run/secrets/read-token)" \
-  -reload-token "$(cat /var/run/secrets/reload-token)"
+export FASTCONFD_READ_TOKEN="$(cat /var/run/secrets/read-token)"
+export FASTCONFD_RELOAD_TOKEN="$(cat /var/run/secrets/reload-token)"
+go run ./cmd/fastconfd -dir /etc/myapp/conf.d -addr 127.0.0.1:8650
 ```
+
+For an installed release, use that tag's documentation and binary.
+
+Prefer environment variables for token configuration. Explicit token flags take
+precedence; v1.3.0 (unreleased) applies environment fallbacks after parsing so help
+and invalid-argument usage never print environment token values.
 
 `-reload-token` also defaults from `FASTCONFD_RELOAD_TOKEN`, which is easier to
 wire from a Kubernetes Secret.
@@ -87,7 +93,7 @@ spec:
                   name: fastconfd-reload
                   key: read-token
         - name: fastconfd
-          image: example/fastconfd:v1.2.0
+          image: example/fastconfd:dev
           args:
             - -dir=/etc/myapp/conf.d
             - -addr=127.0.0.1:8650

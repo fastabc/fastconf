@@ -146,7 +146,7 @@ func TestProvenanceSecretPaths(t *testing.T) {
 		{"credentials", true}, {"credentials.0.token", true}, {"credentials.0.public", false},
 		{"by_name.a.b.token", true}, {"by_name.a.public", true}, {"plain", false}, {"missing", false}, {"", true},
 	} {
-		if got := secret.PathHasSecrets(typ, tc.path); got != tc.want {
+		if got := secret.Compile(typ, nil).PathHasSecrets(tc.path); got != tc.want {
 			t.Errorf("%q: got %v", tc.path, got)
 		}
 	}
@@ -154,14 +154,14 @@ func TestProvenanceSecretPaths(t *testing.T) {
 		Next   *recursive
 		Public string
 	}
-	if secret.PathHasSecrets(reflect.TypeOf(recursive{}), "") {
+	if secret.Compile(reflect.TypeOf(recursive{}), nil).PathHasSecrets("") {
 		t.Fatal("recursive public type marked secret")
 	}
 	opaque := reflect.TypeOf(secretMarshaler{})
-	if !secret.PathHasSecrets(opaque, "other") {
+	if !secret.Compile(opaque, nil).PathHasSecrets("other") {
 		t.Fatal("opaque secret container exposed")
 	}
-	got := secret.ApplyJSON(map[string]any{"other": "plaintext"}, opaque, nil)
+	got := secret.Compile(opaque, nil).Apply(map[string]any{"other": "plaintext"}, nil)
 	if got["$redacted"] != "***REDACTED***" {
 		t.Fatalf("opaque output: %v", got)
 	}
@@ -183,11 +183,23 @@ func TestProvenancePatternsMatchHistoricalContainers(t *testing.T) {
 		{"config", nil, false}, {"config", []string{"config.items.*.token"}, true},
 		{"config.items.0.token", []string{"config"}, true}, {"config", []string{"other.**"}, false},
 	} {
-		if got := secret.PatternsMatchValue(value, tc.path, tc.patterns); got != tc.want {
+		if got := secret.Compile(reflect.TypeFor[map[string]any](), tc.patterns).PatternsMatchValue(value, tc.path); got != tc.want {
 			t.Errorf("%s/%v: got %v", tc.path, tc.patterns, got)
 		}
 	}
 	if value["items"].([]any)[0].(map[string]any)["token"] != "old" {
 		t.Fatal("matching mutated historical value")
+	}
+}
+
+func TestPlan_UnexportedNonEmbeddedSecretIgnored(t *testing.T) {
+	type config struct {
+		hidden string `fc:"secret"` //nolint:unused // Exercises ignored private fields.
+		Public string `json:"public"`
+	}
+	plan := secret.Compile(reflect.TypeFor[config](), nil)
+	view := plan.Apply(map[string]any{"public": "visible"}, nil)
+	if view["public"] != "visible" || plan.PathHasSecrets("public") {
+		t.Fatalf("hidden field affected output: %v", view)
 	}
 }

@@ -1,12 +1,5 @@
 package fastconf
 
-// Provider event subscription, resume tracking, and exponential-backoff
-// re-subscribe. Each Provider implementing contracts.Watcher gets one
-// goroutine, which exits if Watch returns a nil channel. Events enter the existing
-// serialized reloadCh (single-writer invariant). If the queue is full
-// the event is dropped (counted via metrics), with one pending compensating
-// refresh retained rather than blocking.
-
 import (
 	"context"
 	"errors"
@@ -17,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/internal/providerutil"
 )
 
 // jitter returns d + uniform[0, d/2) so that many replicas restarting
@@ -58,14 +52,9 @@ func (r *resumeState) set(name, rev string) {
 	r.revs[name] = rev
 }
 
-// startProviderWatchers spins up one goroutine per provider implementing
-// contracts.Watcher. Events are coalesced through the
-// existing serialized reloadCh — if the queue is full we DROP the event
-// (counted via metrics) and retain one compensating refresh, preserving
-// the single-writer invariant and bounded memory.
-//
-// Provider Watch failures are logged and retried with exponential backoff
-// (250ms .. 30s) so a flaky remote source cannot tight-loop the CPU.
+// startProviderWatchers runs one subscription loop per native Watcher.
+// Triggers enter the writer queue, retaining one resync token on overflow.
+// Subscription failures retry with 250 ms–30 s exponential backoff and jitter.
 func (m *Manager[T]) startProviderWatchers(ctx context.Context) {
 	for _, e := range m.opts.Providers {
 		watcher, ok := e.Provider.(contracts.Watcher)
@@ -80,24 +69,20 @@ func (m *Manager[T]) startProviderWatchers(ctx context.Context) {
 func (m *Manager[T]) runProviderWatcher(ctx context.Context, p contracts.Provider, watcher contracts.Watcher) {
 	defer m.bgWG.Done()
 	const minDelay, maxDelay = 250 * time.Millisecond, 30 * time.Second
-	delay := minDelay
+	backoff := providerutil.Backoff{Min: minDelay, Max: maxDelay}
 	for {
 		if ctx.Err() != nil {
 			return
 		}
 		ch, err := watcher.Watch(ctx, m.resume.get(p.Name()))
 		if err != nil {
+			delay := backoff.Next()
 			m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf provider watch error", slog.String("provider", p.Name()), slog.Any("err", err), slog.Duration("retry_in", delay))
 			m.emit(ProviderError{Provider: p.Name(), Err: err})
 			if !m.sleep(ctx, jitter(delay)) {
 				return
 			}
-			if delay < maxDelay {
-				delay *= 2
-				if delay > maxDelay {
-					delay = maxDelay
-				}
-			}
+
 			continue
 		}
 		if ch == nil {
@@ -105,14 +90,14 @@ func (m *Manager[T]) runProviderWatcher(ctx context.Context, p contracts.Provide
 			return
 		}
 		// Reset backoff after a successful subscribe.
-		delay = minDelay
+		backoff.Reset()
 		m.consumeProviderEvents(ctx, p, ch)
 		// consumeProviderEvents returns when ch closes or ctx is canceled;
 		// loop to resubscribe with backoff if appropriate.
 		if ctx.Err() != nil {
 			return
 		}
-		if !m.sleep(ctx, jitter(delay)) {
+		if !m.sleep(ctx, jitter(minDelay)) {
 			return
 		}
 	}

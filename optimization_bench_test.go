@@ -51,7 +51,7 @@ func BenchmarkRedactionPlanBuild(b *testing.B) {
 		Next  *config
 	}
 	for b.Loop() {
-		secret.ApplyJSON(map[string]any{}, reflect.TypeFor[config](), nil)
+		secret.Compile(reflect.TypeFor[config](), nil).Apply(map[string]any{}, nil)
 	}
 }
 

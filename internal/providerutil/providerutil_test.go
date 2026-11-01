@@ -4,8 +4,10 @@ import (
 	"errors"
 	"math"
 	"os"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fastabc/fastconf/contracts"
 )
@@ -61,5 +63,20 @@ func TestSafeErrorPreservesCause(t *testing.T) {
 	var found *os.PathError
 	if err.Error() != "provider read failed" || !errors.Is(err, cause) || !errors.As(err, &found) || found != cause {
 		t.Fatalf("lost safe message or cause: %v", err)
+	}
+}
+
+func TestBackoffDoublesAndCaps(t *testing.T) {
+	b := Backoff{Min: 250 * time.Millisecond, Max: time.Second}
+	var got []time.Duration
+	for range 5 {
+		got = append(got, b.Next())
+	}
+	if !slices.Equal(got, []time.Duration{250 * time.Millisecond, 500 * time.Millisecond, time.Second, time.Second, time.Second}) {
+		t.Fatalf("delays=%v", got)
+	}
+	b.Reset()
+	if b.Next() != 250*time.Millisecond {
+		t.Fatal("reset")
 	}
 }

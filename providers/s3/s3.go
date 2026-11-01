@@ -1,28 +1,11 @@
-// Package s3 is a first-party AWS S3 provider for FastConf.
+// Package s3 loads and decodes S3 objects, inferring the codec from the key unless
+// Config.Codec overrides it. Conditional GetObject reuses the cached map on 304.
+// It has no Watcher; use integrations/notify/sns and periodic reloads.
 //
-// The provider performs a single S3 GetObject on Load and decodes the
-// response body using a FastConf codec resolved from the object key's
-// extension (or the explicit Config.Codec when supplied). It is
-// load-only and does not implement contracts.Watcher. For change-driven reloads,
-// use integrations/notify/sns with a synchronous Manager.Reload callback and
-// periodic reloads to recover from missed notifications.
-//
-// # ETag short-circuit
-//
-// After the first successful Load, every subsequent Load sends the
-// remembered ETag in If-None-Match. When the object has not changed,
-// AWS returns 304 Not Modified and the provider serves the cached
-// decoded map without re-decoding the body. This makes repeated
-// Reload() calls cheap (one round-trip, no decode) and matches the
-// no-spurious-reload contract enforced by providers/http.
-//
-// # Credentials
-//
-// New accepts explicit AccessKey / SecretKey and an optional STS Token.
-// NewWithClient borrows an application-configured SDK client, including clients
-// using the AWS credential chain, workload identity or refreshing credentials.
-// The application owns that client. Manager secret resolvers process loaded
-// configuration; they do not initialize the provider's SDK credentials.
+// New uses static credentials. NewWithClient borrows an application-owned SDK
+// client, supporting workload identity or refreshing credentials. Manager secret
+// resolvers handle configuration values, not SDK authentication.
+// See docs/cookbook/sources/cloud.md.
 package s3
 
 import (
@@ -44,7 +27,6 @@ import (
 	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/internal/providerutil"
 )
 
 const defaultMaxBodyBytes = 10 * 1024 * 1024
@@ -82,12 +64,8 @@ type API interface {
 	GetObject(ctx context.Context, in *awss3.GetObjectInput, opts ...func(*awss3.Options)) (*awss3.GetObjectOutput, error)
 }
 
-// Provider implements contracts.Provider without contracts.Watcher.
-// It caches the last ETag and decoded body so
-// repeated Load() calls only pay one HEAD-equivalent round-trip when
-// the object has not changed.
-// For notifications, use integrations/notify/sns and periodic reloads.
-// The legacy s3events watcher remains available for best-effort invalidation.
+// Provider implements contracts.Provider without Watcher, caching ETags and decoded
+// bodies. Use integrations/notify/sns and periodic reloads; s3events is deprecated.
 type Provider struct {
 	name         string
 	bucket       string
@@ -118,12 +96,8 @@ func WithMaxBodyBytes(n int64) Option {
 	}
 }
 
-// New constructs an S3-backed provider. It validates Config, builds
-// an aws-sdk-go-v2 S3 client with static credentials, and resolves the
-// codec from Config.Codec (preferred) or the Key extension.
-//
-// Returns an error if a required field is missing or the codec cannot
-// be determined.
+// New validates Config, creates a static-credential S3 client and resolves the codec
+// from Config.Codec or Key. Missing required fields or an unknown codec return an error.
 func New(cfg Config, opts ...Option) (*Provider, error) {
 	if cfg.Region == "" {
 		return nil, errors.New("fastconf/s3: region is required")
@@ -237,17 +211,17 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 			defer p.mu.Unlock()
 			return contracts.Snapshot{Map: confmap.DeepClone(p.lastBody), Revision: p.etag}, nil
 		}
-		return contracts.Snapshot{}, providerutil.SafeError("fastconf/s3: get "+p.name+" failed", err)
+		return contracts.Snapshot{}, contracts.SafeError("fastconf/s3: get "+p.name+" failed", err)
 	}
 	defer func() { _ = out.Body.Close() }()
-	body, err := providerutil.ReadAllMax(out.Body, p.maxBodyBytes)
+	body, err := contracts.ReadAllMax(out.Body, p.maxBodyBytes)
 	if err != nil {
-		return contracts.Snapshot{}, providerutil.SafeError("fastconf/s3: read "+p.name+" failed", err)
+		return contracts.Snapshot{}, contracts.SafeError("fastconf/s3: read "+p.name+" failed", err)
 	}
 
 	m, derr := p.codec.Decode(body)
 	if derr != nil {
-		return contracts.Snapshot{}, providerutil.SafeError("fastconf/s3: decode "+p.name+" failed", derr)
+		return contracts.Snapshot{}, contracts.SafeError("fastconf/s3: decode "+p.name+" failed", derr)
 	}
 
 	// Publish the ETag only after the complete body has decoded successfully.
@@ -259,11 +233,8 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 	return contracts.Snapshot{Map: confmap.DeepClone(m), Revision: aws.ToString(out.ETag)}, nil
 }
 
-// isNotModified detects the 304 response the AWS SDK returns when an
-// If-None-Match conditional GetObject finds the object unchanged.
-// Both the aws-transport-http and smithy-transport-http response error
-// types unwrap to *smithyhttp.ResponseError, so a single errors.As is
-// sufficient.
+// isNotModified recognizes conditional-GetObject 304 responses through the SDK's
+// wrapped smithy HTTP response error.
 func isNotModified(err error) bool {
 	if err == nil {
 		return false
@@ -275,22 +246,10 @@ func isNotModified(err error) bool {
 	return false
 }
 
-// FromURL parses an s3:// URL (use the endpoint query for non-AWS stores)
-// into a Config. Credentials are passed separately so secrets never
-// appear in URLs that may be logged or persisted in YAML.
-//
-// Accepted schemes:
-//
-//	s3://<bucket>/<key>?region=<r>[&codec=<c>][&endpoint=<url>][&path_style=true][&version_id=<v>][&priority=<n>]
-//
-// Examples:
-//
-//	cfg, _ := s3.FromURL("s3://my-configs/prod/app.yaml?region=us-east-1", creds)
-//	cfg, _ := s3.FromURL("s3://my-configs/cfg.json?region=us-east-1&endpoint=http://minio:9000&path_style=true", creds)
-//
-// The returned Config is suitable for direct use with New or for
-// inclusion in a higher-level config that is itself loaded by
-// FastConf — enabling "provider address as a config field" patterns.
+// FromURL parses s3://bucket/key URLs into Config; credentials are separate to keep
+// secrets out of logged URLs. Queries support region, codec, endpoint, path_style,
+// version_id and priority. Use endpoint for non-AWS stores; see
+// docs/cookbook/sources/cloud.md for client setup.
 func FromURL(rawurl string, creds Credentials) (Config, error) {
 	u, err := url.Parse(rawurl)
 	if err != nil {

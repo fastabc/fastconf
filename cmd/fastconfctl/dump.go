@@ -16,11 +16,20 @@ func runDump(args []string) error {
 	pretty := fs.Bool("pretty", true, "indent JSON output")
 	format := fs.String("format", "json", "output format: json | yaml")
 	_ = fs.Parse(args)
-	if *format == "yaml" {
-		return dumpYAML(f)
-	}
 	st, err := loadSnapshot(f)
 	if err != nil {
+		return err
+	}
+	if *format == "yaml" {
+		dump := st.Dump
+		if f.Unredacted {
+			dump = st.Unredacted().Dump
+		}
+		b, err := dump(fastconf.YAML)
+		if err != nil {
+			return err
+		}
+		_, err = os.Stdout.Write(b)
 		return err
 	}
 	view := st.Map
@@ -33,23 +42,4 @@ func runDump(args []string) error {
 		enc.SetIndent("", "  ")
 	}
 	return enc.Encode(m)
-}
-
-// dumpYAML loads a manager and writes the deterministic YAML form
-// produced by State.Dump(YAML).
-func dumpYAML(f cli.Flags) error {
-	st, err := loadSnapshot(f)
-	if err != nil {
-		return err
-	}
-	dump := st.Dump
-	if f.Unredacted {
-		dump = st.Unredacted().Dump
-	}
-	b, err := dump(fastconf.YAML)
-	if err != nil {
-		return err
-	}
-	_, _ = os.Stdout.Write(b)
-	return nil
 }

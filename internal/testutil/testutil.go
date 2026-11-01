@@ -1,14 +1,4 @@
-// Package testutil centralises test helpers shared across the fastconf
-// module. It is an internal package so it cannot be imported by
-// external code; sub-packages that need these helpers add:
-//
-//	import "github.com/fastabc/fastconf/internal/testutil"
-//
-// Three categories of helpers are provided:
-//
-//  1. File-system setup — WriteFile, TempConf
-//  2. Polling — WaitFor
-//  3. Provider stubs — FakeProvider
+// Package testutil supplies shared filesystem, polling and Provider test fixtures.
 package testutil
 
 import (
@@ -34,16 +24,8 @@ func WriteFile(t *testing.T, p, content string) {
 	}
 }
 
-// TempConf creates a temporary directory, populates it with files whose
-// paths (relative to the temp root) and contents are given by the files
-// map, and returns the temp root. t.TempDir registers automatic cleanup.
-//
-// Example:
-//
-//	root := testutil.TempConf(t, map[string]string{
-//	    "conf.d/base/00-base.yaml": "port: 8080\n",
-//	    "conf.d/overlays/prod/01-prod.yaml": "port: 443\n",
-//	})
+// TempConf writes relative-path/content entries under t.TempDir and returns its root.
+// Directories and cleanup are automatic; write failures fail the test.
 func TempConf(t *testing.T, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()

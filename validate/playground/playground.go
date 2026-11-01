@@ -1,13 +1,5 @@
-// Package playground adapts go-playground/validator/v10 to the FastConf
-// validator contract: a function (*T) error called by Manager.commit before
-// publishing a new state.
-//
-// Usage:
-//
-//	mgr, err := fastconf.New[appCfg](ctx,
-//	    fastconf.WithDir("conf.d"),
-//	    fastconf.WithValidate(playground.New[appCfg]()),
-//	)
+// Package playground adapts go-playground/validator to FastConf validation before
+// publication. See docs/cookbook/processing/field-meta.md for built-in alternatives.
 package playground
 
 import (
@@ -69,7 +61,7 @@ func wrap(err error) error {
 	}
 	parts := make([]string, 0, len(ves))
 	for _, fe := range ves {
-		parts = append(parts, fmt.Sprintf("%s: failed %q (got=%v)", fe.Namespace(), fe.Tag(), fe.Value()))
+		parts = append(parts, fmt.Sprintf("%s: failed %q", fe.Namespace(), fe.Tag()))
 	}
 	return fmt.Errorf("playground: %s", strings.Join(parts, "; "))
 }

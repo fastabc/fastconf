@@ -5,16 +5,21 @@ import (
 	"log/slog"
 	"path/filepath"
 	"slices"
+	"sync"
 
 	"github.com/fastabc/fastconf/internal/coalesce"
 	"github.com/fastabc/fastconf/internal/watcher"
 )
 
-// startWatcher arms the fsnotify-backed watcher when WithWatch(Watch{}) is set.
-//
-// fsnotify operates on real filesystems only — when the manager runs on an
-// in-memory fs.FS (testing/fstest), startWatcher silently no-ops because
-// there is nothing to observe.
+type fileReloadSlot struct {
+	mu      sync.Mutex
+	running bool
+	pending bool
+	reason  string
+}
+
+// startWatcher subscribes parent directories before loading their contents,
+// so file creation and Kubernetes symlink swaps cannot slip between scan and watch.
 func (m *Manager[T]) startWatcher(ctx context.Context) error {
 	if m.opts.FS != nil {
 		m.opts.Logger.LogAttrs(context.Background(), slog.LevelDebug, "watch: skipped (virtual fs in use)")
@@ -42,8 +47,29 @@ func (m *Manager[T]) startWatcher(ctx context.Context) error {
 			m.opts.Logger.LogAttrs(context.Background(), slog.LevelDebug, "watch: event ignored (paused)", slog.String("key", key), slog.String("reason", reason))
 			return
 		}
-		if err := m.requestReload(context.Background(), reason, key); err != nil {
-			m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "watch: reload failed", slog.String("key", key), slog.String("reason", reason), slog.Any("err", err))
+		entry, _ := m.fileReloads.LoadOrStore(key, &fileReloadSlot{})
+		slot := entry.(*fileReloadSlot)
+		slot.mu.Lock()
+		slot.reason = reason
+		if slot.running {
+			slot.pending = true
+			slot.mu.Unlock()
+			return
+		}
+		slot.running = true
+		for {
+			reason = slot.reason
+			slot.pending = false
+			slot.mu.Unlock()
+			if err := m.requestReload(context.Background(), reason, key); err != nil {
+				m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "watch: reload failed", slog.String("key", key), slog.String("reason", reason), slog.Any("err", err))
+			}
+			slot.mu.Lock()
+			if !slot.pending {
+				slot.running = false
+				slot.mu.Unlock()
+				return
+			}
 		}
 	})
 	w, err := watcher.New(paths, co)
@@ -102,12 +128,7 @@ func collectWatchPaths(o *options) []string {
 		seen[abs] = struct{}{}
 		out = append(out, abs)
 	}
-	// Watch the configured root and the conventional base/overlay subtrees so
-	// that K8s ConfigMap parent-dir swaps reach us regardless of whether the
-	// user mounted the bundle at `conf.d` or at one level deeper.
-	// NOTE: base and overlays are added unconditionally. Deployments that use
-	// a flat conf.d layout (no subdirectories) will see ENOENT here, which the
-	// underlying fsnotify implementation silently swallows — no action needed.
+	// Watch root and conventional subtrees for mounts at either directory level.
 	add(o.Dir)
 	add(filepath.Join(o.Dir, "base"))
 	add(filepath.Join(o.Dir, "overlays"))

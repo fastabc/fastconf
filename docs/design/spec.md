@@ -1,8 +1,8 @@
 # FastConf Runtime Contract
 
-This document defines the runtime contract for v1.2.0.
-For a released dependency, use this document at its installed tag. Changes
-in v1.2.0 are recorded in the [changelog](../../CHANGELOG.md#v120).
+This document defines the current runtime contract, including unreleased v1.3.0 changes.
+For a released dependency, use this document at its installed tag. Pending changes
+are recorded in the [changelog](../../CHANGELOG.md#unreleased).
 The root module requires Go 1.24; independent modules declare their own
 minimum versions. See [architecture.md](../architecture.md) for package
 ownership and [RELEASING.md](../../RELEASING.md) for release checks.
@@ -107,6 +107,18 @@ resume a non-empty revision marks its first event with `Gap`. The first Watch
 call receives an empty revision; reconnects receive the last non-empty
 `Event.Revision`. `Snapshot.Revision` is used for source/commit diagnostics.
 
+## Discovery limits
+
+Added in v1.3.0 (unreleased): each discovered file, including root and overlay
+`_meta.yaml`, is limited to 4 MiB (exactly 4 MiB is accepted). Discovery follows
+symlinks and reads only regular files, preserving Kubernetes ConfigMap volumes.
+Non-regular layer entries are skipped unless strict mode is enabled; metadata
+that exists but is not regular always fails. Missing metadata remains optional.
+
+Read, file-type, extension and other discovery failures wrap `ErrDecode` and
+`ErrFastConf`. Oversized files instead preserve `ErrTooLarge` and `ErrFastConf`
+without being reclassified as `ErrDecode`. Any failure preserves the live snapshot.
+
 ## Configuration and ownership
 
 Configure providers before registering them with `WithProvider`. Fluent methods
@@ -133,6 +145,8 @@ Ownership is constructor-specific: `source.NewBytes` copies its bytes, whereas
 | Source bytes to configuration tree | `contracts.Decoder` | Decode documents; YAML, JSON, TOML and INI are built in |
 | Tree values to target field types | `codec.TypedHook` / `WithTypedHook` | Convert values such as duration strings before struct decoding |
 | Tree to application struct | `WithDecodeFormat(JSON/YAML)` | Select the JSON (default) or YAML bridge and its struct-tag rules |
+
+File discovery failures use the error mapping in [Discovery limits](#discovery-limits).
 
 Source format and target decoding are independent: a TOML document can use the
 default JSON bridge. `WithDecodeFormat(YAML)` honors YAML tags when loading and

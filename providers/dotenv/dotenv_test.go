@@ -9,6 +9,22 @@ import (
 	envprovider "github.com/fastabc/fastconf/providers/env"
 )
 
+func TestProvider_ConflictingKeysAreDeterministic(t *testing.T) {
+	for _, body := range []string{
+		"APP_DB=leaf\nAPP_DB_HOST=x\nAPP_DB__HOST=y\n",
+		"APP_DB_HOST=old\nAPP_DB=leaf\nAPP_DB_HOST=y\n",
+	} {
+		p := New("APP_", writeTempDotEnv(t, body)).WithLookup(func(string) (string, bool) { return "", false })
+		want := map[string]any{"db": map[string]any{"host": "y"}}
+		for i := range 100 {
+			snap, err := p.Load(context.Background())
+			if err != nil || !reflect.DeepEqual(snap.Map, want) {
+				t.Fatalf("load %d (%q): map=%#v err=%v", i, body, snap.Map, err)
+			}
+		}
+	}
+}
+
 func TestProvider_LoadParsesDotEnv(t *testing.T) {
 	path := writeTempDotEnv(t, "# comment\nAPP_PORT=8080\nAPP_DATABASE__HOST=localhost\nAPP_DATABASE__PASS='secret'\nAPP_DEBUG=\"true\"\nexport APP_RATE=1.5\n")
 	p := New("APP_", path).WithLookup(func(string) (string, bool) { return "", false })
@@ -173,8 +189,8 @@ func TestParseDotEnv_Escapes(t *testing.T) {
 		t.Fatalf("parseDotEnv: %v", err)
 	}
 	want := "line1\nline2\ttab\"quote"
-	if pairs["KEY"] != want {
-		t.Errorf("got %q, want %q", pairs["KEY"], want)
+	if !reflect.DeepEqual(pairs, []envPair{{key: "KEY", value: want}}) {
+		t.Errorf("got %q, want KEY=%q", pairs, want)
 	}
 }
 

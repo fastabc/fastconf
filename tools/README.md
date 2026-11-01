@@ -47,8 +47,8 @@ may be absent; after publication, ordinary `GOWORK=off go mod tidy` in each modu
 can record the published checksums.
 
 Use Go 1.26+ for the full inventory. For a release, align the internal requirements
-and the Makefile `VERSION` default, or explicitly use `make tidy VERSION=vX.Y.Z`
-and `make check VERSION=vX.Y.Z`. Checks may download dependencies but do not
+and the Makefile `VERSION` / `API_VERSION` defaults, or pass the release version
+explicitly to `make tidy`, `make check` and `make api-check`. Checks may download dependencies but do not
 rewrite source `go.mod` or `go.sum` files.
 
 `bash tools/check-repo.sh docs` validates local file links in tracked and
@@ -75,7 +75,11 @@ archives with `go mod download all`; tests, lint and scanners fetch external
 dependencies as needed and verify their checksums normally.
 
 - `make test-candidate VERSION=vX.Y.Z`: test candidate modules.
-- `make api-check VERSION=v1.2.0 BASE=v1.2.0`: compare the candidate to published APIs.
+- `make api-check`: compare APIs against `BASE=v1.2.0`, targeting `API_VERSION=v1.3.0`
+  for this checkout's unreleased additions. `VERSION=v1.2.0` still identifies the
+  in-repository dependency pins served by the disposable candidate proxy.
+  Set `API_VERSION` to the intended release for other comparisons; a patch target
+  still rejects additions and a minor target still rejects incompatible changes.
   Use `BASE=none` only when intentionally establishing a new stable API baseline;
   v1.1.0 does so because public v1.0.0 proxy content conflicts with its immutable
   checksum record. Current checks default to `BASE=v1.2.0`.

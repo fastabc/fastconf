@@ -14,16 +14,9 @@ import (
 // Reload entry point and pipeline orchestration. reload_queue.go serializes
 // later requests; New and Load run the initial pipeline synchronously.
 
-// Reload triggers a synchronous reload. On failure the previous state
-// is preserved.
-//
-// Options:
-//   - WithOverride(map) injects a one-shot in-memory layer at the
-//     top of the priority stack for this reload only. The map is copied
-//     while Reload applies options; do not mutate it concurrently with
-//     the Reload call.
-//   - WithReason(s) overrides the default "manual" reason tag used
-//     for audit / metrics / logging.
+// Reload synchronously reloads sources, preserving the published state on failure.
+// WithOverride adds a copied one-shot layer; WithReason sets the audit reason.
+// Do not mutate override input concurrently with this call.
 func (m *Manager[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 	if m == nil {
 		return ErrClosed
@@ -76,16 +69,10 @@ type reloadConfig struct {
 	err      error
 }
 
-// WithOverride attaches a one-shot in-memory layer to this reload,
-// merged above CLI flags. Override values must be JSON-serializable.
-// Reload deep-copies the override when it applies this option, producing
-// an independent JSON-shaped map before the reload request enters the
-// pipeline. Callers may freely mutate or reuse the original after Reload
-// returns. The layer is not remembered: a subsequent Reload reverts to the
-// natural state.
-//
-// Use cases: targeted integration tests and ad-hoc operator overrides
-// without writing a file. Reload runs the full pipeline; keep it off hot read paths.
+// WithOverride adds a one-shot layer above all sources. Values must be JSON-serializable.
+// Reload copies the map while applying options; do not mutate it concurrently with
+// Reload. After Reload returns, callers may mutate or reuse it. Later reloads use
+// natural sources again. See docs/cookbook/runtime/reload-policy.md.
 func WithOverride(override map[string]any) ReloadOption {
 	return func(c *reloadConfig) {
 		copied, err := cloneOverride(override)
@@ -97,11 +84,8 @@ func WithOverride(override map[string]any) ReloadOption {
 	}
 }
 
-// cloneOverride returns a fully-independent JSON-shaped copy of m.
-// JSON round-tripping deliberately defines the accepted override shape:
-// map/object, slice/array, string, bool, number and nil values. Pointer
-// and struct values that json.Marshal accepts are materialised into that
-// tree, so later caller-side mutations cannot alias the reload pipeline.
+// cloneOverride JSON-round-trips accepted values into an independent JSON-shaped
+// tree, materializing pointers and structs so caller mutations cannot alias it.
 func cloneOverride(m map[string]any) (map[string]any, error) {
 	if m == nil {
 		return nil, nil

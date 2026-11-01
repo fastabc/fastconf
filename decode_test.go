@@ -6,9 +6,44 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"testing/fstest"
+
+	"github.com/fastabc/fastconf/providers/source"
 
 	"gopkg.in/yaml.v3"
 )
+
+func TestYAMLBridge_FieldNamedInlineKeepsTypedHooks(t *testing.T) {
+	type sub struct {
+		Port int `yaml:"port"`
+	}
+	t.Run("struct", func(t *testing.T) {
+		type cfg struct {
+			Inline sub `yaml:"inline"`
+		}
+		st, err := Load[cfg](context.Background(), WithFS(fstest.MapFS{}), WithDecodeFormat(YAML),
+			WithProvider(source.NewBytes("in", "json", []byte(`{"inline":{"port":"8080"}}`))))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Value().Inline.Port != 8080 {
+			t.Fatalf("value=%+v", st.Value())
+		}
+	})
+	t.Run("map", func(t *testing.T) {
+		type cfg struct {
+			Inline map[string]int `yaml:"inline"`
+		}
+		st, err := Load[cfg](context.Background(), WithFS(fstest.MapFS{}), WithDecodeFormat(YAML),
+			WithProvider(source.NewBytes("in", "json", []byte(`{"inline":{"a":"8"}}`))))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Value().Inline["a"] != 8 {
+			t.Fatalf("value=%+v", st.Value())
+		}
+	})
+}
 
 type countingBridgeValue struct{ calls *int }
 
@@ -78,7 +113,7 @@ func TestIsUnknownField_RealDecoders(t *testing.T) {
 			var target struct {
 				Port int `json:"port" yaml:"port"`
 			}
-			err := decodeInto(tc.tree, &target, yaml, true)
+			err := decodeTestInput(tc.tree, &target, yaml, true)
 			if tc.name != "valid" && err == nil {
 				t.Fatalf("%s (yaml=%v) succeeded", tc.name, yaml)
 			}
@@ -87,4 +122,14 @@ func TestIsUnknownField_RealDecoders(t *testing.T) {
 			}
 		}
 	}
+}
+
+// decodeTestInput exercises the production encode/decode bridge for one test input.
+func decodeTestInput[T any](m map[string]any, target *T, yamlBridge, strict bool) error {
+	input, err := encodeInput(m, yamlBridge)
+	if err != nil {
+		return err
+	}
+	defer input.release()
+	return input.decode(target, strict)
 }

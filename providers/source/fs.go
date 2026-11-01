@@ -8,7 +8,6 @@ import (
 	"path"
 
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/internal/providerutil"
 )
 
 // FS reads one document from an fs.FS, including embed.FS. It has no automatic
@@ -57,7 +56,7 @@ func (f *FS) Load(ctx context.Context) (contracts.Snapshot, error) {
 		return contracts.Snapshot{}, fmt.Errorf("%s: %w", f.Name(), err)
 	}
 	defer func() { _ = file.Close() }()
-	data, err := providerutil.ReadAllMax(file, f.maxBodyBytes)
+	data, err := contracts.ReadAllMax(file, f.maxBodyBytes)
 	if err != nil {
 		return contracts.Snapshot{}, fmt.Errorf("%s: %w", f.Name(), err)
 	}

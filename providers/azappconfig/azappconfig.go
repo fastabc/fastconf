@@ -14,7 +14,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	sdk "github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/internal/providerutil"
 )
 
 // API is implemented by *azappconfig.Client; the application owns its credentials.
@@ -106,7 +105,7 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 		}
 		page, err := pager.NextPage(ctx)
 		if err != nil {
-			return contracts.Snapshot{}, providerutil.SafeError("fastconf/azappconfig: "+"list"+" failed", err)
+			return contracts.Snapshot{}, contracts.SafeError("fastconf/azappconfig: "+"list"+" failed", err)
 		}
 		for _, setting := range page.Settings {
 			if setting.Key == nil || setting.Value == nil {

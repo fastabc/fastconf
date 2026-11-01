@@ -73,6 +73,7 @@ printf 'package fixture\nconst Kept = 1\nconst Added = 2\n' > api.go
 git add .
 git commit -qm candidate
 git tag v1.2.0
+unset API_VERSION
 export BASE=v1.1.0 VERSION=v1.2.0
 
 check_success() {
@@ -107,6 +108,13 @@ git add .
 git commit -qm stable
 # Comparing the checkout against its already-published version must also work.
 BASE=v1.2.0 check_success
+# A new minor API may be checked while manifests still pin the published version.
+printf 'const Next = 3\n' >> api.go
+git add .
+git commit -qm next-api
+BASE=v1.2.0 API_VERSION=v1.3.0 check_success
+grep -Fq 'version=v1.3.0)' "$TMP/result"
+BASE=v1.2.0 API_VERSION=v1.2.1 check_failure 'minor version is not incremented'
 # Retain minor-version enforcement and reject older candidates.
 VERSION=v1.1.1 check_failure 'minor version is not incremented'
 VERSION=v1.0.9 check_failure 'must be lower than release version'
@@ -121,5 +129,7 @@ git commit -qm incompatible
 check_failure 'Kept: removed'
 [[ "$(grep -c 'Kept: removed' "$TMP/result")" == 2 ]]
 BASE=v1.2.0 check_failure 'Kept: removed'
+[[ "$(grep -c 'Kept: removed' "$TMP/result")" == 2 ]]
+API_VERSION=v1.3.0 check_failure 'Kept: removed'
 [[ "$(grep -c 'Kept: removed' "$TMP/result")" == 2 ]]
 echo 'check-api: OK'

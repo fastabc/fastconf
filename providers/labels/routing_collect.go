@@ -10,21 +10,10 @@ import (
 // map[string]string, ...) into a pair slice with each key optionally lowercased.
 func collectRoutingLabelPairs(input any, lowercase bool) []confmap.LabelPair {
 	pairs := confmap.NormalizeLabelInput(input)
-	out := make([]confmap.LabelPair, 0, len(pairs))
-	for _, p := range pairs {
-		p.Key = normalizeRoutingKey(p.Key, lowercase)
-		out = append(out, p)
+	for i := range pairs {
+		pairs[i].Key = normalizeRoutingKey(pairs[i].Key, lowercase)
 	}
-	return out
-}
-
-// routingPairsAsList re-renders pairs into the "key=value" form expected by confmap.ExpandLabels.
-func routingPairsAsList(pairs []confmap.LabelPair) []string {
-	out := make([]string, 0, len(pairs))
-	for _, pair := range pairs {
-		out = append(out, pair.Key+"="+pair.Value)
-	}
-	return out
+	return pairs
 }
 
 // normalizeRoutingKey applies the lowercase-keys option uniformly across the inspection and
@@ -36,9 +25,8 @@ func normalizeRoutingKey(key string, lowercase bool) string {
 	return key
 }
 
-// routingGateBlocks returns true when an EnableGate has been configured and its value is missing
-// or not truthy. Callers short-circuit Load on true so a half-configured deployment cannot leak
-// routing labels.
+// routingGateBlocks skips labels only when the gate is present and not truthy.
+// The last matching pair wins; an absent gate leaves the set enabled.
 func routingGateBlocks(pairs []confmap.LabelPair, gate string) bool {
 	if gate == "" {
 		return false

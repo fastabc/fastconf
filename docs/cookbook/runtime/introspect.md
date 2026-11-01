@@ -68,6 +68,10 @@ diff -u /tmp/dev.yaml /tmp/prod.yaml
 
 The default format is JSON (use `--format=yaml` for the deterministic YAML form).
 
+`fastconfctl diff -to prod` compares base-only configuration with prod. An empty
+`-from` ignores `APP_PROFILE` and metadata profile defaults, including overlays
+with negated match expressions. Pass `-from dev` to compare two profiles.
+
 ### Sidecar `/dump` endpoint
 
 `fastconfd` exposes the same artefact over HTTP:

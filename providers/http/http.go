@@ -215,7 +215,7 @@ func (p *Provider) fetch(ctx context.Context) (body []byte, etag, contentType st
 	case resp.StatusCode == nethttp.StatusNotModified:
 		return nil, resp.Header.Get("ETag"), "", true, nil
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
-		b, rerr := providerutil.ReadAllMax(resp.Body, p.maxBodyBytes)
+		b, rerr := contracts.ReadAllMax(resp.Body, p.maxBodyBytes)
 		if rerr != nil {
 			return nil, "", "", false, rerr
 		}

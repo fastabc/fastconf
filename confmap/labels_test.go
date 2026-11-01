@@ -180,3 +180,15 @@ func TestExpandLabels_SeparatorFallback(t *testing.T) {
 		t.Fatalf("got %v", v)
 	}
 }
+
+func TestNormalizeLabelInput_PairsAreCopied(t *testing.T) {
+	pairs := []confmap.LabelPair{{Key: "a=b.c", Value: "v"}}
+	got := confmap.NormalizeLabelInput(pairs)
+	if len(got) != 1 || got[0] != pairs[0] {
+		t.Fatalf("pairs=%v", got)
+	}
+	got[0].Key = "changed"
+	if pairs[0].Key != "a=b.c" {
+		t.Fatal("input slice aliased")
+	}
+}

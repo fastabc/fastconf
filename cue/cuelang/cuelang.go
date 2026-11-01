@@ -1,16 +1,5 @@
-// Package cuelang provides a cuelang.org/go-backed schema validator. It
-// compiles a CUE source string once at construction and unifies every
-// JSON-encoded snapshot against it.
-//
-// The package lives in the unified cue module (cue/go.mod) so projects that don't need CUE
-// keep the cuelang.org/go transitive closure out of their build.
-//
-// Typical wiring:
-//
-//	sch, _ := cuelang.Compile("{ port: int & >0 & <65536 }")
-//	mgr, _ := fastconf.New[Cfg](ctx,
-//	    fastconf.WithValidate(cuelang.Validate[Cfg](sch)),
-//	)
+// Package cuelang compiles CUE schemas once and validates JSON-encoded snapshots.
+// CUE remains in an optional module; see docs/cookbook/processing/policy.md.
 package cuelang
 
 import (

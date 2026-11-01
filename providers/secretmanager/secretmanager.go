@@ -12,7 +12,6 @@ import (
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/internal/providerutil"
 	"github.com/googleapis/gax-go/v2"
 )
 
@@ -108,7 +107,7 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 
 	out, err := p.client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{Name: p.cfg.Name})
 	if err != nil {
-		return contracts.Snapshot{}, providerutil.SafeError("fastconf/secretmanager: "+"access"+" failed", err)
+		return contracts.Snapshot{}, contracts.SafeError("fastconf/secretmanager: "+"access"+" failed", err)
 	}
 	if out.Payload == nil || out.Name == "" {
 		return contracts.Snapshot{}, errors.New("fastconf/secretmanager: missing payload or resolved version")
@@ -124,7 +123,7 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 
 	tree, err := p.decoder.Decode(data)
 	if err != nil {
-		return contracts.Snapshot{}, providerutil.SafeError("fastconf/secretmanager: "+"decode"+" failed", err)
+		return contracts.Snapshot{}, contracts.SafeError("fastconf/secretmanager: "+"decode"+" failed", err)
 	}
 	return contracts.Snapshot{Map: tree, Revision: out.Name}, nil
 }

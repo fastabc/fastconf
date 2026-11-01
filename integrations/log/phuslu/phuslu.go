@@ -1,27 +1,7 @@
-// Package phuslu adapts a *phuslu/log.Logger into an slog.Handler so that
-// FastConf's WithLogger entry point can deliver structured FastConf
-// events to phuslu/log without bringing the phuslu/log dependency into
-// the FastConf root module.
-//
-// Usage:
-//
-//	pl := &log.Logger{
-//	    Level:      log.InfoLevel,
-//	    TimeFormat: "2006-01-02T15:04:05.999Z07:00",
-//	    Writer:     &log.IOWriter{Writer: os.Stderr},
-//	}
-//	cfg, _ := fastconf.New[AppConfig](ctx,
-//	    fastconf.WithLogger(slog.New(phusluadapter.NewHandler(pl, phusluadapter.Options{}))),
-//	)
-//
-// All FastConf log lines flow through phuslu/log with their attrs preserved
-// as structured fields. Groups (slog.Group / Logger.WithGroup) are encoded
-// as dotted key prefixes — e.g. a group "stage" followed by attr {"name":
-// "decode"} appears as field "stage.name=decode".
-//
-// This package is its own module; it shares the slog handling with the
-// zerolog adapter through the dependency-free integrations/log/internal/fclog package, so
-// importing it never pulls in zerolog.
+// Package phuslu adapts its logger to slog.Handler for fastconf.WithLogger.
+// Attributes remain structured; groups use dotted prefixes by default. This optional
+// module shares handling through fclog without importing the other logging backend.
+// See docs/cookbook/observability/log.md for setup.
 package phuslu
 
 import (
@@ -35,10 +15,8 @@ import (
 
 // Options configures NewHandler.
 type Options struct {
-	// Level is an optional slog-side gate. Nil (the default) means "no
-	// slog-side filtering — defer fully to the underlying *phuslu/log.Logger
-	// Level field". Set to a slog.LevelVar or a fixed slog.Level value to
-	// add a secondary, hot-reloadable gate on top.
+	// Level adds an optional slog gate; nil delegates filtering to the backend.
+	// Use slog.LevelVar for a reloadable secondary gate.
 	Level slog.Leveler
 	// AddSource, when true, includes the call site (file:line) as a "source"
 	// field. Default false.
@@ -48,12 +26,8 @@ type Options struct {
 	GroupSeparator string
 }
 
-// NewHandler wraps a *phuslu/log.Logger into an slog.Handler. The Logger
-// pointer is captured directly; mutations to its Level / Writer / etc. take
-// effect immediately for subsequent log records.
-//
-// Passing nil installs a no-op handler so callers do not have to special
-// case "logging disabled".
+// NewHandler captures the logger pointer, so later logger mutations affect records.
+// A nil logger installs a no-op handler.
 func NewHandler(l *plog.Logger, opts Options) slog.Handler {
 	var b fclog.Backend
 	if l != nil {

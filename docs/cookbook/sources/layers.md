@@ -5,6 +5,11 @@ scan `conf.d` by default; `LoadFile` skips discovery and reads exactly one file.
 The complete [basic example](../../../examples/basic/README.md) includes fixtures
 and environment overrides.
 
+Discovery reads regular files (following symlinks), with a 4 MiB per-file limit,
+including metadata, starting in v1.3.0 (unreleased). Strict mode rejects special
+files; otherwise they are skipped. Invalid metadata always fails. See
+[discovery limits and errors](../../design/spec.md#discovery-limits).
+
 ## Directory layout
 
 ```text
@@ -86,6 +91,9 @@ fastconf.WithAxes(
 `DEPLOY_REGION=eu` selects `regions/eu/`. A present but empty axis environment
 variable disables that axis; an absent variable permits the hostname fallback
 when configured. Axes follow profile overlays, ordered by priority then declaration.
+Non-empty values, including hostname fallbacks, must be single directory names:
+`.` / `..`, path separators and invalid filesystem paths are skipped with an
+axis warning.
 
 ## RFC 6902 patches
 

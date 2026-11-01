@@ -16,32 +16,15 @@ type Options struct {
 	// Strict, when true, errors on type mismatch. Otherwise the source
 	// value silently overwrites the destination value.
 	Strict bool
-	// MergeKeys enables Kustomize-style strategic merge for list-of-object
-	// slices. Each entry maps a dotted path in the merged tree to the
-	// field name that identifies "the same item" across overlays. Example:
-	//
-	//	MergeKeys: map[string]string{
-	//	  "spec.containers": "name",
-	//	  "services":        "id",
-	//	}
-	//
-	// When merging a slice under spec.containers, entries are aligned by
-	// the value of their "name" field and merged recursively instead of
-	// being appended or replaced wholesale.
+	// MergeKeys maps dotted list-of-object paths to identifying fields (e.g.
+	// "spec.containers": "name"). Matching objects merge recursively rather than replace.
+	// See docs/cookbook/processing/strategic-merge.md.
 	MergeKeys map[string]string
 }
 
-// Deep merges src into dst (dst is mutated in place). Runs in O(n) and
-// does not allocate a new top-level map. A nil dst is an error unless src is empty.
-//
-// Rules:
-//   - dst[k] missing → dst[k] = src[k];
-//   - both sides are maps → recurse;
-//   - both sides are slices and AppendSlices → append; otherwise src
-//     replaces dst;
-//   - path is registered in MergeKeys → strategic merge by that key
-//     field;
-//   - type mismatch: Strict=true errors, otherwise src replaces dst.
+// Deep merges src into dst in O(n), without a new top-level map. Nil dst errors
+// unless src is empty. Maps recurse; slices append only with AppendSlices, or merge
+// by registered MergeKeys. Other values replace, unless Strict rejects a type conflict.
 func Deep(dst, src map[string]any, opt Options) error {
 	if dst == nil && len(src) != 0 {
 		return fmt.Errorf("merger: cannot merge into a nil destination")

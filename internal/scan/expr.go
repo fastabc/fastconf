@@ -1,18 +1,5 @@
-// This file implements FastConf's tiny boolean profile-expression
-// language. An expression is a propositional formula over
-// profile names with the operators '&' (AND), '|' (OR), '!' (NOT) and
-// parentheses. An identifier evaluates to true iff it is in the active
-// profile set.
-//
-// Examples:
-//
-//	"prod"                  → active("prod")
-//	"prod & eu"             → active("prod") && active("eu")
-//	"prod & (eu | us)"      → active("prod") && (active("eu") || active("us"))
-//	"prod & !canary"        → active("prod") && !active("canary")
-//
-// The parser is recursive-descent and dependency-free; FastConf's main
-// module never grows a third-party expression library.
+// Profile expressions use &, |, ! and parentheses over active profile names.
+// The parser is dependency-free; see docs/cookbook/sources/layers.md.
 
 package scan
 

@@ -1,16 +1,6 @@
-// Package prometheus is the first-party Prometheus adapter for FastConf.
-//
-// It is shipped as a **separate Go module** so that users of the core
-// fastconf package never pull in github.com/prometheus/client_golang
-// transitively. Import the subpackage explicitly to opt in:
-//
-//	import promfc "github.com/fastabc/fastconf/observability/metrics/prometheus"
-//	sink := promfc.New(prometheus.DefaultRegisterer)
-//	mgr, _ := fastconf.New[Config](ctx, fastconf.WithObserver(observe.Metrics(sink)))
-//
-// The Sink has the method set of observe.MetricsSink: reload counters,
-// stage durations, state generation, layer count, and per-provider error
-// and dropped-event counters.
+// Package prometheus implements observe.MetricsSink: reload/error/drop counters,
+// stage durations, generation and layer gauges. It is an optional module; see
+// docs/cookbook/observability/observability.md for registry setup.
 package prometheus
 
 import (

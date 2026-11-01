@@ -1,14 +1,5 @@
-// Command fastconfctl is a CLI companion to FastConf for CI / ops:
-//
-//	fastconfctl dump      [-dir conf.d] [-profile prod]
-//	fastconfctl diff      [-dir conf.d] -from dev -to prod
-//	fastconfctl validate  [-dir conf.d] [-profile prod]
-//	fastconfctl explain   [-dir conf.d] [-profile prod] <dotted.path>
-//
-// The tool reuses the public fastconf engine — no special access to
-// internal packages — so its behaviour matches what the application
-// would observe at runtime. The `explain` subcommand uses
-// WithProvenance(ProvenanceFull) to print the per-path origin chain.
+// Command fastconfctl dumps, diffs, validates and explains configurations using
+// the public engine. See docs/cookbook/runtime/introspect.md and -h for usage.
 package main
 
 import (

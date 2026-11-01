@@ -14,22 +14,23 @@ func TestYAMLContentTypeRejectsMultipleDocuments(t *testing.T) {
 }
 
 func TestByContentType(t *testing.T) {
-	for _, ct := range []string{"application/yaml", "application/x-yaml", "text/yaml; charset=utf-8", "yml", ".yaml"} {
-		c, ok := ByContentType(ct)
-		if !ok {
-			t.Fatalf("ByContentType(%q) not found", ct)
-		}
-		if _, err := c.Decode([]byte("a: 1\n")); err != nil {
-			t.Fatalf("ByContentType(%q) decode: %v", ct, err)
-		}
-	}
-	for _, ct := range []string{"application/json", "text/json", "json"} {
-		c, ok := ByContentType(ct)
-		if !ok {
-			t.Fatalf("ByContentType(%q) not found", ct)
-		}
-		if _, err := c.Decode([]byte(`{"a":1}`)); err != nil {
-			t.Fatalf("ByContentType(%q) decode: %v", ct, err)
+	for _, tc := range []struct {
+		input string
+		types []string
+	}{
+		{"a: 1\n", []string{"application/yaml", "application/x-yaml", "text/yaml; charset=utf-8", "yml", ".yaml"}},
+		{`{"a":1}`, []string{"application/json", "text/json", "json"}},
+	} {
+		for _, ct := range tc.types {
+			t.Run(ct, func(t *testing.T) {
+				c, ok := ByContentType(ct)
+				if !ok {
+					t.Fatalf("ByContentType(%q) not found", ct)
+				}
+				if _, err := c.Decode([]byte(tc.input)); err != nil {
+					t.Fatalf("decode: %v", err)
+				}
+			})
 		}
 	}
 	if _, ok := ByContentType("text/html"); ok {

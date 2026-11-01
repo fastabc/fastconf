@@ -1,8 +1,8 @@
 # Documentation
 
-These pages document v1.2.0;
-for a released dependency, read the same path at its installed tag. Commands
-run from the repository root unless stated otherwise.
+These pages describe this checkout, including changes marked v1.3.0 (unreleased).
+For a released dependency, read the same path at its installed tag. Installation
+examples pin v1.2.0; commands run from the repository root unless stated otherwise.
 
 ## Start here
 

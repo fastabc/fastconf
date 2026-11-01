@@ -14,7 +14,7 @@ inventory when changing implementation files.
 | [`codec/`](../codec) | Document decoders, registry and typed hooks |
 | [`confmap/`](../confmap) | Merge, patch, paths, cloning and coercion |
 | [`transform/`](../transform) | Raw-tree transformations and schema migration chains |
-| [`providers/`](../providers) | File, env, flag, label and remote sources; S3 is a separate module |
+| [`providers/`](../providers) | File, env, flag, label and remote sources; remote cloud sources are separate modules |
 | [`policy/`](../policy), [`cue/`](../cue), [`validate/`](../validate) | Policies and optional validation backends |
 | [`observe/`](../observe), [`observability/`](../observability) | Event composition and optional telemetry backends |
 | [`feature/`](../feature) | Configuration-backed feature rule evaluation |
@@ -61,7 +61,8 @@ specified in the [runtime contract](design/spec.md#reads-and-writes).
 fastconf -> contracts, codec, confmap, policy, internal/*
 codec -> contracts
 transform -> confmap
-providers/* -> contracts, codec, confmap, internal/* (as needed)
+providers/* (root module) -> contracts, codec, confmap, internal/*
+independent cloud provider modules -> contracts, codec, confmap
 observe -> fastconf
 ```
 
@@ -69,6 +70,20 @@ The root does not import `observe`: applications compose observers and pass
 them to options. Domain packages can be used without a manager where their
 interfaces permit. Go enforces import cycles and `internal` access boundaries;
 optional external dependencies stay in their adapter modules.
+
+## Cross-module internal compatibility
+
+New submodules must use public packages rather than root-module `internal/`
+packages. `tools/check-repo.sh deps` enforces this boundary, allowing each
+module's own internal packages and two frozen compatibility paths:
+
+- `internal/providerutil.ReadAllMax` and `SafeError` forward to `contracts`.
+  Published v1.2.x cloud modules still import them; signatures stay frozen until v2.
+- `integrations/log/internal/fclog` remains private but its exported signatures,
+  Options shape and Backend/Event method sets stay frozen until v2 for old adapters.
+
+Compile-time assertions guard these contracts. New provider implementations use
+[the public helpers](cookbook/sources/custom-provider.md), added in v1.3.0 (unreleased).
 
 ## Tests and checks
 

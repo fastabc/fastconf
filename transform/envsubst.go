@@ -26,16 +26,8 @@ var envPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([-?])([^}]
 // providers/dotenv deliberately do not expand variables inside their values.
 func EnvSubst() Func { return EnvSubstWith(os.Getenv) }
 
-// EnvSubstWith is like EnvSubst but reads variables through the
-// supplied lookup function. Use it to look variables up from sources
-// other than os.Getenv — for example, to consult a .env file first and
-// fall back to process env, wrap your dotenv lookup in a closure:
-//
-//	dotenv := map[string]string{ /* parsed once */ }
-//	tr := transform.EnvSubstWith(func(name string) string {
-//	    if v, ok := dotenv[name]; ok { return v }
-//	    return os.Getenv(name)
-//	})
+// EnvSubstWith substitutes variables using lookup instead of os.Getenv.
+// See docs/cookbook/sources/env-replacer.md for environment and dotenv composition.
 func EnvSubstWith(lookup func(string) string) Func {
 	return func(root map[string]any) error {
 		var firstErr error

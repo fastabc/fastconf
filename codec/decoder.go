@@ -1,12 +1,6 @@
-// Package codec decodes source documents into map[string]any trees, also
-// exposed by provider snapshots and map transforms. Typed hooks convert
-// tree values for target fields; fastconf.WithDecodeFormat separately selects
-// the final JSON or YAML bridge into the application's struct.
-//
-// Decoders are registered through a process-wide registry (see
-// registry.go). The built-in yaml/yml/json/toml/ini codecs register themselves
-// in init(); external codecs (hcl/json5/...) plug in from outside
-// the repo via Register.
+// Package codec decodes source documents into public map trees and applies typed
+// hooks before struct decoding. WithDecodeFormat selects that separate struct bridge.
+// YAML, JSON, TOML and INI register at init; Register accepts external codecs.
 package codec
 
 import (

@@ -82,19 +82,9 @@ type assemblyMeta struct {
 	mergeKeys    map[string]string
 }
 
-// assemble runs Discover + Provider Load and returns ordered layers
-// without publishing state. It updates writer-owned caches and invokes
-// providers and generators. The assemblyResult carries meta-driven knobs through
-// pipelineState so Plan and Reload never share transient Manager fields.
-//
-// hostnameOverride pins the hostname used to resolve multi-axis overlay
-// axes that rely on Axis.FromHostname. Empty string means use the OS
-// hostname. Plan sets this from WithPlanHostname; commit()
-// passes "" so live reloads always see the real hostname.
-//
-// extra layers (a WithOverride map) join the same list. Every
-// layer is sorted once, stably, by class and in-class priority, so
-// declaration order only breaks ties.
+// assemble loads and orders layers without publication, updating writer-owned caches.
+// hostnameOverride pins hostname-derived axes for Plan; empty uses the OS hostname.
+// Extra override layers sort by class/priority with declaration order breaking ties.
 func (m *Manager[T]) assemble(ctx context.Context, hostnameOverride string, extra ...stagedLayer) (assemblyResult, error) {
 	if err := ctx.Err(); err != nil {
 		return assemblyResult{}, err
@@ -108,14 +98,14 @@ func (m *Manager[T]) assemble(ctx context.Context, hostnameOverride string, extr
 	if !m.opts.SkipDiscovery {
 		scanOpt, discovered, err := m.buildScanOptions(hostnameOverride)
 		if err != nil {
-			return assemblyResult{}, err
+			return assemblyResult{}, discoveryError(err)
 		}
 		meta = discovered
 		strict = scanOpt.Strict
 		scanOpt.OnDir = func(dir string) { watchDirs = append(watchDirs, dir) }
 		staged, err = m.assembleFileLayers(scanOpt)
 		if err != nil {
-			return assemblyResult{watchDirs: watchDirs}, err
+			return assemblyResult{watchDirs: watchDirs}, discoveryError(err)
 		}
 	}
 	generatorLayers, err := m.assembleGeneratorLayers(ctx)
@@ -151,7 +141,7 @@ func (m *Manager[T]) buildScanOptions(hostnameOverride string) (scan.ScanOptions
 	var metaOut assemblyMeta
 	metaBytes, err := scan.LoadMeta(m.opts.FS, m.opts.Dir)
 	if err != nil {
-		return scanOpt, metaOut, fmt.Errorf("%w: _meta.yaml: %v", fcerr.ErrDecode, err)
+		return scanOpt, metaOut, discoveryError(err)
 	}
 	metaOut.metaSum = sha256.Sum256(metaBytes)
 	var meta scan.MetaFile
@@ -310,4 +300,12 @@ func (m *Manager[T]) assembleProviderLayers(ctx context.Context) ([]stagedLayer,
 		})
 	}
 	return staged, nil
+}
+
+// discoveryError classifies file discovery failures without replacing existing sentinels.
+func discoveryError(err error) error {
+	if errors.Is(err, fcerr.ErrFastConf) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", fcerr.ErrDecode, err)
 }

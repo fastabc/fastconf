@@ -45,13 +45,8 @@ type stage[T any] struct {
 	run  func(context.Context, *Manager[T], *pipelineState[T]) error
 }
 
-// defaultStages returns the canonical reload pipeline. Order matters:
-// transform before decode (decode locks the type), defaults after
-// decode (only zero fields), validate after defaults, policy last.
-//
-// runSecretResolve runs between transform and decode so plaintext is
-// available to the decoder but not exposed to transformers that might
-// log the merged tree.
+// defaultStages defines the ordered reload pipeline shared by Reload and Plan.
+// Assembly and commit remain outside it; see docs/design/spec.md#reload-pipeline.
 func defaultStages[T any]() []stage[T] {
 	return []stage[T]{
 		{"merge", runMerge[T]},

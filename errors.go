@@ -49,14 +49,9 @@ var closedErrCh = func() chan ReloadError {
 	return ch
 }()
 
-// Errors returns a buffered channel that publishes one ReloadError per
-// failed reload attempt. The channel has a fixed capacity; if the
-// consumer cannot keep up, the oldest pending error is dropped so the
-// reload loop never blocks. Closed by Close.
-//
-// Note: the synchronous error returned by Reload(ctx, ...) (and Plan()
-// failures) is also published here, so a consumer can centralise error
-// handling without checking both paths.
+// Errors reports failed reloads and plans, including errors returned synchronously.
+// The bounded channel evicts the oldest error on overflow and closes during Close.
+// A nil Manager returns a closed channel.
 func (m *Manager[T]) Errors() <-chan ReloadError {
 	if m == nil {
 		return closedErrCh

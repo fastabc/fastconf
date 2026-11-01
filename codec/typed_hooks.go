@@ -5,8 +5,6 @@ package codec
 
 import (
 	"reflect"
-	"slices"
-	"strings"
 
 	"github.com/fastabc/fastconf/internal/typeinfo"
 )
@@ -139,7 +137,12 @@ func (b *planBuilder) shapeFor(t reflect.Type) *typePlan {
 	switch t.Kind() {
 	case reflect.Struct:
 		if b.yaml {
-			b.yamlFields(tp, t, nil, map[reflect.Type]bool{})
+			typeinfo.StructFields(t, typeinfo.EmbedYAML, func(f reflect.StructField, index []int) {
+				// Inline maps are handled by yaml.v3 rather than typed hooks.
+				if !typeinfo.YAMLInline(f.Tag.Get("yaml")) {
+					b.addField(tp, f, append([]int(nil), index...))
+				}
+			})
 		} else {
 			for _, f := range typeinfo.JSONFields(t) {
 				b.addField(tp, f.Field, f.Field.Index)
@@ -149,34 +152,6 @@ func (b *planBuilder) shapeFor(t reflect.Type) *typePlan {
 		tp.elem = b.planFor(t.Elem())
 	}
 	return tp
-}
-
-// yamlFields follows yaml.v3: exported fields keyed by tag or lowercase name; `,inline` structs
-// contribute their fields to the parent.
-func (b *planBuilder) yamlFields(tp *typePlan, t reflect.Type, prefix []int, stack map[reflect.Type]bool) {
-	if stack[t] {
-		return
-	}
-	stack[t] = true
-	defer delete(stack, t)
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		if !f.IsExported() {
-			continue
-		}
-		index := append(append([]int(nil), prefix...), i)
-		if inlineYAML(f.Tag.Get("yaml")) {
-			ft := f.Type
-			for ft.Kind() == reflect.Pointer {
-				ft = ft.Elem()
-			}
-			if ft.Kind() == reflect.Struct {
-				b.yamlFields(tp, ft, index, stack)
-			}
-			continue
-		}
-		b.addField(tp, f, index)
-	}
 }
 
 func (b *planBuilder) addField(tp *typePlan, f reflect.StructField, index []int) {
@@ -229,11 +204,6 @@ func directTarget(t reflect.Type) bool {
 		return true
 	}
 	return false
-}
-
-func inlineYAML(tag string) bool {
-	_, flags, _ := strings.Cut(tag, ",")
-	return slices.Contains(strings.Split(flags, ","), "inline")
 }
 
 // Apply rewrites every hook-eligible leaf in merged. Returns the first conversion error

@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"iter"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/fastabc/fastconf/codec"
+	"github.com/fastabc/fastconf/contracts"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,14 +31,13 @@ const (
 	KindPatch
 )
 
-// Layer is a descriptor emitted by the discovery stage. Bytes is read fully into memory (config
-// files are typically less than a few MB).
+// Layer describes a discovered regular file of at most MaxFileBytes.
 type Layer struct {
 	Path     string
 	Kind     Kind
 	Profile  string
 	Priority int
-	Codec    string // "yaml" | "json" | "toml"; third-party codecs registered via codec.RegisterExt show up here too.
+	Codec    string // registered codec name
 	Bytes    []byte
 }
 
@@ -56,7 +57,7 @@ type ScanOptions struct {
 	Profiles      []string       // Active profile set; empty = base-only, one element = single-profile, more = multi-axis expression matching.
 	MatchAnd      string         // Optional global expression AND-ed with each overlay's match.
 	PatchSuffixes []string       // default [".patch.yaml", ".patch.json"]
-	Strict        bool           // when true, an unrecognised extension errors instead of being skipped
+	Strict        bool           // require base; reject unknown extensions and non-regular layer entries
 	FS            fs.FS          // optional virtual filesystem for tests
 	ExtraOverlays []ExtraOverlay // Additional axis directories (multi-axis overlay feature).
 	// OnDir, when non-nil, is called with every contributing directory (base, matched overlays,
@@ -80,12 +81,8 @@ func (o *ScanOptions) defaults() {
 // LayerSeq is the iterator of discovered layers returned by Scan.
 type LayerSeq = iter.Seq2[Layer, error]
 
-// Scan walks root and yields layers in base→overlay priority order,
-// lexicographic within each tier.
-//
-// The function returns an iterator instead of []Layer so that callers can
-// early-stop (e.g. on a per-layer decode error) and large directory trees
-// do not balloon peak memory.
+// Scan yields layers in base→overlay priority order, lexicographic within each tier.
+// The iterator permits early stopping on discovery or decode errors.
 func Scan(root string, opt ScanOptions) LayerSeq {
 	opt.defaults()
 
@@ -112,12 +109,7 @@ func Scan(root string, opt ScanOptions) LayerSeq {
 		}
 
 		// 2) overlay layers (BandFileOverlay..BandFileOverlay+999)
-		// When Profiles is non-empty we walk every direct subdirectory of
-		// OverlayDir, read its optional _meta.yaml (with the `match:`
-		// expression), and include the directory iff the expression
-		// evaluates true against the active set. The single-profile case
-		// is just a Profiles with one element: an overlays/<profile>/
-		// without a _meta.yaml is auto-included.
+		// Active profiles select direct overlay directories by metadata expression or name.
 		if len(opt.Profiles) > 0 {
 			overlayLayers, err := collectOverlaysByExpression(opt.FS, root, opt)
 			if err != nil {
@@ -131,11 +123,7 @@ func Scan(root string, opt ScanOptions) LayerSeq {
 			}
 		}
 
-		// 3) Extra overlay layers from multi-axis configuration (priority
-		//    supplied by caller, typically BandExtraOverlay or above).
-		//    Axes merge in Priority order; declaration order only breaks
-		//    ties. Missing directories are silently skipped so callers do
-		//    not need to pre-check existence.
+		// Additional axes follow profiles; priority wins, declaration order breaks ties.
 		extras := slices.Clone(opt.ExtraOverlays)
 		slices.SortStableFunc(extras, func(a, b ExtraOverlay) int { return cmp.Compare(a.Priority, b.Priority) })
 		for _, extra := range extras {
@@ -161,10 +149,8 @@ func Scan(root string, opt ScanOptions) LayerSeq {
 	}
 }
 
-// collectOverlaysByExpression iterates every direct subdir under OverlayDir, evaluates an optional
-// `_meta.yaml.match` expression against the active profile set, and concatenates the layers from
-// matching directories in lexical order. Directories without a _meta.yaml fall back to "match if
-// subdir name is in active set" so simple use cases still work without writing meta files.
+// collectOverlaysByExpression selects lexical direct subdirectories by metadata match
+// or, without metadata, by membership in the active profile set.
 func collectOverlaysByExpression(fsys fs.FS, root string, opt ScanOptions) ([]Layer, error) {
 	dir := path.Join(root, opt.OverlayDir)
 	if opt.OnDir != nil {
@@ -202,10 +188,7 @@ func collectOverlaysByExpression(fsys fs.FS, root string, opt ScanOptions) ([]La
 			continue
 		}
 		if globalExpr != "" {
-			// Augment the active set with the overlay's own name so
-			// expressions like "!canary" can suppress directories whose
-			// name (or match field) brings them in. This makes the
-			// global filter compositional with per-overlay matchers.
+			// Include the overlay name so the global filter can exclude that directory.
 			scoped := NewSet(opt.Profiles...)
 			scoped[e.Name()] = struct{}{}
 			ok, err := Eval(globalExpr, scoped)
@@ -235,9 +218,7 @@ func collectOverlaysByExpression(fsys fs.FS, root string, opt ScanOptions) ([]La
 	return out, nil
 }
 
-// overlayStride is the per-overlay-directory priority window. A directory may hold at most this
-// many config files so its file-priority offsets never overflow into the next matched overlay's
-// band.
+// overlayStride reserves 100 priorities per overlay directory, preventing band overlap.
 const overlayStride = 100
 
 // Layer priority bands assigned by Scan. Base files occupy BandFileBase+i, matched overlay
@@ -265,7 +246,7 @@ type overlayMeta struct {
 
 func overlayMatches(fsys fs.FS, root, sub, name string, active Set) (bool, error) {
 	metaPath := path.Join(root, sub, "_meta.yaml")
-	data, err := readFile(fsys, metaPath)
+	data, _, err := readLayer(fsys, metaPath, true)
 	if err != nil {
 		// No per-overlay meta — fall back to "name == active member".
 		if errors.Is(err, fs.ErrNotExist) {
@@ -321,9 +302,12 @@ func collect(fsys fs.FS, root, sub, profile string, base int, opt ScanOptions) (
 			}
 			continue
 		}
-		data, err := readFile(fsys, full)
+		data, ok, err := readLayer(fsys, full, opt.Strict)
 		if err != nil {
-			return nil, fmt.Errorf("scan: read %q: %w", full, err)
+			return nil, err
+		}
+		if !ok {
+			continue
 		}
 		out = append(out, Layer{
 			Path:     full,
@@ -364,9 +348,79 @@ func readDir(fsys fs.FS, dir string) ([]fs.DirEntry, error) {
 	return os.ReadDir(dir)
 }
 
-func readFile(fsys fs.FS, p string) ([]byte, error) {
-	if fsys != nil {
-		return fs.ReadFile(fsys, p)
+// MaxFileBytes bounds each discovered file, matching LoadFile and remote providers.
+const MaxFileBytes = contracts.DefaultMaxBodyBytes
+
+// readLayer follows symlinks so Kubernetes ConfigMap entries remain loadable.
+func readLayer(fsys fs.FS, p string, strict bool) ([]byte, bool, error) {
+	info, err := statFile(fsys, p)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, false, err
+		}
+		return nil, false, fmt.Errorf("scan: stat %q: %w", p, err)
 	}
-	return os.ReadFile(p)
+	if !info.Mode().IsRegular() {
+		if strict {
+			return nil, false, fmt.Errorf("scan: %q is not a regular file (strict mode)", p)
+		}
+		return nil, false, nil
+	}
+	f, err := openFile(fsys, p)
+	if err != nil {
+		return nil, false, fmt.Errorf("scan: read %q: %w", p, err)
+	}
+	defer func() { _ = f.Close() }()
+	data, err := readLayerData(f, info.Size())
+	if err != nil {
+		return nil, false, fmt.Errorf("scan: read %q: %w", p, err)
+	}
+	return data, true, nil
+}
+
+func statFile(fsys fs.FS, p string) (fs.FileInfo, error) {
+	if fsys != nil {
+		return fs.Stat(fsys, p)
+	}
+	return os.Stat(p)
+}
+
+func openFile(fsys fs.FS, p string) (fs.File, error) {
+	if fsys != nil {
+		return fsys.Open(p)
+	}
+	return os.Open(p)
+}
+
+// readLayerData preallocates from size, but reads growing files completely up to MaxFileBytes+1.
+func readLayerData(f fs.File, size int64) ([]byte, error) {
+	if size < 0 || size > MaxFileBytes {
+		return contracts.ReadAllMax(f, MaxFileBytes)
+	}
+	data := make([]byte, size+1)
+	n := 0
+	var err error
+	for n < len(data) {
+		var read int
+		read, err = f.Read(data[n:])
+		n += read
+		if err != nil {
+			break
+		}
+	}
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+	data = data[:n]
+	if err != io.EOF {
+		tail, err := contracts.ReadAllMax(io.LimitReader(f, MaxFileBytes-int64(n)+1), MaxFileBytes)
+		if err != nil {
+			return nil, err
+		}
+		data = append(data, tail...)
+	}
+	if int64(len(data)) > MaxFileBytes {
+		return nil, fmt.Errorf("%w: limit=%d bytes", contracts.ErrTooLarge, MaxFileBytes)
+	}
+	return data, nil
 }

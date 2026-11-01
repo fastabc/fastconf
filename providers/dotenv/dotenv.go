@@ -15,17 +15,11 @@ import (
 	envprovider "github.com/fastabc/fastconf/providers/env"
 )
 
-// Provider reads .env files using env.EnvKeyReplacer (env.DotReplacer by default).
-// Process environment keys suppress matching .env keys even when explicitly empty;
-// register env.New as well to load those process values.
-// PriorityDotEnv puts this layer below other built-in providers. No os.Setenv
-// calls are made, preserving tenant and test isolation.
-//
-// Later files override earlier ones. Values support unquoted strings, double
-// quotes with escapes, and literal single quotes. Blank lines and full-line
-// comments are skipped; optional export prefixes are accepted. Inline # remains
-// part of a value. Variable references are literal; use transform.EnvSubst
-// for interpolation after merging.
+// Provider loads .env files at PriorityDotEnv with env.DotReplacer by default.
+// Later files win; present process keys suppress .env values, even when empty.
+// Register env.New to load those values. It never calls os.Setenv; references stay
+// literal (use transform.EnvSubst). Quoting, export prefixes and comments are defined
+// in docs/cookbook/sources/env-replacer.md.
 type Provider struct {
 	prefix   string
 	paths    []string
@@ -119,7 +113,8 @@ func (p *Provider) loadMap(_ context.Context) (map[string]any, error) {
 		if err != nil {
 			return nil, fmt.Errorf("dotenv provider: parse %q: %w", path, err)
 		}
-		for k, v := range pairs {
+		for _, pair := range pairs {
+			k, v := pair.key, pair.value
 			// Actual env vars take precedence: skip keys already present in
 			// the process environment, even when their value is explicitly
 			// empty. Check k directly — it is the full raw key from the .env
@@ -148,8 +143,8 @@ func (p *Provider) loadMap(_ context.Context) (map[string]any, error) {
 
 // parseDotEnv parses .env file bytes and returns KEY → raw-string pairs. Keys retain their
 // original case; stripping and lowercasing is the caller's responsibility (same as Provider).
-func parseDotEnv(data []byte) (map[string]string, error) {
-	out := map[string]string{}
+func parseDotEnv(data []byte) ([]envPair, error) {
+	var out []envPair
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	lineno := 0
 	for scanner.Scan() {
@@ -176,10 +171,12 @@ func parseDotEnv(data []byte) (map[string]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineno, err)
 		}
-		out[key] = val
+		out = append(out, envPair{key: key, value: val})
 	}
 	return out, scanner.Err()
 }
+
+type envPair struct{ key, value string }
 
 // parseValue handles unquoted, single-quoted, and double-quoted values.
 func parseValue(s string) (string, error) {

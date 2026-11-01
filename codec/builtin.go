@@ -69,17 +69,9 @@ var (
 	yamlNLEnd    = []byte("\n...")
 )
 
-// hasYAMLDocumentBoundary reports whether data contains a line opening with
-// "---" or "...". A second YAML document always starts with a "---" line, so
-// input without one holds at most a single document.
-//
-// The check is deliberately one-sided. Over-reporting — a "---" line inside a
-// multi-line quoted scalar or a block scalar — only costs the slower strict
-// path, which still finds exactly one document and succeeds. Under-reporting
-// would let a real second document through and resurrect the silent
-// truncation this guards against, so every candidate line must match here.
-// "\r\n" endings are covered: the "\n---" probe matches the byte after the
-// carriage return.
+// hasYAMLDocumentBoundary conservatively finds --- or ... at line starts, including CRLF.
+// False positives inside scalars use the strict path; false negatives would silently
+// accept truncated multi-document input.
 func hasYAMLDocumentBoundary(data []byte) bool {
 	if bytes.HasPrefix(data, yamlDocStart) || bytes.HasPrefix(data, yamlDocEnd) {
 		return true
@@ -87,17 +79,8 @@ func hasYAMLDocumentBoundary(data []byte) bool {
 	return bytes.Contains(data, yamlNLStart) || bytes.Contains(data, yamlNLEnd)
 }
 
-// rejectExtraYAMLDocuments drains dec after the first document and fails when
-// any further document carries content. Silently keeping only the first
-// document loses configuration with no diagnostic, so this mirrors the
-// jsonDecoder contract.
-//
-// Empty trailing documents are accepted. A stream ending in "---", a trailing
-// separator followed by blank lines, or one followed only by a comment all
-// decode to a nil document that carries nothing; templating tools emit those
-// routinely and rejecting them would break working input without preventing
-// any loss. The drain continues past them so content hiding behind an empty
-// document is still caught.
+// rejectExtraYAMLDocuments drains the stream, allowing empty trailing documents
+// but rejecting any later content. Empty documents must not hide a subsequent one.
 func rejectExtraYAMLDocuments(dec *yaml.Decoder) error {
 	for {
 		var extra any

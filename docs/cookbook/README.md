@@ -1,7 +1,8 @@
 # Cookbook
 
-Recipes document v1.2.0. Start
-with the [loading guides](../README.md#start-here) or [complete examples](../../examples/README.md).
+Recipes describe this checkout; unreleased v1.3.0 additions are marked explicitly.
+For a released dependency, read the recipe at its installed tag. Start with the
+[loading guides](../README.md#start-here) or [complete examples](../../examples/README.md).
 
 Go blocks are integration fragments unless labeled as complete programs.
 Files use the same functional directories as the sections below.
@@ -14,6 +15,7 @@ root. Optional modules and local workspace commands are listed in the
 
 | Recipe | Purpose |
 |---|---|
+| [Custom providers](sources/custom-provider.md) | Bounded reads, sanitized errors and conformance tests (v1.3.0, unreleased) |
 | [Files, profiles and patches](sources/layers.md) | Directory layout, profile selection, axes and RFC 6902 patches |
 | [Environment and dotenv](sources/env-replacer.md) | Key separators, namespaces, coercion and fallback |
 | [INI](sources/ini.md) | Sections, typed conversion and mixed-format merge limits |

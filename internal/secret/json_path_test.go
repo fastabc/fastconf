@@ -8,6 +8,20 @@ import (
 	"github.com/fastabc/fastconf/internal/secret"
 )
 
+func TestPathHasSecrets_MapNamedInlineDoesNotLeak(t *testing.T) {
+	type cfg struct {
+		Inline map[string]string `json:"inline" yaml:"inline" fc:"secret"`
+		Port   int               `json:"port"`
+	}
+	p := secret.Compile(reflect.TypeFor[cfg](), nil)
+	if p.PathHasSecrets("port") {
+		t.Fatal("sibling of a map named inline was masked")
+	}
+	if !p.PathHasSecrets("inline.x") {
+		t.Fatal("secret map lost its mark")
+	}
+}
+
 type pathLeaf struct {
 	Name  string `json:"name"`
 	Token string `json:"token" fc:"secret"`
@@ -18,11 +32,10 @@ type pathWrap struct {
 	ByKey map[string]pathLeaf `json:"byKey"`
 }
 
-// recordPaths applies ApplyJSON with a redactor that records every path it is
-// handed, so the assertions are about path strings rather than values.
+// recordPaths records the paths passed by a compiled Plan to its redactor.
 func recordPaths(tree map[string]any, t reflect.Type) []string {
 	var seen []string
-	secret.ApplyJSON(tree, t, func(path string, _ any) any {
+	secret.Compile(t, nil).Apply(tree, func(path string, _ any) any {
 		seen = append(seen, path)
 		return "***"
 	})
@@ -34,11 +47,11 @@ func recordPaths(tree map[string]any, t reflect.Type) []string {
 //
 // The struct branch already guarded against an empty parent path; the map
 // branch did not, so a top-level map of structs produced ".db.token" and
-// broke redactors that match on exact path text. ApplyJSON takes a
+// broke redactors that match on exact path text. Plan.Apply takes a
 // map[string]any tree, so the map branch is the only one reachable with an
 // empty parent — the slice branch shares the same joining helper for
 // consistency but cannot be entered at depth zero.
-func TestApplyJSONPathsHaveNoLeadingSeparator(t *testing.T) {
+func TestPlanApplyPathsHaveNoLeadingSeparator(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		tree map[string]any

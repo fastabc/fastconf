@@ -1,21 +1,5 @@
-// fastconfd is the sidecar daemon. It runs an embedded
-// fastconf.Manager[map[string]any] and exposes the live configuration
-// over a tiny HTTP API so that polyglot workloads (Python, Node,
-// Rust, shell) can pull strongly-versioned config out-of-process
-// without linking the Go SDK.
-//
-// Endpoints:
-//
-//	GET  /config           — current snapshot as JSON, secrets masked (see -secret-path)
-//	GET  /config?path=a.b  — single path lookup
-//	GET  /dump             — YAML (or ?format=json) dump, secrets masked
-//	?unredacted=true       — plaintext; requires X-Unredacted-Token (-unredacted-token)
-//	GET  /healthz          — 200 once first reload succeeded
-//	GET  /version          — current generation + content hash
-//	POST /reload           — manual reload (auth via X-Reload-Token)
-//	GET  /events           — Server-Sent Events stream of reload causes
-//
-// Scope: HTTP and Server-Sent Events.
+// Command fastconfd serves configuration snapshots through authenticated HTTP and SSE.
+// See docs/cookbook/deployment/sidecar.md for endpoints, tokens and deployment.
 package main
 
 import (
@@ -23,7 +7,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -40,23 +26,17 @@ import (
 var version = "dev"
 
 func main() {
-	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	var flags cli.Flags
-	cli.RegisterFlags(fs, &flags)
-	// fastconfd-specific overrides: watcher is always on for a sidecar,
-	// add HTTP-listen + reload-auth flags that have no analogue elsewhere.
+	f, err := parseFlags(os.Args[1:], os.Getenv, os.Stderr)
+	if errors.Is(err, flag.ErrHelp) {
+		return
+	}
+	if err != nil {
+		os.Exit(2)
+	}
+	flags := f.cli
 	flags.Watch = true
-	addr := fs.String("addr", "127.0.0.1:8650", "HTTP listen address")
-	token := fs.String("reload-token", os.Getenv("FASTCONFD_RELOAD_TOKEN"), "shared secret required for POST /reload")
-	readToken := fs.String("read-token", os.Getenv("FASTCONFD_READ_TOKEN"), "shared secret required for config, dump and events")
-	unredactedToken := fs.String("unredacted-token", os.Getenv("FASTCONFD_UNREDACTED_TOKEN"), "shared secret for ?unredacted=true on config and dump (empty disables plaintext)")
-	var secretPaths []string
-	fs.Func("secret-path", "dotted path pattern to redact (repeatable; * = one segment, ** = any)", func(v string) error {
-		secretPaths = append(secretPaths, v)
-		return nil
-	})
-	_ = fs.Parse(os.Args[1:])
-	if err := authGate(*token, *readToken); err != nil {
+
+	if err := authGate(f.token, f.readToken); err != nil {
 		fmt.Fprintln(os.Stderr, "fastconfd: "+err.Error())
 		os.Exit(2)
 	}
@@ -64,12 +44,18 @@ func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	ln, err := listen(f.addr)
+	if err != nil {
+		log.LogAttrs(context.Background(), slog.LevelError, "listen failed", slog.Any("err", err))
+		os.Exit(1)
+	}
+	defer func() { _ = ln.Close() }()
 
 	bus := newEventBus()
 	mgr, err := cli.LoadConfig[map[string]any](ctx, flags,
 		fastconf.WithLogger(log),
 		fastconf.WithObserver(bus),
-		fastconf.WithSecretPaths(secretPaths...),
+		fastconf.WithSecretPaths(f.secretPaths...),
 	)
 	if err != nil {
 		log.LogAttrs(context.Background(), slog.LevelError, "initial reload failed", slog.Any("err", err))
@@ -77,18 +63,19 @@ func main() {
 	}
 	defer func() { _ = mgr.Close() }()
 
-	srv := newServer(mgr, bus, *token, log)
-	srv.readToken = *readToken
-	srv.unredactedToken = *unredactedToken
+	srv := newServer(mgr, bus, f.token, log)
+	srv.readToken = f.readToken
+	srv.unredactedToken = f.unredactedToken
 	httpSrv := &http.Server{
-		Addr:              *addr,
+		Addr:              f.addr,
 		Handler:           srv.routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
-		log.LogAttrs(context.Background(), slog.LevelInfo, "fastconfd listening", slog.String("addr", *addr))
-		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.LogAttrs(context.Background(), slog.LevelInfo, "fastconfd listening", slog.String("addr", f.addr))
+		if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.LogAttrs(context.Background(), slog.LevelError, "http serve", slog.Any("err", err))
+			cancel()
 		}
 	}()
 
@@ -99,16 +86,44 @@ func main() {
 	_ = httpSrv.Shutdown(shutdownCtx)
 }
 
-// authGate is the daemon's startup authentication policy: both tokens are
-// required, whatever the listen address.
-//
-// Binding to loopback is not treated as a waiver. Every process sharing the
-// host or the pod's network namespace can reach 127.0.0.1, so the address
-// does not establish the single-tenant boundary it suggests, and /config and
-// /dump serve the full merged configuration.
+func listen(addr string) (net.Listener, error) { return net.Listen("tcp", addr) }
+
+// authGate requires read and reload tokens even on loopback: other host/pod
+// processes can reach it, and diagnostic endpoints expose the merged configuration.
 func authGate(token, readToken string) error {
 	if token == "" || readToken == "" {
 		return errors.New("-reload-token and -read-token are required")
 	}
 	return nil
+}
+
+type daemonFlags struct {
+	cli                                     cli.Flags
+	addr, token, readToken, unredactedToken string
+	secretPaths                             []string
+}
+
+func parseFlags(args []string, getenv func(string) string, stderr io.Writer) (daemonFlags, error) {
+	var f daemonFlags
+	fs := flag.NewFlagSet("fastconfd", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cli.RegisterFlags(fs, &f.cli)
+	fs.StringVar(&f.addr, "addr", "127.0.0.1:8650", "HTTP listen address")
+	fs.StringVar(&f.token, "reload-token", "", "shared secret for POST /reload (default $FASTCONFD_RELOAD_TOKEN)")
+	fs.StringVar(&f.readToken, "read-token", "", "shared secret for config, dump and events (default $FASTCONFD_READ_TOKEN)")
+	fs.StringVar(&f.unredactedToken, "unredacted-token", "", "shared secret for plaintext (default $FASTCONFD_UNREDACTED_TOKEN; empty disables plaintext)")
+	fs.Func("secret-path", "dotted path pattern to redact (repeatable; * = one segment, ** = any)", func(v string) error { f.secretPaths = append(f.secretPaths, v); return nil })
+	if err := fs.Parse(args); err != nil {
+		return f, err
+	}
+	if f.token == "" {
+		f.token = getenv("FASTCONFD_RELOAD_TOKEN")
+	}
+	if f.readToken == "" {
+		f.readToken = getenv("FASTCONFD_READ_TOKEN")
+	}
+	if f.unredactedToken == "" {
+		f.unredactedToken = getenv("FASTCONFD_UNREDACTED_TOKEN")
+	}
+	return f, nil
 }

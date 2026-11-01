@@ -1,13 +1,5 @@
-// Package cli centralises the FastConf command-line flag set so every
-// cmd/* binary registers -dir / -profile / -strict / -watch with
-// identical defaults and semantics, and constructs the Manager via a
-// single canonical path.
-//
-// Sub-commands embed Flags into their flag.FlagSet, call RegisterFlags,
-// then hand the populated value to LoadConfig[T] together with any
-// command-specific Option overrides. Adding a new CLI binary becomes
-// "wire Flags + call LoadConfig + run business logic" with no
-// boilerplate.
+// Package cli shares command-line flags and manager setup across FastConf binaries.
+// RegisterFlags parses common settings; LoadConfig applies command-specific options.
 package cli
 
 import (
@@ -40,10 +32,13 @@ type Flags struct {
 	Unredacted bool
 	Dir        string
 	Profile    string
+	BaseOnly   bool
 	Strict     bool
 	Watch      bool
 	Providers  ProviderFlags
 }
+
+const baseOnlyProfile = "fastconfctl-base-only"
 
 // ProviderFlags is a repeatable "-provider name=value" flag. Value may
 // be JSON (decoded into a map) or a plain string (wrapped as
@@ -72,12 +67,8 @@ func RegisterFlags(fs *flag.FlagSet, f *Flags) {
 	fs.Var(&f.Providers, "provider", "name=value provider spec (repeatable; value may be JSON)")
 }
 
-// ChangedValues visits only flags explicitly set by the user and lets the
-// caller project them into a CLI-provider map. It intentionally skips parser
-// defaults so lower-priority config remains authoritative unless the user
-// typed an override.
-//
-// When build is nil, ChangedValues records a flat name → string-value map.
+// ChangedValues projects explicitly set flags through build, preserving lower-priority
+// configuration for unset flags. A nil build records flat name/string-value pairs.
 func ChangedValues(fs *flag.FlagSet, build func(name, value string, out map[string]any) error) (map[string]any, error) {
 	out := map[string]any{}
 	var firstErr error
@@ -115,6 +106,9 @@ func LoadConfig[T any](ctx context.Context, f Flags, extra ...fastconf.Option) (
 
 // Options assembles the fastconf options selected by f, followed by extra.
 func (f Flags) Options(extra ...fastconf.Option) ([]fastconf.Option, error) {
+	if f.BaseOnly && f.Profile != "" {
+		return nil, errors.New("cli: base-only and profile cannot both be set")
+	}
 	opts := []fastconf.Option{
 		fastconf.WithDir(f.Dir),
 		fastconf.WithSecretPaths(DefaultSecretPaths...),
@@ -123,7 +117,11 @@ func (f Flags) Options(extra ...fastconf.Option) ([]fastconf.Option, error) {
 	if f.Watch {
 		opts = append(opts, fastconf.WithWatch(fastconf.Watch{}))
 	}
-	if f.Profile != "" {
+	if f.BaseOnly {
+		opts = append(opts, fastconf.WithProfile(fastconf.Profile{
+			Names: []string{baseOnlyProfile}, Match: baseOnlyProfile + " & !" + baseOnlyProfile,
+		}))
+	} else if f.Profile != "" {
 		opts = append(opts, fastconf.WithProfile(fastconf.Profile{Names: strings.Split(f.Profile, ",")}))
 	}
 	if err := f.Providers.Apply(&opts); err != nil {

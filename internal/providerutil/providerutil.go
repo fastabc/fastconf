@@ -1,10 +1,8 @@
 package providerutil
 
 import (
-	"fmt"
 	"io"
 	"maps"
-	"math"
 	"net/http"
 	"sync"
 	"time"
@@ -29,25 +27,9 @@ func HTTPClient(timeout time.Duration) *http.Client {
 	}
 }
 
-// ReadAllMax reads at most max+1 bytes and rejects an oversized body without
-// retaining or decoding a truncated configuration document.
-func ReadAllMax(r io.Reader, max int64) ([]byte, error) {
-	if max <= 0 {
-		max = contracts.DefaultMaxBodyBytes
-	}
-	limit := max
-	if limit < math.MaxInt64 {
-		limit++
-	}
-	b, err := io.ReadAll(io.LimitReader(r, limit))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(b)) > max {
-		return nil, fmt.Errorf("%w: limit=%d bytes", contracts.ErrTooLarge, max)
-	}
-	return b, nil
-}
+// ReadAllMax is the compatibility entry point for contracts.ReadAllMax.
+// Frozen: published sub-modules up to v1.2.x import this; keep the signature until v2.
+func ReadAllMax(r io.Reader, max int64) ([]byte, error) { return contracts.ReadAllMax(r, max) }
 
 // Latest retains the most recently decoded streaming document. Callers must
 // not mutate a stored map; Snapshot copies its top level and the manager
@@ -108,14 +90,27 @@ func MaybeCoerce(s string, enabled bool) any {
 	return confmap.Coerce(s, confmap.CoerceOptions{IgnoreCase: true})
 }
 
-// SafeError displays only a caller-chosen message while preserving the cause
-// for errors.Is/As. SDK errors can contain credentials or document contents.
-func SafeError(message string, cause error) error { return &safeError{message, cause} }
+// SafeError is the compatibility entry point for contracts.SafeError.
+// Frozen: published sub-modules up to v1.2.x import this; keep the signature until v2.
+func SafeError(message string, cause error) error { return contracts.SafeError(message, cause) }
 
-type safeError struct {
-	message string
-	cause   error
+// Backoff doubles Min up to Max; callers must set 0 < Min <= Max.
+// It is owned by one retry loop.
+type Backoff struct{ Min, Max, cur time.Duration }
+
+// Next returns Min first, then doubles each delay up to Max.
+func (b *Backoff) Next() time.Duration {
+	if b.cur == 0 {
+		b.cur = b.Min
+	}
+	d := b.cur
+	if b.cur >= b.Max-b.cur {
+		b.cur = b.Max
+	} else {
+		b.cur *= 2
+	}
+	return d
 }
 
-func (e *safeError) Error() string { return e.message }
-func (e *safeError) Unwrap() error { return e.cause }
+// Reset makes the next delay Min again.
+func (b *Backoff) Reset() { b.cur = 0 }

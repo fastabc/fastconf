@@ -47,7 +47,7 @@ func Compile(t reflect.Type, patterns []string) *Plan {
 		if p := memo[t]; p != nil {
 			return p
 		}
-		p := &jsonPlan{kind: t.Kind(), opaque: opaqueJSONType(t), secrets: hasSecrets(t, map[reflect.Type]bool{})}
+		p := &jsonPlan{kind: t.Kind(), opaque: opaqueJSONType(t), secrets: hasSecrets(t)}
 		memo[t] = p
 		if !p.secrets || p.opaque {
 			return p
@@ -75,8 +75,8 @@ func Compile(t reflect.Type, patterns []string) *Plan {
 	return &Plan{root: build(t), patterns: compilePatterns(patterns)}
 }
 
-// Provenance records input paths, including YAML-only and inline fields that
-// JSON output omits. Keep these conservative rules separate from output names.
+// provenanceFields retains parent aliases and inherited secret flags alongside flattened
+// children. Input paths also include YAML-only fields and inline maps absent from JSON output.
 func provenanceFields(t reflect.Type, marked bool, stack map[reflect.Type]bool, build func(reflect.Type) *jsonPlan) []jsonField {
 	if stack[t] {
 		return nil
@@ -93,7 +93,7 @@ func provenanceFields(t reflect.Type, marked bool, stack map[reflect.Type]bool, 
 		secret := marked || HasTag(field.Tag.Get(typeinfo.TagKey))
 		child := build(field.Type)
 		fields = append(fields, jsonField{candidates: aliases.Candidates, marked: secret, child: child})
-		if !aliases.Flatten && !strings.Contains(","+field.Tag.Get("yaml")+",", ",inline,") {
+		if !aliases.Flatten && !typeinfo.YAMLInline(field.Tag.Get("yaml")) {
 			continue
 		}
 		ft := field.Type
@@ -124,15 +124,7 @@ func (p *Plan) Apply(tree map[string]any, redactor Redactor) map[string]any {
 	return out
 }
 
-// ApplyJSON follows actual JSON names, including literal dots in keys.
-func ApplyJSON(tree map[string]any, t reflect.Type, redactor Redactor) map[string]any {
-	return Compile(t, nil).Apply(tree, redactor)
-}
-
-var marshalerTypes = [...]reflect.Type{
-	reflect.TypeFor[json.Marshaler](),
-	reflect.TypeFor[encoding.TextMarshaler](),
-}
+var marshalerTypes = [...]reflect.Type{reflect.TypeFor[json.Marshaler](), reflect.TypeFor[encoding.TextMarshaler]()}
 
 func opaqueJSONType(t reflect.Type) bool {
 	for _, iface := range marshalerTypes {
@@ -146,10 +138,6 @@ func opaqueJSONType(t reflect.Type) bool {
 // PathHasSecrets checks provenance against the type, even when the final
 // value omits a field or removes a list. Containers with secret descendants
 // are masked as a whole because their historical shape can differ.
-func PathHasSecrets(t reflect.Type, path string) bool {
-	return Compile(t, nil).PathHasSecrets(path)
-}
-
 func (p *Plan) PathHasSecrets(path string) bool { return p.root.pathHasSecrets(path) }
 
 func (p *jsonPlan) pathHasSecrets(path string) bool {
@@ -239,10 +227,8 @@ func (p *jsonPlan) redact(node any, path string, redact Redactor) any {
 	return node
 }
 
-// joinPath appends child to the dotted parent path. All three container
-// branches above route through it so a root-level map or slice cannot emit a
-// leading separator (".db.token"); redactors that match on exact path text
-// rely on the same shape at every depth.
+// joinPath avoids a leading separator for root containers, preserving exact
+// path matches in user redactors.
 func joinPath(parent, child string) string {
 	if parent == "" {
 		return child
@@ -250,24 +236,17 @@ func joinPath(parent, child string) string {
 	return parent + "." + child
 }
 
-func hasSecrets(t reflect.Type, seen map[reflect.Type]bool) bool {
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	if seen[t] {
-		return false
-	}
-	seen[t] = true
-	switch t.Kind() {
-	case reflect.Struct:
+func hasSecrets(t reflect.Type) bool {
+	return typeinfo.Reaches(t, func(t reflect.Type) bool {
+		if t.Kind() != reflect.Struct {
+			return false
+		}
 		for i := 0; i < t.NumField(); i++ {
 			f := t.Field(i)
-			if HasTag(f.Tag.Get(typeinfo.TagKey)) || hasSecrets(f.Type, seen) {
+			if (f.IsExported() || f.Anonymous) && HasTag(f.Tag.Get(typeinfo.TagKey)) {
 				return true
 			}
 		}
-	case reflect.Slice, reflect.Array, reflect.Map:
-		return hasSecrets(t.Elem(), seen)
-	}
-	return false
+		return false
+	})
 }

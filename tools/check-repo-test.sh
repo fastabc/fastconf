@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/repo/tools"
-cp "$ROOT/tools/check-repo.sh" "$ROOT/tools/check-doc-links.py" "$TMP/repo/tools/"
+cp "$ROOT/tools/check-repo.sh" "$ROOT/tools/check-doc-links.py" "$ROOT/tools/modules.sh" "$TMP/repo/tools/"
 cd "$TMP/repo"
 git init -q
 printf 'package example\n' > old.go
@@ -43,4 +43,23 @@ if bash tools/check-repo.sh docs > "$TMP/output" 2>&1; then
   exit 1
 fi
 grep -Fq 'README.md: missing missing.md' "$TMP/output"
+# Dependency checks allow frozen internals, but reject a new root internal import.
+mkdir -p child internal/coalesce integrations/log/internal/fclog
+printf 'module github.com/fastabc/fastconf\n\ngo 1.24.0\n' > go.mod
+printf 'module github.com/fastabc/fastconf/child\n\ngo 1.24.0\n' > child/go.mod
+printf 'package coalesce\n' > internal/coalesce/coalesce.go
+printf 'package fclog\n' > integrations/log/internal/fclog/fclog.go
+printf 'package child\nimport _ "github.com/fastabc/fastconf/internal/scan"\n' > child/child.go
+git add go.mod child
+if bash tools/check-repo.sh deps > "$TMP/output" 2>&1; then
+  echo 'deps check missed cross-module internal import' >&2; exit 1
+fi
+grep -Fq 'github.com/fastabc/fastconf/internal/scan' "$TMP/output"
+printf 'package child\nimport _ "github.com/fastabc/fastconf/internal/providerutil"\nimport _ "github.com/fastabc/fastconf/integrations/log/internal/fclog"\nimport _ "github.com/fastabc/fastconf/child/internal/local"\n' > child/child.go
+bash tools/check-repo.sh deps
+printf 'package child\nimport _ "github.com/fastabc/fastconf/internal/scan"\n' > child/untracked.go
+if bash tools/check-repo.sh deps > "$TMP/output" 2>&1; then
+  echo 'deps check missed an untracked cross-module internal import' >&2; exit 1
+fi
+grep -Fq 'github.com/fastabc/fastconf/internal/scan' "$TMP/output"
 echo 'check-repo: OK'

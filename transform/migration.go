@@ -1,14 +1,5 @@
-// Migration lets FastConf rewrite the merged map from one
-// schema version to another before it is decoded into the strongly
-// typed snapshot. It addresses the "long-lived config + evolving
-// struct" pain point: instead of forcing every operator to hand-edit
-// every overlay file, a Migration shifts ageing keys (e.g. db.url ->
-// db.dsn) on the fly during reload.
-//
-// Migrations form an explicit chain keyed by _meta.schemaVersion. The
-// chain runs after merge but before transform/decode; the final version
-// is written back into _meta.schemaVersion so subsequent reloads
-// fast-skip already-migrated input.
+// Migrations upgrade _meta.schemaVersion through an explicit chain before decode.
+// See docs/design/spec.md#reload-pipeline.
 
 package transform
 
@@ -20,6 +11,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 )
 
 // Migration upgrades a merged configuration map from From to To.
@@ -66,18 +58,39 @@ const FieldKey = "schemaVersion"
 
 // CurrentVersion reads m._meta.schemaVersion. Missing values, and values that are not an integer
 // representable as int, are treated as version 0 (assume the oldest schema). Integers arrive as
-// json.Number from the JSON codec, int from YAML and int64 from TOML.
+// json.Number from JSON, int from YAML, int64 from TOML and decimal strings from INI/env.
 func CurrentVersion(m map[string]any) int {
 	meta, _ := m[MetaKey].(map[string]any)
 	if meta == nil {
 		return 0
 	}
 	var n int64
-	switch v := meta[FieldKey].(type) {
+	raw := meta[FieldKey]
+	if v, ok := raw.(float32); ok {
+		raw = float64(v)
+	}
+	switch v := raw.(type) {
 	case int:
 		return v
+	case int8:
+		n = int64(v)
+	case int16:
+		n = int64(v)
+	case int32:
+		n = int64(v)
 	case int64:
 		n = v
+	case uint:
+		if uint64(v) > math.MaxInt64 {
+			return 0
+		}
+		n = int64(v)
+	case uint8:
+		n = int64(v)
+	case uint16:
+		n = int64(v)
+	case uint32:
+		n = int64(v)
 	case uint64:
 		if v > math.MaxInt64 {
 			return 0
@@ -90,6 +103,12 @@ func CurrentVersion(m map[string]any) int {
 		n = int64(v)
 	case json.Number:
 		i, err := strconv.ParseInt(string(v), 10, 64)
+		if err != nil {
+			return 0
+		}
+		n = i
+	case string:
+		i, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
 		if err != nil {
 			return 0
 		}

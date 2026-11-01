@@ -4,12 +4,30 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/providers/k8s"
 )
+
+func TestProvider_ExpandedConflictsAreDeterministic(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "labels")
+	mustWrite(t, path, "app=\"web\"\napp/name=\"x\"\n")
+	p := k8s.New(k8s.Options{LabelsPath: path, LabelsMode: k8s.MetadataExpanded,
+		AnnotationsPath: path, AnnotationsMode: k8s.MetadataExpanded})
+	want := map[string]any{
+		"labels":      map[string]any{"app": map[string]any{"name": "x"}},
+		"annotations": map[string]any{"app": map[string]any{"name": "x"}},
+	}
+	for i := range 100 {
+		snap, err := p.Load(context.Background())
+		if err != nil || !reflect.DeepEqual(snap.Map, want) {
+			t.Fatalf("load %d: map=%#v err=%v", i, snap.Map, err)
+		}
+	}
+}
 
 // Realistic K8s downward sample with recommended labels, a custom
 // label, and a multi-line annotation. Default raw mode preserves every

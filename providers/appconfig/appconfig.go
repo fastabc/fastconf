@@ -14,7 +14,6 @@ import (
 	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/internal/providerutil"
 )
 
 // API is implemented by *appconfigdata.Client.
@@ -200,7 +199,7 @@ func (p *Provider) snapshot() (contracts.Snapshot, error) {
 }
 
 func (p *Provider) fail(operation string, err error) (contracts.Snapshot, error) {
-	p.lastErr = providerutil.SafeError("fastconf/appconfig: "+operation+" failed", err)
+	p.lastErr = contracts.SafeError("fastconf/appconfig: "+operation+" failed", err)
 	return contracts.Snapshot{}, p.lastErr
 }
 

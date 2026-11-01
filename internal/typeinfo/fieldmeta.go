@@ -8,9 +8,8 @@ import (
 	"strings"
 )
 
-// FieldSpec captures the structured metadata parsed from a single `fc` tag (independent of the
-// `default=` and `secret` flags which keep their own walkers).
-type FieldSpec struct {
+// fieldSpec stores a field's path, index and parsed fc constraints.
+type fieldSpec struct {
 	Path     string
 	Index    []int
 	Required bool
@@ -19,12 +18,12 @@ type FieldSpec struct {
 	OneOf    []string
 }
 
-var fieldMetaCache = NewCache[[]FieldSpec]()
+var fieldMetaCache = NewCache[[]fieldSpec]()
 
-// ParseFieldTag parses required, min, max and oneof constraints. Other tokens, including defaults
+// parseFieldTag parses required, min, max and oneof constraints. Other tokens, including defaults
 // and descriptions, are ignored.
-func ParseFieldTag(tag string) FieldSpec {
-	var fs FieldSpec
+func parseFieldTag(tag string) fieldSpec {
+	var fs fieldSpec
 	for _, raw := range strings.Split(tag, ",") {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
@@ -49,20 +48,20 @@ func ParseFieldTag(tag string) FieldSpec {
 	return fs
 }
 
-// FieldMetaFor returns the cached metadata plan for t. Pointer / non-struct types yield nil.
-func FieldMetaFor(t reflect.Type) []FieldSpec {
+// fieldMetaFor returns the cached metadata plan after pointer indirection; non-struct types yield nil.
+func fieldMetaFor(t reflect.Type) []fieldSpec {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {
 		return nil
 	}
-	return fieldMetaCache.GetOrCompute(t, func() []FieldSpec {
-		var entries []FieldSpec
+	return fieldMetaCache.GetOrCompute(t, func() []fieldSpec {
+		var entries []fieldSpec
 		Walk(t, func(path string, idx []int, f reflect.StructField) bool {
 			tag := f.Tag.Get(TagKey)
 			if tag != "" {
-				spec := ParseFieldTag(tag)
+				spec := parseFieldTag(tag)
 				if spec.Required || spec.Min != nil || spec.Max != nil || len(spec.OneOf) > 0 {
 					spec.Path = path
 					spec.Index = append([]int(nil), idx...)
@@ -92,12 +91,13 @@ func CheckFieldMeta(target any) []Violation {
 	if target == nil {
 		return nil
 	}
-	specs := FieldMetaFor(reflect.TypeOf(target))
+	specs := fieldMetaFor(reflect.TypeOf(target))
 	if len(specs) == 0 {
 		return nil
 	}
 	rv := reflect.ValueOf(target)
 	var out []Violation
+fields:
 	for _, spec := range specs {
 		fv := fieldAt(rv, spec.Index)
 		if !fv.IsValid() {
@@ -106,6 +106,12 @@ func CheckFieldMeta(target any) []Violation {
 		if spec.Required && fv.IsZero() {
 			out = append(out, Violation{Path: spec.Path, Msg: spec.Path + ": required field is empty"})
 			continue
+		}
+		for fv.Kind() == reflect.Pointer {
+			if fv.IsNil() {
+				continue fields
+			}
+			fv = fv.Elem()
 		}
 		if (spec.Min != nil || spec.Max != nil) && isNumeric(fv) {
 			f := numericAsFloat(fv)

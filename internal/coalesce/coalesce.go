@@ -1,19 +1,6 @@
-// Package coalesce collapses bursty fsnotify events into a single
-// trigger per (key, burst) — where "key" is typically the parent
-// directory of the events.
-//
-// Compared to a global time-debouncer, the coalescer
-//
-//   - parallelises across keys (no head-of-line blocking when one watched
-//     directory is chatty),
-//   - supports a per-event fast-path signal (swapCommit) that drains the
-//     burst on a much shorter window than the quiet default, matching the
-//     Kubernetes ConfigMap "..data" atomic-swap pattern,
-//   - caps every burst's total lifetime at MaxLag so pathological churn
-//     cannot starve the reload pipeline.
-//
-// The package depends only on the standard library; CI enforces this with
-// go list -deps.
+// Package coalesce combines bursts independently per key, bounded by MaxLag.
+// Swap commits shorten the window for Kubernetes ..data swaps. It depends only on
+// the standard library; the repository dependency check enforces this boundary.
 package coalesce
 
 import (
@@ -82,11 +69,7 @@ type burst struct {
 	swapSeen bool
 }
 
-// New constructs a Coalescer with the given options and flush callback.
-// fn is invoked from a goroutine spawned by time.AfterFunc; it MUST NOT
-// block the caller of Push and SHOULD treat the callback as latency-
-// sensitive (the whole point of the coalescer is to minimise time-to-
-// reload after the last meaningful event).
+// New creates a coalescer; fn runs in timer goroutines and should return promptly.
 func New(opts Options, fn func(key, reason string)) *Coalescer {
 	return &Coalescer{
 		opts:   opts.normalize(),
@@ -95,14 +78,9 @@ func New(opts Options, fn func(key, reason string)) *Coalescer {
 	}
 }
 
-// Push records an event and (re)arms the burst window for key.
-//
-// When swapCommit is true the burst's window is tightened to SwapHint
-// and subsequent non-swap events in the same burst will not extend it
-// — modelling the K8s ConfigMap pattern where a "..data" rename signals
-// commit and any trailing CHMOD events are noise.
-//
-// Push is safe for concurrent use and never blocks on fn.
+// Push records an event and rearms its key's window. swapCommit shortens it to
+// SwapHint; later non-swap events cannot extend it. Push is concurrent-safe and
+// never waits for fn.
 func (c *Coalescer) Push(key, reason string, swapCommit bool) {
 	c.mu.Lock()
 	if c.stopped {

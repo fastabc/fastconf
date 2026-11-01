@@ -294,7 +294,7 @@ type hashConfig struct {
 
 func TestState_HashIgnoresUndecodedFields(t *testing.T) {
 	cfg := &hashConfig{B: "hello", A: 1}
-	if err := decodeInto(map[string]any{"a": 1, "b": "hello", "extra": true}, cfg, false, false); err != nil {
+	if err := decodeTestInput(map[string]any{"a": 1, "b": "hello", "extra": true}, cfg, false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -526,5 +526,12 @@ func TestDumpTOMLOmitsMapNull(t *testing.T) {
 	out, err := s.Dump(TOML)
 	if err != nil || strings.Contains(string(out), "omit") || !strings.Contains(string(out), "keep = 1") {
 		t.Fatalf("Dump(TOML) = %q, %v", out, err)
+	}
+}
+
+func TestDumpUnknownFormatErrors(t *testing.T) {
+	s := &State[map[string]any]{value: &map[string]any{"a": 1}}
+	if _, err := s.Dump(Format(7)); err == nil || !strings.Contains(err.Error(), "format(7)") {
+		t.Fatalf("err=%v", err)
 	}
 }

@@ -1,5 +1,4 @@
 // Package typeinfo provides reflection helpers for secret paths, field tags, and field hashes.
-// FieldName resolves json/yaml tags consistently.
 package typeinfo
 
 import (
@@ -17,10 +16,8 @@ type FieldAliases struct {
 	Flatten    bool
 }
 
-// ResolveField returns the canonical FastConf path segment plus every map-key alias accepted by
-// pre-decode walkers. Canonical paths use json tag → yaml tag → lower(name), with anonymous
-// untagged embeds flattened. Candidates additionally include the exact Go field name for
-// compatibility with typed hook input maps.
+// ResolveField selects json → yaml → lower(name), flattening untagged embeds.
+// Candidates also include the exact Go name for typed-hook input aliases.
 func ResolveField(f reflect.StructField) FieldAliases {
 	jsonName := stripTag(f.Tag.Get("json"))
 	yamlName := stripTag(f.Tag.Get("yaml"))
@@ -54,11 +51,6 @@ func ResolveField(f reflect.StructField) FieldAliases {
 	return out
 }
 
-// FieldName returns the canonical FastConf name for a struct field.
-func FieldName(f reflect.StructField) string {
-	return ResolveField(f).Canonical
-}
-
 func stripTag(t string) string {
 	if i := strings.IndexByte(t, ','); i >= 0 {
 		return t[:i]
@@ -68,10 +60,10 @@ func stripTag(t string) string {
 
 const maxWalkDepth = 256
 
-// Walk traverses t depth-first, invoking visit on every exported field. Return false from visit to
-// skip the field's descendants. Pointer indirection and anonymous embedding are flattened
-// transparently. Slice, array, and map fields are visited, but their elements are not.
-// Element-level defaults and field metadata are not supported.
+// Walk visits exported fields and anonymous structs depth-first, dereferencing pointers.
+// Untagged embeds share the parent path. Parent fields are visited before their children
+// so metadata can apply to the parent and returning false can skip its descendants.
+// Collections are visited without descending into elements.
 func Walk(t reflect.Type, visit func(path string, index []int, f reflect.StructField) bool) {
 	walk(t, "", nil, visit, 0, map[reflect.Type]struct{}{})
 }
@@ -93,10 +85,14 @@ func walk(t reflect.Type, prefix string, idx []int, visit func(string, []int, re
 	defer delete(stack, t)
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
-		if !f.IsExported() {
+		ft := f.Type
+		for ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		if !f.IsExported() && (!f.Anonymous || ft.Kind() != reflect.Struct) {
 			continue
 		}
-		name := FieldName(f)
+		name := ResolveField(f).Canonical
 		path := name
 		if prefix != "" && name != "" {
 			path = prefix + "." + name
@@ -107,10 +103,6 @@ func walk(t reflect.Type, prefix string, idx []int, visit func(string, []int, re
 		nextIdx := append(append([]int(nil), idx...), i)
 		if !visit(path, nextIdx, f) {
 			continue
-		}
-		ft := f.Type
-		for ft.Kind() == reflect.Pointer {
-			ft = ft.Elem()
 		}
 		if ft.Kind() == reflect.Struct {
 			walk(ft, path, nextIdx, visit, depth+1, stack)

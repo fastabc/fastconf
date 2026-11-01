@@ -7,12 +7,9 @@ import (
 	"github.com/fastabc/fastconf/internal/fcerr"
 )
 
-// Provider contributes one layer above files and generators. Describer orders providers by
-// priority; declaration order breaks ties.
-// Configure providers before registration. Fluent methods such as WithPriority
-// and At mutate the provider; they must not run concurrently with Load or Watch.
-// The manager reads Describe once at registration, so later metadata changes
-// do not update its ordering or watch paths.
+// Provider supplies a layer above files and generators, ordered by Describe priority then registration.
+// Configure it before registration; fluent mutations must not race Load/Watch.
+// Describe is read once, so later changes do not update ordering or watch paths.
 type Provider interface {
 	// Name is used for diagnostics and Snapshot().Sources. It SHOULD be
 	// stable across runs and unique within a Manager.
@@ -24,21 +21,13 @@ type Provider interface {
 	Load(ctx context.Context) (Snapshot, error)
 }
 
-// Watcher is an optional capability implemented by providers with native change
-// notifications. The manager starts a watch goroutine only for these providers.
-// File-only providers can use Describer.WatchPaths with the shared file watcher
-// instead. Watch must honor cancellation; it may be called again after a channel
-// closes or an error to resume from the last observed revision.
+// Watcher supplies native change notifications. Honor cancellation and allow resubscription
+// from the last revision after channel closure/error. Load-only file providers can use
+// Describer.WatchPaths instead.
 type Watcher interface {
-	// Watch streams change events. Returning (nil, nil) means "no native
-	// change notifications". The channel SHOULD be closed when ctx is
-	// canceled.
-	//
-	// from is the last non-empty Event.Revision the framework observed;
-	// it is empty on the first subscribe. Providers that can
-	// resume deliver every change strictly after from. Providers that
-	// cannot honor from subscribe cold and set Gap on the first event so
-	// the framework can record the possibly missed changes.
+	// Watch returns a channel closed on cancellation; (nil, nil) opts out.
+	// from is empty initially, then the last non-empty Event.Revision. Resume strictly
+	// after it or mark the first cold event Gap when resumption is unsupported.
 	Watch(ctx context.Context, from string) (<-chan Event, error)
 }
 

@@ -128,3 +128,28 @@ func TestFieldDefaults_CompatibilityAndBaseLayers(t *testing.T) {
 		})
 	}
 }
+
+type promotedMeta struct {
+	Port  int    `json:"port" fc:"default=8080"`
+	Name  string `json:"name" fc:"required"`
+	Token string `json:"token" fc:"secret"`
+}
+
+func TestFieldMeta_UnexportedEmbedEndToEnd(t *testing.T) {
+	type config struct {
+		promotedMeta
+		Mode string `json:"mode"`
+	}
+	fsys := fstest.MapFS{"conf.d/base/a.yaml": {Data: []byte("mode: x\ntoken: secret\n")}}
+	if _, err := fastconf.Load[config](context.Background(), fastconf.WithFS(fsys)); !errors.Is(err, fastconf.ErrInvalid) {
+		t.Fatalf("required: %v", err)
+	}
+	fsys["conf.d/base/a.yaml"].Data = []byte("mode: x\nname: n\ntoken: secret\n")
+	s, err := fastconf.Load[config](context.Background(), fastconf.WithFS(fsys))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Value().Port != 8080 || s.Map()["token"] != "***REDACTED***" {
+		t.Fatalf("value=%+v map=%v", s.Value(), s.Map())
+	}
+}

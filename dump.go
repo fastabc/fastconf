@@ -41,11 +41,8 @@ func (f Format) String() string {
 	}
 }
 
-// dumpState serializes the snapshot to the requested format. When redactor is
-// non-nil, secret-tagged paths in *T are masked before serialization;
-// when nil, the raw JSON tree is emitted. Key ordering is deterministic
-// across formats so two snapshots whose values match produce byte-identical
-// output.
+// dumpState encodes a deterministically ordered diagnostic tree, masking
+// secrets when redactor is non-nil and emitting plaintext otherwise.
 func dumpState[T any](s *State[T], format Format, redactor secret.Redactor) ([]byte, error) {
 	tree, err := dumpTree(s, redactor)
 	if err != nil {
@@ -71,9 +68,7 @@ func dumpState[T any](s *State[T], format Format, redactor secret.Redactor) ([]b
 		}
 		return yaml.Marshal(node)
 	default:
-		// Unknown Format values are not covered by the iota enum;
-		// this branch is defensive and should never be reached in
-		// well-formed callers.
+		// Format is an open uint8; reject values outside the enum.
 		return nil, fmt.Errorf("fastconf: unknown Format %s", format)
 	}
 }

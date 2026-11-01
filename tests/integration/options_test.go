@@ -19,7 +19,7 @@ import (
 )
 
 // TestWithProfile_NamesEnvDefault verifies: one Profile struct with
-// explicit names, an env fallback and a default, no Single/Multi exclusion.
+// explicit names, an env fallback and a default.
 func TestWithProfile_NamesEnvDefault(t *testing.T) {
 	fs := fstest.MapFS{
 		"conf.d/base/00.yaml":           {Data: []byte("port: 1\n")},
@@ -48,7 +48,7 @@ func TestWithProfile_NamesEnvDefault(t *testing.T) {
 }
 
 // TestWithAxes_RelativePriority verifies: Axis.Priority orders axes
-// among themselves; callers no longer pass internal band values.
+// among themselves, independently of the internal file priority bands.
 func TestWithAxes_RelativePriority(t *testing.T) {
 	fs := fstest.MapFS{
 		"conf.d/base/00.yaml":         {Data: []byte("port: 0\n")},
@@ -69,6 +69,27 @@ func TestWithAxes_RelativePriority(t *testing.T) {
 	}
 	if got := s.Value().Port; got != 2 {
 		t.Fatalf("port = %d; want 2 (hosts axis above regions axis above the prod overlay)", got)
+	}
+}
+
+func TestWithAxes_UnsafeValueCannotEscapeRoot(t *testing.T) {
+	fs := fstest.MapFS{
+		"conf.d/base/00.yaml": {Data: []byte("port: 1\n")},
+		"outside/00.yaml":     {Data: []byte("port: 99\n")},
+	}
+	t.Setenv("FC_AXIS", "../../outside")
+	s, err := fastconf.Load[portCfg](context.Background(), fastconf.WithFS(fs),
+		fastconf.WithAxes(fastconf.Axis{Dir: "regions", Env: "FC_AXIS"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Value().Port != 1 {
+		t.Fatalf("outside file was loaded: %+v", s.Value())
+	}
+	for _, source := range s.Sources() {
+		if strings.Contains(source.Path, "outside/") {
+			t.Fatalf("outside source: %+v", source)
+		}
 	}
 }
 

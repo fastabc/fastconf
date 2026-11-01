@@ -1,23 +1,7 @@
-// Package zerolog adapts a zerolog.Logger into an slog.Handler so that
-// FastConf's WithLogger entry point can deliver structured
-// FastConf events to a zerolog backend without bringing the zerolog
-// dependency into the FastConf root module.
-//
-// Usage:
-//
-//	zl := zerolog.New(os.Stderr).With().Timestamp().Logger()
-//	cfg, _ := fastconf.New[AppConfig](ctx,
-//	    fastconf.WithLogger(slog.New(zerologadapter.NewHandler(zl, zerologadapter.Options{}))),
-//	)
-//
-// All FastConf log lines flow through zerolog with their attrs preserved
-// as structured fields. Groups (slog.Group / Logger.WithGroup) are encoded
-// as dotted key prefixes — e.g. a group "stage" followed by attr {"name":
-// "decode"} appears as field "stage.name=decode".
-//
-// This package is its own module; it shares the slog handling with the
-// phuslu adapter through the dependency-free integrations/log/internal/fclog package, so
-// importing it never pulls in phuslu/log.
+// Package zerolog adapts its logger to slog.Handler for fastconf.WithLogger.
+// Attributes remain structured; groups use dotted prefixes by default. This optional
+// module shares handling through fclog without importing the other logging backend.
+// See docs/cookbook/observability/log.md for setup.
 package zerolog
 
 import (
@@ -31,10 +15,8 @@ import (
 
 // Options configures NewHandler.
 type Options struct {
-	// Level is an optional slog-side gate. Nil (the default) means "no
-	// slog-side filtering — defer fully to the underlying zerolog.Logger
-	// level". Set to a slog.LevelVar or a fixed slog.Level value to add a
-	// secondary, hot-reloadable gate on top.
+	// Level adds an optional slog gate; nil delegates filtering to the backend.
+	// Use slog.LevelVar for a reloadable secondary gate.
 	Level slog.Leveler
 	// AddSource, when true, includes the call site (file:line) as a "source"
 	// field. Default false.

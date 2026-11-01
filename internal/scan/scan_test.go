@@ -1,10 +1,32 @@
 package scan
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
+	"slices"
 	"testing"
 	"testing/fstest"
+
+	"github.com/fastabc/fastconf/contracts"
 )
+
+func TestLoadMeta_NormalizesRoot(t *testing.T) {
+	fsys := fstest.MapFS{
+		"_meta.yaml":        {Data: []byte("spec: {strict: true}\n")},
+		"conf.d/_meta.yaml": {Data: []byte("spec: {strict: true}\n")},
+	}
+	for _, root := range []string{"", ".", "conf.d/", "./conf.d"} {
+		t.Run(root, func(t *testing.T) {
+			b, err := LoadMeta(fsys, root)
+			if err != nil || string(b) != "spec: {strict: true}\n" {
+				t.Fatalf("root %q: meta=%q err=%v", root, b, err)
+			}
+		})
+	}
+}
 
 // An overlay directory that exceeds its priority stride would bleed into
 // the next overlay's band and interleave by name; the scan must fail loud.
@@ -141,56 +163,28 @@ func TestScan_ProfileExpressionOverlayMatching(t *testing.T) {
 		"conf.d/overlays/prod/10.yaml":      &fstest.MapFile{Data: []byte("k: prod")},
 	}
 
-	t.Run("canary_active", func(t *testing.T) {
-		var got []string
-		Scan("conf.d", ScanOptions{Profiles: []string{"canary"}, FS: fs})(func(layer Layer, err error) bool {
+	for _, tc := range []struct {
+		name           string
+		profiles, want []string
+	}{
+		{"canary_active", []string{"canary"}, []string{"", "canary"}},
+		{"prod_active", []string{"prod"}, []string{"", "prod"}},
+		{"no_profiles_no_overlay", nil, []string{""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			layers, err := collectLayers("conf.d", ScanOptions{Profiles: tc.profiles, FS: fs})
 			if err != nil {
 				t.Fatal(err)
 			}
-			got = append(got, layer.Profile)
-			return true
-		})
-		// base has Profile="" ; canary overlay should be included; prod should not.
-		if len(got) != 2 {
-			t.Fatalf("want 2 layers got %d: %v", len(got), got)
-		}
-		if got[1] != "canary" {
-			t.Errorf("layer[1] profile: got %q want canary", got[1])
-		}
-	})
-
-	t.Run("prod_active", func(t *testing.T) {
-		var got []string
-		Scan("conf.d", ScanOptions{Profiles: []string{"prod"}, FS: fs})(func(layer Layer, err error) bool {
-			if err != nil {
-				t.Fatal(err)
+			var got []string
+			for _, layer := range layers {
+				got = append(got, layer.Profile)
 			}
-			got = append(got, layer.Profile)
-			return true
-		})
-		// base + prod; canary excluded because its _meta.yaml match expression "canary" != active set.
-		if len(got) != 2 {
-			t.Fatalf("want 2 layers got %d: %v", len(got), got)
-		}
-		if got[1] != "prod" {
-			t.Errorf("layer[1] profile: got %q want prod", got[1])
-		}
-	})
-
-	t.Run("no_profiles_no_overlay", func(t *testing.T) {
-		var got []string
-		Scan("conf.d", ScanOptions{FS: fs})(func(_ Layer, err error) bool {
-			if err != nil {
-				t.Fatal(err)
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("profiles=%v want=%v", got, tc.want)
 			}
-			got = append(got, "x")
-			return true
 		})
-		// Without Profiles or Profile, only base layers are returned.
-		if len(got) != 1 {
-			t.Errorf("want 1 base layer got %d", len(got))
-		}
-	})
+	}
 }
 
 // TestScan_MatchAnd_GlobalFilter exercises the MatchAnd global expression.
@@ -322,6 +316,119 @@ func TestScan_MatchedOverlayCountBound(t *testing.T) {
 		}
 		if (scanErr != nil) != (i == 10) {
 			t.Fatalf("%d matched profiles: %v", i+1, scanErr)
+		}
+	}
+}
+
+func collectLayers(root string, opt ScanOptions) ([]Layer, error) {
+	var layers []Layer
+	for l, err := range Scan(root, opt) {
+		if err != nil {
+			return nil, err
+		}
+		layers = append(layers, l)
+	}
+	return layers, nil
+}
+
+func TestScan_FileSizeLimit(t *testing.T) {
+	for _, n := range []int{int(contracts.DefaultMaxBodyBytes), int(contracts.DefaultMaxBodyBytes) + 1} {
+		fsys := fstest.MapFS{"conf.d/base/a.yaml": {Data: bytes.Repeat([]byte("#"), n)}}
+		_, err := collectLayers("conf.d", ScanOptions{FS: fsys})
+		if n == int(contracts.DefaultMaxBodyBytes) && err != nil {
+			t.Fatal(err)
+		}
+		if n > int(contracts.DefaultMaxBodyBytes) && !errors.Is(err, contracts.ErrTooLarge) {
+			t.Fatalf("size %d: %v", n, err)
+		}
+	}
+}
+
+func TestMeta_RejectsSpecialAndOversizedFiles(t *testing.T) {
+	for _, mode := range []fs.FileMode{fs.ModeNamedPipe, 0} {
+		data := []byte("match: prod")
+		if mode == 0 {
+			data = bytes.Repeat([]byte("#"), int(contracts.DefaultMaxBodyBytes)+1)
+		}
+		for _, overlay := range []bool{false, true} {
+			fsys := fstest.MapFS{"conf.d/_meta.yaml": {Data: data, Mode: mode}}
+			var err error
+			if overlay {
+				fsys["conf.d/overlays/prod/_meta.yaml"] = fsys["conf.d/_meta.yaml"]
+				_, err = overlayMatches(fsys, "conf.d", "overlays/prod", "prod", NewSet("prod"))
+			} else {
+				_, err = LoadMeta(fsys, "conf.d")
+			}
+			if err == nil {
+				t.Fatalf("mode=%v overlay=%v: accepted invalid metadata", mode, overlay)
+			}
+			if mode == 0 && !errors.Is(err, contracts.ErrTooLarge) {
+				t.Fatalf("oversized metadata: %v", err)
+			}
+		}
+	}
+}
+
+type hintedInfo struct {
+	fs.FileInfo
+	size int64
+}
+
+func (i hintedInfo) Size() int64 { return i.size }
+
+type hintedFS struct {
+	fstest.MapFS
+	size int64
+}
+
+func (f hintedFS) Stat(name string) (fs.FileInfo, error) {
+	info, err := f.MapFS.Stat(name)
+	if err != nil {
+		return nil, err
+	}
+	return hintedInfo{FileInfo: info, size: f.size}, nil
+}
+
+func TestScan_FileSizeHintDoesNotTruncateOrBypassLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		hint int64
+		size int
+	}{
+		{"grew", 1, 100},
+		{"shrank", 100, 1},
+		{"unknown", -1, 100},
+		{"grew to limit", 1, int(MaxFileBytes)},
+		{"grew past limit", 1, int(MaxFileBytes) + 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := bytes.Repeat([]byte("#"), tc.size)
+			fsys := hintedFS{MapFS: fstest.MapFS{"conf.d/base/a.yaml": {Data: data}}, size: tc.hint}
+			layers, err := collectLayers("conf.d", ScanOptions{FS: fsys})
+			if tc.size > int(MaxFileBytes) {
+				if !errors.Is(err, contracts.ErrTooLarge) {
+					t.Fatalf("limit error=%v", err)
+				}
+				return
+			}
+			if err != nil || len(layers) != 1 || !bytes.Equal(layers[0].Bytes, data) {
+				t.Fatalf("size hint truncated input: layers=%d err=%v", len(layers), err)
+			}
+		})
+	}
+}
+
+type brokenReadFile struct {
+	fs.File
+	err error
+}
+
+func (f brokenReadFile) Read(b []byte) (int, error) { return copy(b, "a:"), f.err }
+
+func TestReadLayerDataPreservesReadErrors(t *testing.T) {
+	for _, want := range []error{io.ErrUnexpectedEOF, fs.ErrPermission} {
+		if _, err := readLayerData(brokenReadFile{err: want}, 10); !errors.Is(err, want) {
+			t.Fatalf("read error=%v want=%v", err, want)
 		}
 	}
 }

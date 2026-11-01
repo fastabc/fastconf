@@ -20,53 +20,23 @@ type subscribeOpts[S any] struct {
 	equal func(old, new *S) bool
 }
 
-// WithEqual replaces the default [reflect.DeepEqual] comparator used by
-// [Subscribe] to decide whether the extracted value actually changed.
-//
-// The framework invokes equal only with two non-nil pointers; nil ↔
-// non-nil transitions are unambiguous changes and never consult equal.
-// Return true to mark old and new as unchanged (the callback is skipped).
-//
-// Common uses:
-//
-//   - Ignore a noisy field: return a.URL == b.URL && a.Pool == b.Pool
-//   - Hash-compare large structs: return a.Hash == b.Hash
-//   - React to every commit while both extracted values are non-nil:
-//     WithEqual(func(_, _ *T) bool { return false })
-//
-// Equal configuration hashes skip publication before subscribers run. To observe
-// every reload attempt, including unchanged results, use WithObserver and ReloadFinished.
+// WithEqual replaces reflect.DeepEqual; true suppresses the callback. It is only
+// called for two non-nil extracted pointers; nil transitions bypass it. Equal hashes
+// skip publication entirely. Use WithObserver to observe unchanged reloads.
+// See docs/cookbook/runtime/subscribe.md for comparator examples.
 func WithEqual[S any](equal func(old, new *S) bool) SubscribeOption[S] {
 	return func(o *subscribeOpts[S]) { o.equal = equal }
 }
 
-// Subscribe registers a callback that fires after a commit (including rollback)
-// when the value extracted by extract has actually changed.
+// Subscribe calls fn after commits, including rollback, when extract's value changes.
+// It compares dereferenced values with reflect.DeepEqual unless WithEqual replaces it;
+// nil transitions fire, while two nil values do not. See ExampleSubscribe.
 //
-// Change detection uses [reflect.DeepEqual] on the dereferenced values by
-// default. Pass [WithEqual] to substitute a custom comparator.
-//
-//	cancel := fastconf.Subscribe(mgr,
-//	    func(c *AppConfig) *DBConfig { return &c.Database },
-//	    func(old, new *DBConfig) {
-//	        reconnect(new) // guaranteed: database config actually changed
-//	    },
-//	)
-//	defer cancel()
-//
-// nil ↔ non-nil transitions always fire (equal is not consulted); two nil
-// values do not fire.
-//
-// Callbacks run synchronously in registration order on the reload goroutine.
-// They must return quickly; blocking I/O postpones the next reload. Signal a bounded
-// worker that reads the latest snapshot for resource updates (see examples/resource-update).
-// Do not synchronously call Reload, Plan, History.Rollback, Close or Shutdown
-// on this manager from a callback: they wait for the writer that is running it.
-//
-// A panic in extract, fn or a [WithEqual] comparator is recovered and
-// surfaced on [Manager.Errors]; it does not poison the writer or affect
-// other subscribers. The returned cancel removes the subscription;
-// calling it after Close() is a no-op.
+// Callbacks run synchronously in registration order on the writer. Return quickly;
+// use a bounded worker for I/O. Calling this manager's Reload, Plan, rollback, Close
+// or Shutdown synchronously deadlocks. Panics in extract, fn or the comparator are
+// recovered and reported on Manager.Errors without affecting other subscribers.
+// The returned cancellation function removes the subscription and is safe after Close.
 func Subscribe[T any, S any](
 	m *Manager[T],
 	extract func(*T) *S,
@@ -158,11 +128,7 @@ func callSubscriber[T any](m *Manager[T], fn func(prev, next *State[T]), prev, n
 		}
 		stack := debug.Stack()
 		m.opts.Logger.LogAttrs(context.Background(), slog.LevelError, "subscribe callback panic", slog.Any("panic", r), slog.String("stack", string(stack)))
-		// Surface the panic on the Errors() channel so consumers that
-		// already centralise reload-failure handling there see
-		// subscriber failures too. The panic does NOT abort the reload
-		// (the new state has already been published); it is reported
-		// for observability only.
+		// Publication already succeeded; report the panic without rolling it back.
 		m.publishReloadError("subscriber-panic", fmt.Errorf("subscriber panic: %v", r))
 	}()
 	fn(prev, next)

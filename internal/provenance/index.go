@@ -21,19 +21,12 @@ type Origin struct {
 	Path string
 	// Source is the SourceRef that contributed this value.
 	Source SourceRef
-	// Value is the per-layer value as it appeared in this Source's
-	// contribution before downstream layers overrode it. Only populated
-	// when Full level is enabled and the value is a JSON scalar leaf;
-	// map and slice values are recorded with a nil/cloned Value so the
-	// index never retains a large or aliased subtree.
+	// Value retains the original layer contribution in Full mode: scalars directly,
+	// slices cloned, and maps nil to avoid retaining aliased subtrees.
 	Value any
 }
 
-// Level controls how aggressively the merger records field origins.
-//
-//	Off       — default; no recording, zero overhead.
-//	TopLevel  — only track top-level keys (cheap).
-//	Full      — track every leaf path (linear in tree size).
+// Level selects Off (default), TopLevel keys, or Full leaf-path tracking (O(N)).
 type Level uint8
 
 const (
@@ -103,17 +96,9 @@ func (o *Index) recordTreeDepth(prefix string, m map[string]any, src SourceRef, 
 				o.Record(full, src)
 			}
 		case []any:
-			// Slices are reference types; the index is retained for the
-			// life of the State snapshot, so store a clone (Full only) to
-			// avoid aliasing layer data that later reloads may rewrite.
-			//
-			// The clone must be deep. confmap.Deep aliases a layer subtree
-			// into the merged tree whenever the destination key is absent,
-			// and the secret, typed-hook and transform stages then rewrite
-			// that tree in place. A shallow copy duplicates only the slice
-			// header, leaving element maps aliased to what those stages
-			// mutate -- Explain would report resolved secret plaintext in
-			// place of the reference the layer actually contained.
+			// Full history needs a deep clone: merge may alias layer elements, then
+			// secret/hooks/transforms mutate them. Shallow copies could expose resolved
+			// secrets instead of the original layer references through Explain.
 			if o.level == Full {
 				o.RecordValue(full, src, confmap.CloneValue(nested))
 			} else {

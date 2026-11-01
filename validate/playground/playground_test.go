@@ -19,6 +19,19 @@ func TestNew_OK(t *testing.T) {
 	}
 }
 
+func TestNew_ErrorOmitsFieldValue(t *testing.T) {
+	type config struct {
+		Token string `validate:"len=40" fc:"secret"`
+	}
+	err := pg.New[config]()(&config{Token: "s3cr3t-value"})
+	if err == nil || strings.Contains(err.Error(), "s3cr3t-value") {
+		t.Fatalf("err=%v", err)
+	}
+	if !strings.Contains(err.Error(), "Token") || !strings.Contains(err.Error(), "len") {
+		t.Fatalf("missing field or rule: %v", err)
+	}
+}
+
 func TestNew_Fail(t *testing.T) {
 	v := pg.New[cfg]()
 	err := v(&cfg{Name: "", Port: 0})

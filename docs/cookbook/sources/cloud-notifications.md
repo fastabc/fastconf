@@ -62,6 +62,10 @@ notify.Config{QueueURL: queueURL, TopicARN: topicARN, Source: notify.ParameterSt
 
 消费者每次接收一条，长轮询 20 秒；visibility 为刷新超时向上取整加 10 秒，刷新必须尊重 context。刷新失败不删除，确认失败和 `DeleteMessageBatch.Failed` 都会报告。SDK HTTP 超时必须覆盖长轮询；确认使用独立的 5 秒超时，剩余 5 秒余量留给传输开销。超时/重投由幂等 Reload 和周期校准收敛。
 
+`providers/s3/s3events` 在 v1.3.0（unreleased）标记 Deprecated，v2 前保留。
+迁移时保留 S3 数据加载器，将旧通知 Provider 替换为上面的 SNS Consumer，
+使用同步 Reload 回调并保留周期校准。
+
 旧 `providers/s3/s3events.Watch` 只把事件异步交给 Manager，可能在实际 Reload 前删除消息，仍是尽力通知。可靠场景迁移到此同步回调，不要同时为同一队列启动旧 Watch 和新 Consumer；暂不迁移的应用也应添加周期 Reload。
 
 参考：[SNS raw delivery](https://docs.aws.amazon.com/sns/latest/dg/sns-large-payload-raw-message-delivery.html)、[S3 消息格式](https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html)、[AppConfig SNS extension](https://docs.aws.amazon.com/appconfig/latest/userguide/working-with-appconfig-extensions-about-predefined-notification-sns.html)、[Parameter Store 事件](https://docs.aws.amazon.com/systems-manager/latest/userguide/sysman-paramstore-cwe.html)。

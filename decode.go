@@ -12,14 +12,12 @@ import (
 	"sync"
 
 	"github.com/fastabc/fastconf/codec"
+	"github.com/fastabc/fastconf/internal/typeinfo"
 	"gopkg.in/yaml.v3"
 )
 
-// jsonBufPool reuses the byte slice that backs decodeInto's
-// encoder/decoder pair so a steady reload cadence does not balloon
-// allocations on every cycle. Buffers grow to whatever the merged map
-// needs and are recycled at 64 KiB — anything larger is released to GC
-// instead of pinning peak memory forever.
+// jsonBufPool reuses bridge buffers up to 64 KiB; larger buffers are left to GC
+// so a large reload does not pin peak memory.
 var jsonBufPool = sync.Pool{
 	New: func() any {
 		buf := bytes.NewBuffer(make([]byte, 0, 4096))
@@ -82,17 +80,6 @@ func (e encodedInput) decode(target any, strict bool) error {
 	return dec.Decode(target)
 }
 
-// decodeInto populates target through the selected bridge. Pipeline retries
-// share encodedInput; standalone callers retain the single-decode helper.
-func decodeInto[T any](m map[string]any, target *T, yamlBridge, strict bool) error {
-	input, err := encodeInput(m, yamlBridge)
-	if err != nil {
-		return err
-	}
-	defer input.release()
-	return input.decode(target, strict)
-}
-
 // isUnknownField reports whether err is a strict decode's unknown-key error.
 func isUnknownField(err error) bool {
 	if err == nil {
@@ -131,15 +118,8 @@ func buildTypedHookPlan[T any](o *options) *codec.TypedHookPlan {
 	return codec.BuildTypedHookPlan(reflect.TypeFor[T](), hooks, planOpts...)
 }
 
-// warnIfYAMLOnlyTags scans T's exported fields once at construction time
-// and emits a single warn log when *T has only `yaml:` tags but no
-// `json:` tags. The default decoder is JSON,
-// which silently ignores `yaml:` tags — a common new-user trap when
-// migrating from Koanf/Viper. The warning steers operators toward either
-// adding json tags or selecting WithDecodeFormat(YAML).
-//
-// Cheap: walks fields with reflect.Type, no value introspection, no
-// recursion. Runs once per Manager construction.
+// warnIfYAMLOnlyTags checks top-level exported fields once per construction,
+// warning when the default JSON bridge would ignore YAML-only tags.
 func warnIfYAMLOnlyTags[T any](logger *slog.Logger) {
 	if logger == nil {
 		return
@@ -155,19 +135,10 @@ func warnIfYAMLOnlyTags[T any](logger *slog.Logger) {
 		hasYAML bool
 		hasJSON bool
 	)
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		if !f.IsExported() {
-			continue
-		}
-		if f.Tag.Get("json") != "" {
-			hasJSON = true
-			break
-		}
-		if f.Tag.Get("yaml") != "" {
-			hasYAML = true
-		}
-	}
+	typeinfo.StructFields(t, 0, func(f reflect.StructField, _ []int) {
+		hasJSON = hasJSON || f.Tag.Get("json") != ""
+		hasYAML = hasYAML || f.Tag.Get("yaml") != ""
+	})
 	if hasJSON || !hasYAML {
 		return
 	}
