@@ -7,7 +7,7 @@ SHELL := /bin/bash
 export GOWORK := off
 export GOFLAGS := $(GOFLAGS) -mod=readonly
 VERSION ?= v1.2.0
-BASE ?= latest
+BASE ?= v1.2.0
 GOLANGCI_LINT ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 MODULES ?=
 TARGETS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
@@ -47,7 +47,7 @@ vulnerabilities:
 	bash tools/check-vulnerabilities.sh
 
 api-check:
-	VERSION=$(VERSION) BASE=$(BASE) bash tools/check-candidate.sh bash tools/check-api.sh
+	VERSION=$(VERSION) BASE=$(BASE) bash tools/check-candidate.sh --api
 
 lint:
 	VERSION=$(VERSION) bash tools/check-candidate.sh bash tools/modules.sh lint $(MODULES) -- $(GOLANGCI_LINT)
@@ -68,6 +68,7 @@ check: fmt-check deps-check tidy-check
 	bash tools/check-repo-test.sh
 	bash tools/modules-test.sh
 	bash tools/check-candidate-test.sh
+	bash tools/check-api-test.sh
 	bash tools/check-vulnerabilities-test.sh
 	python3 tools/tidy-candidate-test.py
 	bash tools/tag-release-test.sh

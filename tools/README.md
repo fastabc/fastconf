@@ -75,10 +75,10 @@ archives with `go mod download all`; tests, lint and scanners fetch external
 dependencies as needed and verify their checksums normally.
 
 - `make test-candidate VERSION=vX.Y.Z`: test candidate modules.
-- `make api-check VERSION=v1.2.0 BASE=v1.1.0`: compare the candidate to published APIs.
+- `make api-check VERSION=v1.2.0 BASE=v1.2.0`: compare the candidate to published APIs.
   Use `BASE=none` only when intentionally establishing a new stable API baseline;
   v1.1.0 does so because public v1.0.0 proxy content conflicts with its immutable
-  checksum record. Subsequent checks use `BASE=v1.1.0`.
+  checksum record. Current checks default to `BASE=v1.2.0`.
 - `make vulnerabilities`: scan declared dependencies with pinned govulncheck.
 - `bash tools/check-candidate.sh make vulnerabilities`: scan candidate dependencies.
 - `bash tools/tag-release.sh vX.Y.Z --dry-run`: validate and list coordinated tags.
@@ -105,14 +105,18 @@ version and runs the root module on Linux, macOS and Windows. The release workfl
 verifies that every module tag exists at the same commit, tests candidates, then
 builds and publishes archives. Resource soak remains a separate manual workflow.
 
-CI compares the Makefile candidate (currently `VERSION=v1.2.0`) against `BASE=v1.1.0`.
-The candidate must be newer than the baseline; this check does not create a release.
+CI compares the Makefile candidate (currently `VERSION=v1.2.0`) against `BASE=v1.2.0`.
+API checks use a reserved prerelease of the next patch (`v1.2.1-api-check`), or
+append `.api-check` to an existing prerelease. Only the disposable candidate's
+archives and matching internal dependency pins use this version. This keeps the
+published baseline separate from the candidate, allows reruns after publication,
+and preserves major/minor compatibility rules. No release or tag is created.
 Baseline download failures fail the check; never replace them with `BASE=none`.
 
-`BASE=v1.1.0 bash tools/check-candidate.sh bash tools/check-api-negative.sh`
+`BASE=v1.2.0 bash tools/check-candidate.sh --api bash tools/check-api-negative.sh`
 verifies the real gorelease gate rejects removed root and pflag exports in
 disposable copies, including before the candidate version is published. It needs
-network access to the fixed v1.1.0 baseline and does not change the working tree.
+network access to the fixed v1.2.0 baseline and does not change the working tree.
 
 The isolated [comparison project](../benchmarks/compare/README.md) pins competitor
 dependencies outside the runtime/release modules. Run its tests separately.

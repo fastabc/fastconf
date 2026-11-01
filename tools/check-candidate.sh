@@ -6,10 +6,30 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'chmod -R u+w "$TMP"; rm -rf "$TMP"' EXIT
 VERSION="${VERSION:-v1.2.0}"
+SOURCE_VERSION="$VERSION"
+if [[ "${1:-}" == --api ]]; then
+  shift
+  # Keep the published baseline distinct from local candidate archives. A
+  # prerelease of the next patch preserves the major/minor compatibility rules
+  # and permits checking VERSION against its own already-published release.
+  VERSION="$(python3 - "$VERSION" <<'PY'
+import sys
+version = sys.argv[1]
+if "-" in version:
+    print(version + ".api-check")
+else:
+    prefix, patch = version.rsplit(".", 1)
+    print(f"{prefix}.{int(patch) + 1}-api-check")
+PY
+)"
+  export VERSION BASE="${BASE:-v1.2.0}"
+  [[ $# -gt 0 ]] || set -- bash tools/check-api.sh
+fi
 
-python3 - "$ROOT" "$TMP" "$VERSION" <<'PYTHON'
+python3 - "$ROOT" "$TMP" "$VERSION" "$SOURCE_VERSION" <<'PYTHON'
 import json
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -17,6 +37,7 @@ import zipfile
 
 root, temp = map(pathlib.Path, sys.argv[1:3])
 version = sys.argv[3]
+source_version = sys.argv[4]
 checkout = temp / "checkout"
 modules = subprocess.check_output(["bash", str(root / "tools/modules.sh"), "list"], text=True).splitlines()
 nested = [m for m in modules if m != "."]
@@ -48,6 +69,14 @@ for name in sorted(set(files)):
     if name.startswith("benchmarks/"):
         continue
     module = owner(name)
+    if source_version != version and name == ("go.mod" if module == "." else module + "/go.mod"):
+        # Rewrite only inventory-module pins in the disposable API candidate.
+        def rewrite_pin(match):
+            prefix, path, space, pinned = match.groups()
+            if pinned == source_version and (path, version) in candidate_sums:
+                pinned = version
+            return prefix + path + space + pinned
+        target.write_text(re.sub(r"(?m)^([ \t]*(?:require[ \t]+)?)(\S+)([ \t]+)(\S+)", rewrite_pin, target.read_text()))
     if name == ("go.sum" if module == "." else module + "/go.sum"):
         # Published sums describe different archives from this synthetic proxy.
         # Regenerate only the discovered candidates, in the disposable copy;
@@ -65,7 +94,7 @@ for name in sorted(set(files)):
     archives[path][0].write(target, path + "@" + version + "/" + rel)
 for path, (archive, proxy, module) in archives.items():
     archive.close()
-    shutil.copy2(root / module / "go.mod", proxy / (version + ".mod"))
+    shutil.copy2(checkout / module / "go.mod", proxy / (version + ".mod"))
     (proxy / (version + ".info")).write_text(json.dumps({
         "Version": version, "Time": "2026-09-28T00:00:00Z",
     }))

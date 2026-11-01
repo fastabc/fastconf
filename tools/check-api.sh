@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="${VERSION:-v1.2.0}"
 # Set BASE=none explicitly only when establishing the first stable API.
-BASE="${BASE:-latest}"
+BASE="${BASE:-v1.2.0}"
 if [[ "$BASE" != none && "$BASE" != latest ]]; then
   git -C "$ROOT" rev-parse --verify "refs/tags/$BASE^{commit}" >/dev/null
 fi

@@ -1,6 +1,6 @@
 # Releasing FastConf
 
-FastConf v1.1.0 establishes the current stable API baseline. The public v1.0.0
+FastConf v1.2.0 is the current API compatibility baseline. The public v1.0.0
 proxy content conflicts with its immutable Go checksum record, so that version
 cannot be corrected. Optional integrations live in separate Go modules; all
 modules use the same release version. Discover modules and minimum Go versions
@@ -17,8 +17,8 @@ Prometheus and OpenTelemetry retain separate leaf modules.
 
 ## Prepare and verify
 
-The current release target is `v1.2.0`, checked against the stable `v1.1.0`
-baseline. Prepare it with the following steps:
+The candidate defaults to `v1.2.0`, checked against the published `v1.2.0`
+baseline. Prepare the next release with the following steps:
 
 1. Update the changelog and any relevant migration notes.
 2. Align in-repository module requirements and the Makefile `VERSION` default to
@@ -34,7 +34,7 @@ make check VERSION=v1.2.0
 make lint VERSION=v1.2.0
 make test-workspace
 make test-candidate VERSION=v1.2.0
-make api-check VERSION=v1.2.0 BASE=v1.1.0
+make api-check VERSION=v1.2.0 BASE=v1.2.0
 VERSION=v1.2.0 bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
 ```
 
@@ -68,14 +68,20 @@ additions require a minor release. Breaking changes require a new major module
 path and migration notes. Tests and review must also cover behavioral changes.
 `BASE=none` skips compatibility comparison. The v1.1.0 release deliberately
 establishes a new baseline because public v1.0.0 proxy content conflicts with its
-immutable checksum record. Future checks use `BASE=v1.1.0` and a newer candidate, for example:
+immutable checksum record. Current checks default to `BASE=v1.2.0`, for example:
 
 ```sh
-make api-check BASE=v1.1.0 VERSION=v1.2.0
+make api-check BASE=v1.2.0 VERSION=v1.2.0
 ```
 
 CI uses that explicit comparison. A baseline download failure must fail the check;
 do not fall back to `BASE=none`. API checks do not replace behavior regression tests.
+API checks use a reserved prerelease of the next patch (`v1.2.1-api-check` for
+`VERSION=v1.2.0`), or append `.api-check` to an existing prerelease. The temporary
+archives and matching internal dependency pins use that version, so the baseline
+resolves to published code even when `BASE` equals `VERSION`. Existing release
+tags do not make reruns fail, and the same major/minor compatibility rules still
+apply. Source manifests stay unchanged. Never publish these check versions.
 
 Explicit baseline tags must be available locally (`git fetch --tags` for a shallow
 checkout). Candidate checks retain that tag's tree. A module whose `go.mod` does

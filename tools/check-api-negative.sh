@@ -2,6 +2,8 @@
 # Prove the real compatibility gate rejects removed exports in disposable copies.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BASE="${BASE:-v1.2.0}"
+VERSION="${VERSION:-v1.2.1-api-check}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 GOBIN="$TMP" GOWORK=off go install golang.org/x/exp/cmd/gorelease@v0.0.0-20260908205506-85c1c2202aba
@@ -29,7 +31,7 @@ git -C "$TMP/repo" add --all
 git -C "$TMP/repo" -c user.name=Compatibility -c user.email=compatibility@example.invalid \
   -c core.hooksPath=/dev/null -c commit.gpgsign=false commit -qm 'negative compatibility fixtures'
 for module in . integrations/cli/pflag; do
-  if (cd "$TMP/repo/$module" && GOWORK=off "$TMP/gorelease" -base=v1.1.0 -version=v1.2.0) > "$TMP/result" 2>&1; then
+  if (cd "$TMP/repo/$module" && GOWORK=off "$TMP/gorelease" "-base=$BASE" "-version=$VERSION") > "$TMP/result" 2>&1; then
     echo "compatibility gate accepted a removed export in $module" >&2
     exit 1
   fi
