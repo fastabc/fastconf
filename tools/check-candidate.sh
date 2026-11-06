@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'chmod -R u+w "$TMP"; rm -rf "$TMP"' EXIT
-VERSION="${VERSION:-v1.3.0}"
+VERSION="${VERSION:-v1.4.0}"
 SOURCE_VERSION="$VERSION"
 if [[ "${1:-}" == --api ]]; then
   shift
@@ -22,7 +22,7 @@ else:
     print(f"{prefix}.{int(patch) + 1}-api-check")
 PY
 )"
-  export VERSION BASE="${BASE:-v1.2.0}"
+  export VERSION BASE="${BASE:-none}"
   [[ $# -gt 0 ]] || set -- bash tools/check-api.sh
 fi
 

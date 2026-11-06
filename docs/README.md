@@ -1,6 +1,6 @@
 # Documentation
 
-These pages and installation examples target v1.3.0. For another release,
+These pages and installation examples target v1.4.0. For another release,
 read the same path at its installed tag. Commands run from the repository root
 unless stated otherwise.
 
@@ -15,6 +15,7 @@ unless stated otherwise.
 | Run complete programs | [Examples](../examples/README.md) |
 | Find a task-specific recipe | [Cookbook by function](cookbook/README.md) |
 | Upgrade from v0.20.0 | [Migration to v1.1.0](cookbook/migration-v1.md) |
+| Upgrade from v1.3.0 | [v1.4.0 upgrade notes](cookbook/migration-v1.md#upgrading-from-v130-to-v140) |
 | Upgrade from v1.2.0 | [v1.3.0 upgrade notes](cookbook/migration-v1.md#upgrading-from-v120-to-v130) |
 
 ## Reference and development

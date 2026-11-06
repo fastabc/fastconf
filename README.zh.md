@@ -11,16 +11,16 @@ Manager 串行执行重载并原子发布快照；`Get()` 无锁且零分配。
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-文档和安装示例面向 v1.3.0；其他版本的行为请阅读对应 tag 下的文档。
-从 v0.20.0 升级见[迁移指南](docs/cookbook/migration-v1.md)；从 v1.2.0 升级见
-[v1.3.0 升级说明](docs/cookbook/migration-v1.md#upgrading-from-v120-to-v130)。
+文档和安装示例面向 v1.4.0；其他版本的行为请阅读对应 tag 下的文档。
+从 v0.20.0 升级见[迁移指南](docs/cookbook/migration-v1.md)；从 v1.3.0 升级见
+[v1.4.0 升级说明](docs/cookbook/migration-v1.md#upgrading-from-v130-to-v140)。
 
 ## 安装
 
 根模块要求 Go 1.24+。可选模块的最低 Go 版本以各自的 `go.mod` 为准，按需安装。
 
 ```sh
-go get github.com/fastabc/fastconf@v1.3.0
+go get github.com/fastabc/fastconf@v1.4.0
 ```
 
 ## 快速上手
@@ -332,9 +332,9 @@ if err := mgr.Reload(ctx, fastconf.WithReason("admin"),
 中的二进制：
 
 ```sh
-go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.3.0
-go install github.com/fastabc/fastconf/cmd/fastconfd@v1.3.0
-go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.3.0
+go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.4.0
+go install github.com/fastabc/fastconf/cmd/fastconfd@v1.4.0
+go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.4.0
 fastconfctl dump -dir conf.d -profile prod -format yaml
 fastconfctl diff -dir conf.d -from dev -to prod -json
 fastconfctl validate -dir conf.d -profile prod

@@ -12,10 +12,10 @@ zero-allocation read. Failed loads or validation keep the previous snapshot.
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-Documentation and installation examples target v1.3.0. Use the documentation at
+Documentation and installation examples target v1.4.0. Use the documentation at
 your installed tag for release-specific behavior. For v0.20.0 upgrades, see the
-[migration guide](docs/cookbook/migration-v1.md); for v1.2.0, see the
-[v1.3.0 upgrade notes](docs/cookbook/migration-v1.md#upgrading-from-v120-to-v130).
+[migration guide](docs/cookbook/migration-v1.md); for v1.3.0, see the
+[v1.4.0 upgrade notes](docs/cookbook/migration-v1.md#upgrading-from-v130-to-v140).
 
 ## Installation
 
@@ -23,7 +23,7 @@ The root module requires Go 1.24+. Optional modules declare their own minimum
 Go version; install only the adapters you use.
 
 ```sh
-go get github.com/fastabc/fastconf@v1.3.0
+go get github.com/fastabc/fastconf@v1.4.0
 ```
 
 ## Quick start
@@ -363,9 +363,9 @@ Install from source at a matching version, or use binaries from
 [GitHub Releases](https://github.com/fastabc/fastconf/releases):
 
 ```sh
-go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.3.0
-go install github.com/fastabc/fastconf/cmd/fastconfd@v1.3.0
-go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.3.0
+go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.4.0
+go install github.com/fastabc/fastconf/cmd/fastconfd@v1.4.0
+go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.4.0
 fastconfctl dump -dir conf.d -profile prod -format yaml
 fastconfctl diff -dir conf.d -from dev -to prod -json
 fastconfctl validate -dir conf.d -profile prod

@@ -4,7 +4,7 @@
 
 ## Run
 
-Run from the v1.3.0 checkout:
+Run from the v1.4.0 checkout:
 
 ```bash
 export FASTCONFD_READ_TOKEN="$(cat /var/run/secrets/read-token)"

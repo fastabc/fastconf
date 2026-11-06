@@ -1,19 +1,30 @@
 # Migration: v0.20.0 → v1.1.0
 
 The tables document the API migration from v0.20.0 to v1.1.0. These changes
-also apply when upgrading directly to v1.3.0; intermediate development APIs
+also apply when upgrading directly to v1.4.0; intermediate development APIs
 are not migration steps. Install the current root and optional modules together:
 
 ```sh
-go get github.com/fastabc/fastconf@v1.3.0
+go get github.com/fastabc/fastconf@v1.4.0
 # Example optional module; update the adapters your application imports.
-go get github.com/fastabc/fastconf/providers/s3@v1.3.0
+go get github.com/fastabc/fastconf/providers/s3@v1.4.0
 go mod tidy
 ```
 
 The root now requires Go 1.24 rather than Go 1.22. Optional modules can require
 a newer toolchain; check their `go.mod` files. Import paths remain under
 `github.com/fastabc/fastconf`.
+
+## Upgrading from v1.3.0 to v1.4.0
+
+Update the root and optional modules together using the commands above;
+optional modules require the matching root version. No source changes are
+needed and runtime behavior is unchanged.
+
+v1.4.0 establishes a new API compatibility baseline. Fields of the unexported
+option struct, which `gorelease` reaches through `Option`, were renamed, so
+tooling that compares v1.4.0 with v1.3.0 reports incompatible changes even
+though applications cannot name those fields. Compare later releases with v1.4.0.
 
 ## Upgrading from v1.2.0 to v1.3.0
 

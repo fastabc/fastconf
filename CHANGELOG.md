@@ -1,18 +1,21 @@
 # Changelog
 
 The [migration guide](docs/cookbook/migration-v1.md) covers upgrading from
-v0.20.0 to v1.1.0 and from v1.2.0 to v1.3.0. Older entries below describe their
-historical releases.
+v0.20.0 to v1.1.0, from v1.2.0 to v1.3.0 and from v1.3.0 to v1.4.0. Older
+entries below describe their historical releases.
 
 ## [Unreleased]
 
+## [v1.4.0]
+
 ### Changed
 
+- v1.4.0 establishes a new API compatibility baseline; later releases are
+  checked against it. Fields of the unexported option struct, which gorelease
+  reaches through `Option`, were renamed. Applications cannot name these fields
+  and need no source change.
 - Internal file layout and identifier names now follow each component's role.
-  No runtime behavior changed.
-- v1.4.0 establishes a new API compatibility baseline. Renamed fields of the
-  unexported option struct are reachable through `Option`, so gorelease reports
-  them against v1.3.0; applications cannot name these fields and need no change.
+  Runtime behavior is unchanged.
 
 ## [v1.3.0]
 

@@ -1,6 +1,6 @@
 # FastConf Runtime Contract
 
-This document defines the FastConf v1.3.0 runtime contract.
+This document defines the FastConf v1.4.0 runtime contract.
 For another release, use this document at its installed tag. Release changes
 are recorded in the [changelog](../../CHANGELOG.md#v130).
 The root module requires Go 1.24; independent modules declare their own

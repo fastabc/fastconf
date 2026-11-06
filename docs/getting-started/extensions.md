@@ -54,7 +54,7 @@ Extensions in the root module need no separate installation. Choose by use case:
 Install only the adapters your application imports, for example:
 
 ```sh
-go get github.com/fastabc/fastconf/providers/s3@v1.3.0
+go get github.com/fastabc/fastconf/providers/s3@v1.4.0
 ```
 
 The table below helps locate modules. Each linked `go.mod` is authoritative for

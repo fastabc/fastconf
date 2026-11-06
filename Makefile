@@ -6,8 +6,8 @@ SHELL := /bin/bash
 # Ignore personal workspaces and never update dependencies during checks.
 export GOWORK := off
 export GOFLAGS := $(GOFLAGS) -mod=readonly
-VERSION ?= v1.3.0
-API_VERSION ?= v1.3.0
+VERSION ?= v1.4.0
+API_VERSION ?= v1.4.0
 BASE ?= none
 GOLANGCI_LINT ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 MODULES ?=

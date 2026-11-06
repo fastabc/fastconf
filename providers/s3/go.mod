@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.3
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.4
 	github.com/aws/smithy-go v1.28.5
-	github.com/fastabc/fastconf v1.3.0
+	github.com/fastabc/fastconf v1.4.0
 )
 
 require (
