@@ -1,6 +1,6 @@
 # Preview, reject, commit, and roll back
 
-Run from the repository root (Go 1.24+, no services required):
+Run from the repository root (Go 1.25+, no services required):
 
 ```sh
 go run ./examples/reload

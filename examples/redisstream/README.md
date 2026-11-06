@@ -17,7 +17,7 @@ from a stream ID, but trimmed-history gaps are not detected automatically.
 Malformed/missing payloads are skipped; full notification channels increment
 `Dropped()`. Delivery does not guarantee every intermediate configuration.
 
-Run from the repository root (Go 1.24+):
+Run from the repository root (Go 1.25+):
 
 ```sh
 go test -race ./examples/redisstream

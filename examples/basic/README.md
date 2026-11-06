@@ -1,6 +1,6 @@
 # Layered typed configuration
 
-Run from the repository root (Go 1.24+):
+Run from the repository root (Go 1.25+):
 
 ```sh
 go run ./examples/basic

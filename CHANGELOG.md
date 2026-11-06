@@ -1,10 +1,35 @@
 # Changelog
 
 The [migration guide](docs/cookbook/migration-v1.md) covers upgrading from
-v0.20.0 to v1.1.0, from v1.2.0 to v1.3.0 and from v1.3.0 to v1.4.0. Older
-entries below describe their historical releases.
+v0.20.0 to v1.1.0, from v1.2.0 to v1.3.0, from v1.3.0 to v1.4.0 and from
+v1.4.0 to v1.5.0. Older entries below describe their historical releases.
 
 ## [Unreleased]
+
+## [v1.5.0]
+
+**Go 1.25 is now required by the root module.** This is a minor release because
+the minimum supported Go version increased from 1.24; the public API is unchanged.
+
+### Security
+
+- Update dependencies to clear vulnerabilities reported by govulncheck; FastConf
+  code does not call the affected functions:
+  - `golang.org/x/sys` v0.44.0 (GO-2026-5024) in the root module.
+  - `golang.org/x/net` v0.62.0 (GO-2026-6860, GO-2026-6866) in `cue`, notify
+    `azservicebus` and `pubsub`, and providers `azappconfig`, `azblob`, `gcs`
+    and `secretmanager`.
+  - `golang.org/x/crypto` v0.58.1-0.20261009181718-2f1f834330b2 (GO-2026-5932,
+    deprecated `openpgp`; no tagged release yet) in notify `pubsub`, `policy/opa`,
+    providers `gcs` and `secretmanager`, and `validate/playground`.
+  - `github.com/klauspost/compress` v1.20.2 (GO-2026-6865) in `providers/azblob`.
+
+### Changed
+
+- The root module and the optional modules that depend on it (`integrations/cli/pflag`,
+  `integrations/log/phuslu`, `integrations/notify/sns`, providers `appconfig`,
+  `parameterstore` and `s3`) now require Go 1.25; the fixed `golang.org/x/sys`
+  no longer supports Go 1.24. `cmd/fastconfgen` still requires Go 1.24.
 
 ## [v1.4.0]
 

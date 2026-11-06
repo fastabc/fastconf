@@ -1,6 +1,6 @@
 # Examples
 
-Run the following complete programs from the repository root with Go 1.24+.
+Run the following complete programs from the repository root with Go 1.25+.
 These programs need no external services or credentials and follow the current
 checkout. `single-file` and `fs` use APIs added in v1.2.0. The linked READMEs
 provide source/fixture links, expected output and verification commands.

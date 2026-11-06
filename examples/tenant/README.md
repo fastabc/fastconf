@@ -1,6 +1,6 @@
 # Local multi-tenant configuration
 
-Run from the repository root (Go 1.24+, no database connection is made):
+Run from the repository root (Go 1.25+, no database connection is made):
 
 ```sh
 go run ./examples/tenant

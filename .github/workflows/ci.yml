@@ -42,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go: ["1.24.x", "1.26.x"]
+        go: ["1.25.x", "1.26.x"]
         os: [ubuntu-latest]
         include:
           - os: macos-latest
@@ -122,10 +122,10 @@ jobs:
       - run: make test-workspace
       - name: Run core and optional examples
         run: make example
-      # v1.4.0 establishes a new API baseline (internal option fields reachable
-      # through Option were renamed); later releases compare against v1.4.0.
-      - name: Validate v1.4.0 API baseline
-        run: make api-check BASE=none
+      # Compare checkout APIs with the v1.4.0 baseline, including after the
+      # candidate version is published. Never silently fall back to BASE=none.
+      - name: Check compatibility with v1.4.0
+        run: make api-check BASE=v1.4.0
 
   # Discover every module, including benchmarks, through the same local command.
   lint:

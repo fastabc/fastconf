@@ -1,6 +1,6 @@
 # Load one file
 
-From the repository root, with Go 1.24+:
+From the repository root, with Go 1.25+:
 
 ```sh
 go run ./examples/single-file

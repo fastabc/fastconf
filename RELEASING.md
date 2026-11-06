@@ -17,9 +17,9 @@ Prometheus and OpenTelemetry retain separate leaf modules.
 
 ## Prepare and verify
 
-The dependency candidate defaults to `VERSION=v1.4.0`, matching current internal
-pins. API checks use `BASE=none` (new baseline) and target `API_VERSION=v1.4.0`
-for the v1.4.0 release. Prepare and verify a release as follows:
+The dependency candidate defaults to `VERSION=v1.5.0`, matching current internal
+pins. API checks compare against `BASE=v1.4.0` and target `API_VERSION=v1.5.0`
+for the v1.5.0 release. Prepare and verify a release as follows:
 
 1. Update the changelog and any relevant migration notes.
 2. Align in-repository module requirements and the Makefile `VERSION` and
@@ -28,16 +28,16 @@ for the v1.4.0 release. Prepare and verify a release as follows:
    The standalone benchmark module is excluded from release inventory.
 3. Run the checks against the final source, then merge the reviewed release
    commit before tagging. The commands below assume step 2 has aligned pins
-   for the planned v1.4.0 release.
+   for the planned v1.5.0 release.
 
 ```sh
-make tidy VERSION=v1.4.0
-make check VERSION=v1.4.0
-make lint VERSION=v1.4.0
+make tidy VERSION=v1.5.0
+make check VERSION=v1.5.0
+make lint VERSION=v1.5.0
 make test-workspace
-make test-candidate VERSION=v1.4.0
-make api-check VERSION=v1.4.0 API_VERSION=v1.4.0 BASE=none
-VERSION=v1.4.0 bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
+make test-candidate VERSION=v1.5.0
+make api-check VERSION=v1.5.0 API_VERSION=v1.5.0 BASE=v1.4.0
+VERSION=v1.5.0 bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
 ```
 
 Tidy uses the isolated candidate proxy for internal dependencies at `VERSION`,
@@ -54,7 +54,7 @@ commits remain in its disposable checkout. This verifies a source combination
 without publishing it. To test one candidate module:
 
 ```sh
-VERSION=v1.4.0 bash tools/check-candidate.sh bash tools/modules.sh test providers/s3
+VERSION=v1.5.0 bash tools/check-candidate.sh bash tools/modules.sh test providers/s3
 ```
 
 After publication, `make test-all` checks independent resolution of the published
@@ -72,20 +72,19 @@ path and migration notes. Tests and review must also cover behavioral changes.
 establishes a new baseline because public v1.0.0 proxy content conflicts with its
 immutable checksum record. The v1.4.0 release establishes another baseline:
 fields of the unexported option struct, which gorelease reaches through
-`Option`, were renamed. CI and the Makefile use `BASE=none` for the v1.4.0
-release; after it is published, set `BASE=v1.4.0` for later releases:
+`Option`, were renamed. v1.4.0 was checked with `BASE=none`; later releases,
+including v1.5.0, compare against `BASE=v1.4.0`:
 
 ```sh
-make api-check BASE=none
-make api-check BASE=v1.4.0 VERSION=v1.4.1 API_VERSION=v1.4.1  # after v1.4.0
+make api-check BASE=v1.4.0 VERSION=v1.5.0 API_VERSION=v1.5.0
 ```
 
 `VERSION` controls candidate dependency pins; `API_VERSION` controls gorelease's
 release-version validation. CI uses the Makefile defaults for both. A baseline
 download failure must fail the check; use `BASE=none` only to establish a
 deliberate new baseline, never as a fallback. API checks do not replace behavior regression tests.
-API checks use a reserved prerelease of the next patch (`v1.4.1-api-check` for
-`VERSION=v1.4.0`), or append `.api-check` to an existing prerelease. The temporary
+API checks use a reserved prerelease of the next patch (`v1.5.1-api-check` for
+`VERSION=v1.5.0`), or append `.api-check` to an existing prerelease. The temporary
 archives and matching internal dependency pins use that version, so the baseline
 resolves to published code even when `BASE` equals `VERSION`. Existing release
 tags do not make reruns fail. gorelease enforces the major/minor compatibility
@@ -99,7 +98,7 @@ modules already present still require their published baseline to resolve.
 
 ## Go versions and vulnerabilities
 
-The root module requires Go 1.24. Satellite modules declare their own minimums;
+The root module requires Go 1.25. Satellite modules declare their own minimums;
 CI tests each at that floor. Use `tools/modules.sh matrix` rather than maintaining
 a separate version table.
 
@@ -124,8 +123,8 @@ bash tools/check-candidate.sh env GOOS=windows GOARCH=amd64 \
 Preview and publish the complete module tag set from a clean release commit:
 
 ```sh
-bash tools/tag-release.sh v1.4.0 --dry-run
-bash tools/tag-release.sh v1.4.0 --push
+bash tools/tag-release.sh v1.5.0 --dry-run
+bash tools/tag-release.sh v1.5.0 --push
 ```
 
 The script validates all version pins before creating tags at one commit. It
@@ -152,7 +151,7 @@ the binary, LICENSE and README.md. Builds disable CGO, use `-trimpath`, and embe
 the tag through `-X main.version=<tag>`.
 
 ```sh
-make dist VERSION=v1.4.0
+make dist VERSION=v1.5.0
 make dist-verify
 ```
 

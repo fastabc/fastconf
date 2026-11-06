@@ -1,6 +1,6 @@
 # Bounded resource updates
 
-Run `go run ./examples/resource-update` from the repository root (Go 1.24+).
+Run `go run ./examples/resource-update` from the repository root (Go 1.25+).
 This executable models connection ownership without needing a database:
 
 ```text

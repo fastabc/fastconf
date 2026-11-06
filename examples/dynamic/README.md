@@ -1,6 +1,6 @@
 # Watch one file
 
-Go 1.24+, run from the repository root in a terminal:
+Go 1.25+, run from the repository root in a terminal:
 
 ```sh
 cp examples/single-file/app.yaml /tmp/fastconf-app.yaml

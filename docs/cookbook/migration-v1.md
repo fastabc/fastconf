@@ -1,19 +1,28 @@
 # Migration: v0.20.0 → v1.1.0
 
 The tables document the API migration from v0.20.0 to v1.1.0. These changes
-also apply when upgrading directly to v1.4.0; intermediate development APIs
+also apply when upgrading directly to v1.5.0; intermediate development APIs
 are not migration steps. Install the current root and optional modules together:
 
 ```sh
-go get github.com/fastabc/fastconf@v1.4.0
+go get github.com/fastabc/fastconf@v1.5.0
 # Example optional module; update the adapters your application imports.
-go get github.com/fastabc/fastconf/providers/s3@v1.4.0
+go get github.com/fastabc/fastconf/providers/s3@v1.5.0
 go mod tidy
 ```
 
-The root now requires Go 1.24 rather than Go 1.22. Optional modules can require
-a newer toolchain; check their `go.mod` files. Import paths remain under
-`github.com/fastabc/fastconf`.
+The root now requires Go 1.25 (Go 1.24 through v1.4.0; Go 1.22 in v0.20.0).
+Optional modules can require a newer toolchain; check their `go.mod` files.
+Import paths remain under `github.com/fastabc/fastconf`.
+
+## Upgrading from v1.4.0 to v1.5.0
+
+v1.5.0 updates dependencies to clear reported vulnerabilities. The public API is
+unchanged. **The root module and the optional modules that depend on it now
+require Go 1.25**, because the fixed `golang.org/x/sys` no longer supports
+Go 1.24. Applications still building with Go 1.24 must upgrade their toolchain
+first. Update the root and optional modules together using the commands above.
+The higher minimum Go version is why this update is released as v1.5.0.
 
 ## Upgrading from v1.3.0 to v1.4.0
 

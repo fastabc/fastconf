@@ -2,7 +2,7 @@
 
 Start with [one-shot loading](load.md) or [dynamic management](dynamic.md), then
 add the extensions your application needs. The local provider and `policy.Func`
-examples below ship with the root module, require Go 1.24+, and need no external
+examples below ship with the root module, require Go 1.25+, and need no external
 services.
 
 ## Environment overrides
@@ -54,11 +54,11 @@ Extensions in the root module need no separate installation. Choose by use case:
 Install only the adapters your application imports, for example:
 
 ```sh
-go get github.com/fastabc/fastconf/providers/s3@v1.4.0
+go get github.com/fastabc/fastconf/providers/s3@v1.5.0
 ```
 
 The table below helps locate modules. Each linked `go.mod` is authoritative for
-its minimum Go version and dependencies; the root module's Go 1.24 minimum does
+its minimum Go version and dependencies; the root module's Go 1.25 minimum does
 not apply to every adapter.
 
 | Capability | Module / manifest |

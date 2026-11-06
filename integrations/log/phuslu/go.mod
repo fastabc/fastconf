@@ -2,9 +2,9 @@
 // dependency closure of plain fastconf users or zerolog adapter users.
 module github.com/fastabc/fastconf/integrations/log/phuslu
 
-go 1.24.0
+go 1.25.0
 
 require (
-	github.com/fastabc/fastconf v1.4.0
+	github.com/fastabc/fastconf v1.5.0
 	github.com/phuslu/log v1.0.138
 )

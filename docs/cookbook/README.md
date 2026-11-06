@@ -1,6 +1,6 @@
 # Cookbook
 
-Recipes target v1.4.0; version-specific additions are noted explicitly.
+Recipes target v1.5.0; version-specific additions are noted explicitly.
 For a released dependency, read the recipe at its installed tag. Start with the
 [loading guides](../README.md#start-here) or [complete examples](../../examples/README.md).
 

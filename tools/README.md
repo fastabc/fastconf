@@ -62,7 +62,7 @@ to include local ignored plans.
 
 ## Release validation
 
-`VERSION` defaults to `v1.4.0`. Candidate checks copy current tracked and unignored
+`VERSION` defaults to `v1.5.0`. Candidate checks copy current tracked and unignored
 files into a disposable repository and serve that version through a local Go
 module proxy. Dependencies and generated sums stay in the disposable copy.
 Only checksum entries for discovered modules at the candidate version are
@@ -75,15 +75,15 @@ archives with `go mod download all`; tests, lint and scanners fetch external
 dependencies as needed and verify their checksums normally.
 
 - `make test-candidate VERSION=vX.Y.Z`: test candidate modules.
-- `make api-check`: validate APIs with `BASE=none`, targeting `API_VERSION=v1.4.0`
-  for this release. `VERSION=v1.4.0` identifies the
+- `make api-check`: compare APIs against `BASE=v1.4.0`, targeting `API_VERSION=v1.5.0`
+  for this release. `VERSION=v1.5.0` identifies the
   in-repository dependency pins served by the disposable candidate proxy.
   Set `API_VERSION` to the intended release for other comparisons; a patch target
   still rejects additions and a minor target still rejects incompatible changes.
   Use `BASE=none` only when intentionally establishing a new stable API baseline:
   v1.1.0 does so because public v1.0.0 proxy content conflicts with its immutable
   checksum record, and v1.4.0 because option fields reached through `Option` were
-  renamed. After v1.4.0 is published, compare later releases with `BASE=v1.4.0`.
+  renamed. Current checks default to `BASE=v1.4.0`.
 - `make vulnerabilities`: scan declared dependencies with pinned govulncheck.
 - `bash tools/check-candidate.sh make vulnerabilities`: scan candidate dependencies.
 - `bash tools/tag-release.sh vX.Y.Z --dry-run`: validate and list coordinated tags.
@@ -110,9 +110,8 @@ version and runs the root module on Linux, macOS and Windows. The release workfl
 verifies that every module tag exists at the same commit, tests candidates, then
 builds and publishes archives. Resource soak remains a separate manual workflow.
 
-CI validates the Makefile candidate (currently `VERSION=v1.4.0`) with `BASE=none`,
-establishing the v1.4.0 baseline.
-API checks use a reserved prerelease of the next patch (`v1.4.1-api-check`), or
+CI compares the Makefile candidate (currently `VERSION=v1.5.0`) against `BASE=v1.4.0`.
+API checks use a reserved prerelease of the next patch (`v1.5.1-api-check`), or
 append `.api-check` to an existing prerelease. Only the disposable candidate's
 archives and matching internal dependency pins use this version. This keeps the
 published baseline separate from the candidate, allows reruns after publication,

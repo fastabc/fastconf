@@ -32,7 +32,7 @@ func main() {
 ```
 
 完整程序：[examples/single-file](../../examples/single-file/README.md)。
-Go 1.24+，仓库根目录执行：
+Go 1.25+，仓库根目录执行：
 
 ```sh
 go run ./examples/single-file

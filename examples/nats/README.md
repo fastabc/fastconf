@@ -15,7 +15,7 @@ valid base configuration or implement an initial fetch. Malformed documents are
 skipped; full notification channels increment `Dropped()` without blocking the
 transport. Delivery does not guarantee every intermediate configuration.
 
-Run from the repository root (Go 1.24+):
+Run from the repository root (Go 1.25+):
 
 ```sh
 go test -race ./examples/nats

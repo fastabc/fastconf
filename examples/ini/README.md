@@ -1,6 +1,6 @@
 # INI configuration
 
-From the repository root (Go 1.24+, no services required), run:
+From the repository root (Go 1.25+, no services required), run:
 
 ```sh
 go run ./examples/ini

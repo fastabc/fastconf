@@ -5,7 +5,7 @@
 
 完整运行命令、配置和错误处理见
 [examples/dynamic](../../examples/dynamic/README.md) 及
-[main.go](../../examples/dynamic/main.go)。运行需要 Go 1.24+。
+[main.go](../../examples/dynamic/main.go)。运行需要 Go 1.25+。
 
 预期初始化 8080、成功发布 9090、拒绝拼错字段并保留 9090。Ctrl-C 让拥有者
 调用 Close 并取消订阅。初始化错误由 New 返回，之后的失败从 Errors 读取；
