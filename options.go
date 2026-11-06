@@ -45,7 +45,7 @@ func WithDecodeFormat(f Format) Option {
 		case YAML:
 			o.YAMLBridge = true
 		default:
-			o.DeferredErrs = append(o.DeferredErrs,
+			o.OptionErrs = append(o.OptionErrs,
 				fmt.Errorf("%w: WithDecodeFormat(%s): want JSON or YAML", fcerr.ErrFastConf, f))
 		}
 	}
@@ -92,7 +92,7 @@ func WithStrictMerge(strict bool) Option { return func(o *options) { o.Strict = 
 func WithLogger(l *slog.Logger) Option {
 	return func(o *options) {
 		if l == nil {
-			o.DeferredErrs = append(o.DeferredErrs,
+			o.OptionErrs = append(o.OptionErrs,
 				fmt.Errorf("%w: WithLogger(nil)", fcerr.ErrFastConf))
 			return
 		}
@@ -115,17 +115,17 @@ type Watch struct {
 // WithWatch enables the file watcher; see [Watch].
 func WithWatch(w Watch) Option {
 	return func(o *options) {
-		o.Watch = true
+		o.FileWatch = true
 		o.WatchPaths = append(o.WatchPaths, w.Paths...)
-		o.Coalesce = w.Profile.Apply()
+		o.CoalesceWindows = w.Profile.Apply()
 		if w.Quiet > 0 {
-			o.Coalesce.Quiet = w.Quiet
+			o.CoalesceWindows.Quiet = w.Quiet
 		}
 		if w.MaxLag > 0 {
-			o.Coalesce.MaxLag = w.MaxLag
+			o.CoalesceWindows.MaxLag = w.MaxLag
 		}
 		if w.SwapHint > 0 {
-			o.Coalesce.SwapHint = w.SwapHint
+			o.CoalesceWindows.SwapHint = w.SwapHint
 		}
 	}
 }
@@ -154,13 +154,13 @@ const (
 // WithAxes adds extra overlay axes; see [Axis]. Repeated calls accumulate.
 func WithAxes(axes ...Axis) Option {
 	return func(o *options) {
-		if len(o.OverlayAxes)+len(axes) > scan.MaxAxes {
-			o.DeferredErrs = append(o.DeferredErrs,
+		if len(o.Axes)+len(axes) > scan.MaxAxes {
+			o.OptionErrs = append(o.OptionErrs,
 				fmt.Errorf("%w: WithAxes: at most %d axes fit in the file priority band", fcerr.ErrFastConf, scan.MaxAxes))
 			return
 		}
 		for _, a := range axes {
-			o.OverlayAxes = append(o.OverlayAxes, scan.AxisSpec{Dir: a.Dir, EnvVar: a.Env, Priority: a.Priority, DefaultFromHostname: a.FromHostname})
+			o.Axes = append(o.Axes, scan.AxisSpec(a))
 		}
 	}
 }
@@ -210,7 +210,7 @@ func WithProvenance(level ProvenanceLevel) Option {
 func WithHistory(n int) Option {
 	return func(o *options) {
 		if n < 0 {
-			o.DeferredErrs = append(o.DeferredErrs, fmt.Errorf("%w: WithHistory: capacity must be non-negative", fcerr.ErrFastConf))
+			o.OptionErrs = append(o.OptionErrs, fmt.Errorf("%w: WithHistory: capacity must be non-negative", fcerr.ErrFastConf))
 			return
 		}
 		o.HistoryCap = n
@@ -255,7 +255,7 @@ func WithTypedHook(hs ...codec.TypedHook) Option {
 
 // WithoutDefaultTypedHooks disables the built-in typed decode hooks.
 func WithoutDefaultTypedHooks() Option {
-	return func(o *options) { o.TypedHooksOff = true }
+	return func(o *options) { o.DefaultTypedHooksOff = true }
 }
 
 // WithMergeKeys sets the identity field for keyed-slice merging at each dotted path.
@@ -272,7 +272,7 @@ func WithTransform(fns ...func(map[string]any) error) Option {
 	return func(o *options) {
 		for i, fn := range fns {
 			if fn == nil {
-				o.DeferredErrs = append(o.DeferredErrs,
+				o.OptionErrs = append(o.OptionErrs,
 					fmt.Errorf("%w: WithTransform: nil function at #%d", fcerr.ErrFastConf, i))
 				continue
 			}
@@ -290,7 +290,7 @@ func WithValidate[T any](fns ...func(*T) error) Option {
 			if v == nil {
 				continue
 			}
-			o.TypedFor = append(o.TypedFor, reflect.TypeFor[T]())
+			o.RegisteredTargetTypes = append(o.RegisteredTargetTypes, reflect.TypeFor[T]())
 			o.Validators = append(o.Validators, func(target any) error {
 				t, ok := target.(*T)
 				if !ok {
@@ -324,7 +324,7 @@ func WithProfile(p Profile) Option {
 	return func(o *options) {
 		o.ProfileNames = trimProfiles(nil, p.Names)
 		o.ProfileEnv = p.Env
-		o.DefaultProf = p.Default
+		o.ProfileDefault = p.Default
 		o.ProfileMatch = p.Match
 	}
 }
@@ -334,7 +334,7 @@ func WithPolicy[T any](ps ...policy.Policy[T]) Option {
 	return func(o *options) {
 		for _, p := range ps {
 			if p != nil {
-				o.TypedFor = append(o.TypedFor, reflect.TypeFor[T]())
+				o.RegisteredTargetTypes = append(o.RegisteredTargetTypes, reflect.TypeFor[T]())
 				o.Policies = append(o.Policies, adaptPolicy(p))
 			}
 		}

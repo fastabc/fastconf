@@ -37,7 +37,7 @@ func (m *Manager[T]) startFileWatcher(ctx context.Context) error {
 	if len(paths) == 0 {
 		return nil
 	}
-	co := coalesce.New(m.opts.Coalesce, func(key, reason string) {
+	co := coalesce.New(m.opts.CoalesceWindows, func(key, reason string) {
 		select {
 		case <-m.lifetime.Done():
 			return

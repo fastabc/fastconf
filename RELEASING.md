@@ -1,8 +1,9 @@
 # Releasing FastConf
 
-FastConf v1.2.0 is the current API compatibility baseline. The public v1.0.0
-proxy content conflicts with its immutable Go checksum record, so that version
-cannot be corrected. Optional integrations live in separate Go modules; all
+FastConf v1.4.0 establishes the next API compatibility baseline; v1.2.0 remains
+the baseline until v1.4.0 is published. The public v1.0.0 proxy content
+conflicts with its immutable Go checksum record, so that version cannot be
+corrected. Optional integrations live in separate Go modules; all
 modules use the same release version. Discover modules and minimum Go versions
 directly from their manifests:
 
@@ -70,15 +71,20 @@ additions require a minor release. Breaking changes require a new major module
 path and migration notes. Tests and review must also cover behavioral changes.
 `BASE=none` skips compatibility comparison. The v1.1.0 release deliberately
 establishes a new baseline because public v1.0.0 proxy content conflicts with its
-immutable checksum record. Current checks default to `BASE=v1.2.0`, for example:
+immutable checksum record. The v1.4.0 release establishes another baseline:
+fields of the unexported option struct, which gorelease reaches through
+`Option`, were renamed. Until v1.4.0 is published, CI and the Makefile default
+to `BASE=none`; afterwards, set `BASE=v1.4.0`:
 
 ```sh
-make api-check BASE=v1.2.0 VERSION=v1.3.0 API_VERSION=v1.3.0
+make api-check BASE=none
+make api-check BASE=v1.4.0 VERSION=v1.4.1 API_VERSION=v1.4.1  # after v1.4.0
 ```
 
 `VERSION` controls candidate dependency pins; `API_VERSION` controls gorelease's
 release-version validation. CI uses the Makefile defaults for both. A baseline
-download failure must fail the check; do not fall back to `BASE=none`. API checks do not replace behavior regression tests.
+download failure must fail the check; use `BASE=none` only to establish a
+deliberate new baseline, never as a fallback. API checks do not replace behavior regression tests.
 API checks use a reserved prerelease of the next patch (`v1.3.1-api-check` for
 `VERSION=v1.3.0`), or append `.api-check` to an existing prerelease. The temporary
 archives and matching internal dependency pins use that version, so the baseline

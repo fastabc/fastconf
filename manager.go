@@ -146,7 +146,7 @@ func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) 
 func (m *Manager[T]) startBackground() error {
 	m.bgWG.Add(1)
 	go m.reloadLoop()
-	if m.opts.Watch {
+	if m.opts.FileWatch {
 		if err := m.startFileWatcher(m.lifetime); err != nil {
 			return err
 		}

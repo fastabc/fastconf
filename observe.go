@@ -81,7 +81,7 @@ func WithObserver(os ...Observer) Option {
 	return func(o *options) {
 		for i, ob := range os {
 			if ob == nil {
-				o.DeferredErrs = append(o.DeferredErrs,
+				o.OptionErrs = append(o.OptionErrs,
 					fmt.Errorf("%w: WithObserver: nil observer at #%d", fcerr.ErrFastConf, i))
 				continue
 			}
@@ -106,7 +106,7 @@ func WithObserverTimeout(d time.Duration) Option {
 func WithTracer(t Tracer) Option {
 	return func(o *options) {
 		if t == nil {
-			o.DeferredErrs = append(o.DeferredErrs,
+			o.OptionErrs = append(o.OptionErrs,
 				fmt.Errorf("%w: WithTracer(nil)", fcerr.ErrFastConf))
 			return
 		}

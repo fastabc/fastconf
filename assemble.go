@@ -177,7 +177,7 @@ func (m *Manager[T]) resolveDiscovery(hostnameOverride string) (scan.Options, ro
 		override := hostnameOverride
 		hostFn = func() (string, error) { return override, nil }
 	}
-	extras, axisErrs := scan.ResolveAxes(m.opts.OverlayAxes, hostFn)
+	extras, axisErrs := scan.ResolveAxes(m.opts.Axes, hostFn)
 	for _, e := range axisErrs {
 		m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf: hostname resolution failed; axis skipped", slog.String("axis", e.Axis), slog.Any("err", e.Err))
 	}

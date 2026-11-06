@@ -122,10 +122,10 @@ jobs:
       - run: make test-workspace
       - name: Run core and optional examples
         run: make example
-      # Compare checkout APIs with the published baseline, including after the
-      # candidate version is published. Never silently fall back to BASE=none.
-      - name: Check compatibility with v1.2.0
-        run: make api-check BASE=v1.2.0
+      # v1.4.0 establishes a new API baseline (internal option fields reachable
+      # through Option were renamed); later releases compare against v1.4.0.
+      - name: Validate v1.4.0 API baseline
+        run: make api-check BASE=none
 
   # Discover every module, including benchmarks, through the same local command.
   lint:

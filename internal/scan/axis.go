@@ -15,18 +15,18 @@ var errUnsafeAxisValue = errors.New("scan: axis value must be a single path segm
 
 // AxisSpec is the scanner form of fastconf.Axis; see docs/cookbook/sources/layers.md
 // for environment presence, empty opt-out, hostname fallback and priority rules.
-// Its field names are reachable through fastconf.Option and remain stable in v1.
+// Its fields mirror fastconf.Axis so WithAxes can convert directly.
 type AxisSpec struct {
 	// Dir is the directory name relative to config root, e.g. "hosts".
 	Dir string
-	// EnvVar is the environment variable name that selects the active
+	// Env is the environment variable name that selects the active
 	// subdirectory. Empty string means the axis has no env override.
-	EnvVar string
+	Env string
 	// Priority orders axes relative to one another; higher values win.
 	Priority int
-	// DefaultFromHostname enables an os.Hostname() (or caller-provided
-	// hostFn) fallback when EnvVar is absent.
-	DefaultFromHostname bool
+	// FromHostname enables an os.Hostname() (or caller-provided
+	// hostFn) fallback when Env is absent.
+	FromHostname bool
 }
 
 // AxisError reports a non-fatal resolution failure for a single axis, so the caller can log the
@@ -45,8 +45,8 @@ func ResolveAxes(specs []AxisSpec, hostFn func() (string, error)) ([]AxisOverlay
 	slices.SortStableFunc(specs, func(a, b AxisSpec) int { return cmp.Compare(a.Priority, b.Priority) })
 	for rank, ax := range specs {
 		var val string
-		if ax.EnvVar != "" {
-			envVal, present := os.LookupEnv(ax.EnvVar)
+		if ax.Env != "" {
+			envVal, present := os.LookupEnv(ax.Env)
 			switch {
 			case present && envVal != "":
 				val = envVal
@@ -56,7 +56,7 @@ func ResolveAxes(specs []AxisSpec, hostFn func() (string, error)) ([]AxisOverlay
 				continue
 			}
 		}
-		if val == "" && ax.DefaultFromHostname {
+		if val == "" && ax.FromHostname {
 			h, err := hostFn()
 			if err != nil {
 				errs = append(errs, AxisError{Axis: ax.Dir, Err: err})

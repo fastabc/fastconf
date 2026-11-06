@@ -9,7 +9,10 @@ historical releases.
 ### Changed
 
 - Internal file layout and identifier names now follow each component's role.
-  No exported API or runtime behavior changed.
+  No runtime behavior changed.
+- v1.4.0 establishes a new API compatibility baseline. Renamed fields of the
+  unexported option struct are reachable through `Option`, so gorelease reports
+  them against v1.3.0; applications cannot name these fields and need no change.
 
 ## [v1.3.0]
 

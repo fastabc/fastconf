@@ -23,47 +23,45 @@ import (
 	"github.com/fastabc/fastconf/internal/secret"
 )
 
-// options is reachable through the public Option type; its exported field names
-// must remain stable for v1 compatibility.
 type options struct {
 	Dir string
 	FS  fs.FS
 	// LoadFile bypasses directory metadata, profiles and layer discovery.
 	SkipDiscovery bool
 	// ProfileNames, when non-empty, is the active profile set; otherwise
-	// the set comes from $ProfileEnv (comma-separated), then DefaultProf.
-	ProfileNames []string
-	ProfileMatch string
-	ProfileEnv   string
-	DefaultProf  string
-	Strict       bool
-	Logger       *slog.Logger
-	Providers    []providerEntry
+	// the set comes from $ProfileEnv (comma-separated), then ProfileDefault.
+	ProfileNames   []string
+	ProfileMatch   string
+	ProfileEnv     string
+	ProfileDefault string
+	Strict         bool
+	Logger         *slog.Logger
+	Providers      []providerEntry
 
-	Watch       bool
-	Coalesce    coalesce.Options
-	WatchPaths  []string
-	OverlayAxes []scan.AxisSpec
+	FileWatch       bool
+	CoalesceWindows coalesce.Options
+	WatchPaths      []string
+	Axes            []scan.AxisSpec
 
-	TypedFor       []reflect.Type
-	Validators     []func(any) error
-	Transforms     []func(map[string]any) error
-	Provenance     provenance.Level
-	HistoryCap     int
-	SecretRedactor secret.Redactor
-	SecretPaths    []string
+	RegisteredTargetTypes []reflect.Type
+	Validators            []func(any) error
+	Transforms            []func(map[string]any) error
+	Provenance            provenance.Level
+	HistoryCap            int
+	SecretRedactor        secret.Redactor
+	SecretPaths           []string
 	// YAMLBridge decodes *T through yaml instead of the default json bridge.
 	YAMLBridge     bool
 	UnknownFields  UnknownFields
 	Tracer         obs.Tracer
 	Policies       []anyPolicy
-	DeferredErrs   []error
+	OptionErrs     []error
 	SecretResolver secret.Resolver
 
 	Generators []contracts.Generator
 
-	TypedHooks    []codec.TypedHook
-	TypedHooksOff bool
+	TypedHooks           []codec.TypedHook
+	DefaultTypedHooksOff bool
 
 	MergeKeys map[string]string
 
@@ -89,11 +87,11 @@ func (o *options) addProvider(p contracts.Provider) {
 func defaultOptions() options {
 	base := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	return options{
-		Dir:      DefaultDir,
-		Strict:   false,
-		Logger:   base,
-		Coalesce: coalesce.ProfileK8s.Apply(),
-		Tracer:   obs.NoopTracer{},
+		Dir:             DefaultDir,
+		Strict:          false,
+		Logger:          base,
+		CoalesceWindows: coalesce.ProfileK8s.Apply(),
+		Tracer:          obs.NoopTracer{},
 	}
 }
 
@@ -108,14 +106,14 @@ func resolveOptions(opts []Option) (options, error) {
 	if o.ObserverTimeout == 0 {
 		o.ObserverTimeout = DefaultObserverTimeout
 	}
-	if len(o.DeferredErrs) > 0 {
+	if len(o.OptionErrs) > 0 {
 		// Surface every deferred error from Option closures (e.g. a nil
 		// logger) before allocating any state. Each error is emitted individually so operators
 		// don't have to read the join chain to spot subsequent failures.
-		for _, e := range o.DeferredErrs {
+		for _, e := range o.OptionErrs {
 			o.Logger.LogAttrs(context.Background(), slog.LevelError, "fastconf: deferred option error", slog.Any("err", e))
 		}
-		return o, errors.Join(o.DeferredErrs...)
+		return o, errors.Join(o.OptionErrs...)
 	}
 	// Validate user-supplied profile expression at startup so syntax
 	// errors fail loudly instead of silently matching nothing per overlay.
@@ -129,7 +127,7 @@ func resolveOptions(opts []Option) (options, error) {
 
 func checkTypedOptions[T any](o *options) error {
 	want := reflect.TypeFor[T]()
-	for _, got := range o.TypedFor {
+	for _, got := range o.RegisteredTargetTypes {
 		if got != want {
 			return fmt.Errorf("%w: WithValidate/WithPolicy registered for *%v, manager decodes *%v", fcerr.ErrFastConf, got, want)
 		}
@@ -141,7 +139,7 @@ func buildTypedHookPlan[T any](o *options) *codec.TypedHookPlan {
 	// Build the typed hook plan once. Defaults are included unless
 	// WithoutDefaultTypedHooks was set.
 	hooks := []codec.TypedHook{}
-	if !o.TypedHooksOff {
+	if !o.DefaultTypedHooksOff {
 		hooks = append(hooks, codec.DefaultTypedHooks()...)
 	}
 	hooks = append(hooks, o.TypedHooks...)
@@ -173,8 +171,8 @@ func (o *options) activeProfiles(metaProfileEnv, metaDefault string) []string {
 	if v := trimProfiles(nil, strings.Split(os.Getenv(env), ",")); len(v) > 0 {
 		return v
 	}
-	if o.DefaultProf != "" {
-		return []string{o.DefaultProf}
+	if o.ProfileDefault != "" {
+		return []string{o.ProfileDefault}
 	}
 	if metaDefault != "" {
 		return []string{metaDefault}

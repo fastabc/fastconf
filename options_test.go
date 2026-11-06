@@ -23,7 +23,7 @@ import (
 func TestWithWatch_FieldOverrides(t *testing.T) {
 	t.Run("Watch enables file watching", func(t *testing.T) {
 		got := applyOpts(WithWatch(Watch{}))
-		if !got.Watch {
+		if !got.FileWatch {
 			t.Error("Watch flag not set")
 		}
 	})
@@ -35,15 +35,15 @@ func TestWithWatch_FieldOverrides(t *testing.T) {
 	})
 	t.Run("Profile applies, per-field timings override", func(t *testing.T) {
 		got := applyOpts(WithWatch(Watch{Profile: ProfileLocalDev, Quiet: 25 * time.Millisecond}))
-		if got.Coalesce.Quiet != 25*time.Millisecond {
-			t.Errorf("per-field Quiet override lost: %v", got.Coalesce.Quiet)
+		if got.CoalesceWindows.Quiet != 25*time.Millisecond {
+			t.Errorf("per-field Quiet override lost: %v", got.CoalesceWindows.Quiet)
 		}
-		if got.Coalesce.MaxLag != coalesce.ProfileLocalDev.Apply().MaxLag {
-			t.Errorf("profile MaxLag not applied: %v", got.Coalesce.MaxLag)
+		if got.CoalesceWindows.MaxLag != coalesce.ProfileLocalDev.Apply().MaxLag {
+			t.Errorf("profile MaxLag not applied: %v", got.CoalesceWindows.MaxLag)
 		}
 	})
 	t.Run("No WithWatch leaves the watcher disabled", func(t *testing.T) {
-		if got := applyOpts(); got.Watch {
+		if got := applyOpts(); got.FileWatch {
 			t.Error("watcher enabled without WithWatch")
 		}
 	})
@@ -270,9 +270,9 @@ func assertMismatchedOption(t *testing.T, opt Option) {
 func TestWithAxes_CopiesEveryField(t *testing.T) {
 	var o options
 	WithAxes(Axis{Dir: "region", Env: "FC_REGION", Priority: 7, FromHostname: true})(&o)
-	want := scan.AxisSpec{Dir: "region", EnvVar: "FC_REGION", Priority: 7, DefaultFromHostname: true}
-	if len(o.OverlayAxes) != 1 || o.OverlayAxes[0] != want {
-		t.Fatalf("axes = %+v, want [%+v]", o.OverlayAxes, want)
+	want := scan.AxisSpec{Dir: "region", Env: "FC_REGION", Priority: 7, FromHostname: true}
+	if len(o.Axes) != 1 || o.Axes[0] != want {
+		t.Fatalf("axes = %+v, want [%+v]", o.Axes, want)
 	}
 	// Guard against a field added to Axis but not to AxisSpec (or vice versa).
 	if a, s := reflect.TypeFor[Axis]().NumField(), reflect.TypeFor[scan.AxisSpec]().NumField(); a != s {
