@@ -49,7 +49,10 @@ type Func[T any] struct {
 	Fn func(context.Context, Input[T]) ([]Violation, error)
 }
 
+// Name implements Policy.
 func (f Func[T]) Name() string { return f.N }
+
+// Evaluate implements Policy.
 func (f Func[T]) Evaluate(ctx context.Context, in Input[T]) ([]Violation, error) {
 	return f.Fn(ctx, in)
 }

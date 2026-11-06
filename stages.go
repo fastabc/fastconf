@@ -1,4 +1,3 @@
-// stages.go hosts every built-in pipeline stage in defaultStages order.
 package fastconf
 
 import (
@@ -12,6 +11,7 @@ import (
 	"github.com/fastabc/fastconf/internal/provenance"
 	"github.com/fastabc/fastconf/internal/secret"
 	"github.com/fastabc/fastconf/internal/typeinfo"
+	"github.com/fastabc/fastconf/policy"
 )
 
 // --- merge ---
@@ -43,8 +43,8 @@ func runMerge[T any](_ context.Context, m *Manager[T], pipeline *pipelineState[T
 			}
 		} else {
 			data := l.data
-			if l.cached != nil {
-				data = l.cached.clone()
+			if l.cachedLayer != nil {
+				data = l.cachedLayer.cloneTree()
 			}
 			if err := confmap.Deep(pipeline.merged, data, mergeOpt); err != nil {
 				return fmt.Errorf("%w: %s: %w", fcerr.ErrMerge, l.src.Path, err)
@@ -92,7 +92,7 @@ func runSecretResolve[T any](ctx context.Context, m *Manager[T], pipeline *pipel
 			pipeline.origins.Record(path, SourceRef{
 				Kind:     LayerSecret,
 				Path:     "secret://" + ref.Scheme,
-				Priority: prioritySecretResolved,
+				Priority: rankSecretResolved,
 			})
 		}
 		return plain, true
@@ -121,7 +121,7 @@ func runTypedHooks[T any](_ context.Context, m *Manager[T], pipeline *pipelineSt
 func runDecode[T any](_ context.Context, m *Manager[T], pipeline *pipelineState[T]) error {
 	pipeline.target = new(T)
 	mode := m.opts.UnknownFields
-	input, err := encodeInput(pipeline.merged, m.opts.YAMLBridge)
+	input, err := encodeBridgeInput(pipeline.merged, m.opts.YAMLBridge)
 	if err != nil {
 		return fmt.Errorf("%w: %w", fcerr.ErrDecode, err)
 	}
@@ -205,4 +205,65 @@ func runPolicy[T any](ctx context.Context, m *Manager[T], pipeline *pipelineStat
 		return polErr
 	}
 	return nil
+}
+
+func (m *Manager[T]) evaluatePolicies(ctx context.Context, cfg *T, reason string) (*PolicyError, []policy.Violation) {
+	if len(m.opts.Policies) == 0 {
+		return nil, nil
+	}
+	var errs []policy.Violation
+	var warns []policy.Violation
+	for _, p := range m.opts.Policies {
+		vs, err := p.EvaluateAny(ctx, cfg, reason, m.tenant)
+		if err != nil {
+			errs = append(errs, policy.Violation{
+				Rule:     p.Name(),
+				Message:  "evaluation error: " + err.Error(),
+				Severity: policy.SeverityError,
+			})
+			continue
+		}
+		for _, v := range vs {
+			if v.Rule == "" {
+				v.Rule = p.Name()
+			}
+			if v.Severity == policy.SeverityError {
+				errs = append(errs, v)
+			} else {
+				warns = append(warns, v)
+			}
+		}
+	}
+	if len(errs) == 0 {
+		return nil, warns
+	}
+	return &PolicyError{Violations: errs}, warns
+}
+
+// anyPolicy is the type-erased policy contract used by WithPolicy.
+type anyPolicy interface {
+	Name() string
+	EvaluateAny(ctx context.Context, cfg any, reason, tenant string) ([]policy.Violation, error)
+}
+
+// adaptPolicy erases a policy type, reporting a violation if evaluation receives the wrong type.
+func adaptPolicy[T any](p policy.Policy[T]) anyPolicy {
+	return policyAdapter[T]{p: p}
+}
+
+type policyAdapter[T any] struct{ p policy.Policy[T] }
+
+func (a policyAdapter[T]) Name() string { return a.p.Name() }
+
+func (a policyAdapter[T]) EvaluateAny(ctx context.Context, cfg any, reason, tenant string) ([]policy.Violation, error) {
+	c, ok := cfg.(*T)
+	if !ok {
+		return []policy.Violation{{
+			Path:     "",
+			Message:  "policy: type mismatch (framework bug)",
+			Severity: policy.SeverityError,
+			Rule:     a.p.Name(),
+		}}, nil
+	}
+	return a.p.Evaluate(ctx, policy.Input[T]{Config: c, Reason: reason, Tenant: tenant})
 }

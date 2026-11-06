@@ -26,24 +26,24 @@ func jitter(d time.Duration) time.Duration {
 // without honoring the requested revision (Event.Gap).
 var errResumeGap = errors.New("fastconf: provider resumed with a gap; changes may have been missed")
 
-// resumeState tracks the last revision observed per provider; it is passed
+// revisionTable tracks the last revision observed per provider; it is passed
 // back to Watcher.Watch so a provider can pick up where it left off after
 // a transient disconnect. The framework stores this state in-process only;
 // the revisions reach observers on Committed.Cause.Revisions.
-type resumeState struct {
+type revisionTable struct {
 	mu   sync.Mutex
 	revs map[string]string
 }
 
-func newResumeState() *resumeState { return &resumeState{revs: map[string]string{}} }
+func newRevisionTable() *revisionTable { return &revisionTable{revs: map[string]string{}} }
 
-func (r *resumeState) get(name string) string {
+func (r *revisionTable) get(name string) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.revs[name]
 }
 
-func (r *resumeState) set(name, rev string) {
+func (r *revisionTable) set(name, rev string) {
 	if rev == "" {
 		return
 	}
@@ -74,12 +74,12 @@ func (m *Manager[T]) runProviderWatcher(ctx context.Context, p contracts.Provide
 		if ctx.Err() != nil {
 			return
 		}
-		ch, err := watcher.Watch(ctx, m.resume.get(p.Name()))
+		ch, err := watcher.Watch(ctx, m.providerRevisions.get(p.Name()))
 		if err != nil {
 			delay := backoff.Next()
 			m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf provider watch error", slog.String("provider", p.Name()), slog.Any("err", err), slog.Duration("retry_in", delay))
 			m.emit(ProviderError{Provider: p.Name(), Err: err})
-			if !m.sleep(ctx, jitter(delay)) {
+			if !sleepCtx(ctx, jitter(delay)) {
 				return
 			}
 
@@ -97,7 +97,7 @@ func (m *Manager[T]) runProviderWatcher(ctx context.Context, p contracts.Provide
 		if ctx.Err() != nil {
 			return
 		}
-		if !m.sleep(ctx, jitter(minDelay)) {
+		if !sleepCtx(ctx, jitter(minDelay)) {
 			return
 		}
 	}
@@ -113,7 +113,7 @@ func (m *Manager[T]) consumeProviderEvents(ctx context.Context, p contracts.Prov
 				return
 			}
 			if ev.Revision != "" {
-				m.resume.set(p.Name(), ev.Revision)
+				m.providerRevisions.set(p.Name(), ev.Revision)
 			}
 			if ev.Gap {
 				// The provider could not resume from the revision we asked
@@ -122,7 +122,7 @@ func (m *Manager[T]) consumeProviderEvents(ctx context.Context, p contracts.Prov
 				m.emit(ProviderError{Provider: p.Name(), Err: errResumeGap})
 				m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf provider resumed with a gap", slog.String("provider", p.Name()), slog.String("revision", ev.Revision))
 			}
-			if m.watchPaused.Load() {
+			if m.eventsPaused.Load() {
 				m.opts.Logger.LogAttrs(context.Background(), slog.LevelDebug, "fastconf provider event ignored (watch paused)", slog.String("provider", p.Name()), slog.String("reason", ev.Reason))
 				continue
 			}
@@ -144,7 +144,7 @@ func (m *Manager[T]) consumeProviderEvents(ctx context.Context, p contracts.Prov
 				// Coalesce dropped triggers. Taking the token before Load lets
 				// an overflow during that Load schedule another refresh.
 				select {
-				case m.resyncCh <- struct{}{}:
+				case m.overflowResyncCh <- struct{}{}:
 				default:
 				}
 				m.emit(EventDropped{Source: p.Name()})
@@ -156,7 +156,7 @@ func (m *Manager[T]) consumeProviderEvents(ctx context.Context, p contracts.Prov
 
 // sleep returns false if the context is canceled. Used by
 // runProviderWatcher for backoff between resubscribe attempts.
-func (m *Manager[T]) sleep(ctx context.Context, d time.Duration) bool {
+func sleepCtx(ctx context.Context, d time.Duration) bool {
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {

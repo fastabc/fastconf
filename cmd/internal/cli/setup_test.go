@@ -139,9 +139,9 @@ func TestChangedValues_UsesBuilder(t *testing.T) {
 func TestLoadConfig_WithDir(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "base", "10-app.yaml"), "name: testapp\nport: 8080\n")
-	mgr, err := cli.LoadConfig[map[string]any](context.Background(), cli.Flags{Dir: dir})
+	mgr, err := cli.NewManager[map[string]any](context.Background(), cli.Flags{Dir: dir})
 	if err != nil {
-		t.Fatalf("LoadConfig: %v", err)
+		t.Fatalf("NewManager: %v", err)
 	}
 	defer func() { _ = mgr.Close() }()
 	got := mgr.Get()
@@ -155,7 +155,7 @@ func TestLoadConfig_WithDir(t *testing.T) {
 }
 
 func TestLoadConfig_NotADir(t *testing.T) {
-	_, err := cli.LoadConfig[map[string]any](context.Background(), cli.Flags{Dir: "/no/such/path"})
+	_, err := cli.NewManager[map[string]any](context.Background(), cli.Flags{Dir: "/no/such/path"})
 	if err == nil {
 		t.Fatal("expected error for missing dir")
 	}

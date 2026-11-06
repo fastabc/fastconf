@@ -72,7 +72,7 @@ func TestResolveField_Canonical(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := reflect.StructField{Name: tc.field, Tag: tc.tag}
-			if got := typeinfo.ResolveField(f).Canonical; got != tc.want {
+			if got := typeinfo.FieldNamesOf(f).Primary; got != tc.want {
 				t.Fatalf("name=%q want=%q", got, tc.want)
 			}
 		})
@@ -85,22 +85,22 @@ func TestResolveField_Candidates(t *testing.T) {
 		Bar string
 	}
 	foo, _ := reflect.TypeOf(S{}).FieldByName("Foo")
-	got := typeinfo.ResolveField(foo)
-	if got.Canonical != "foo_json" {
-		t.Fatalf("Canonical = %q, want foo_json", got.Canonical)
+	got := typeinfo.FieldNamesOf(foo)
+	if got.Primary != "foo_json" {
+		t.Fatalf("Canonical = %q, want foo_json", got.Primary)
 	}
 	want := []string{"foo_json", "foo_yaml", "foo", "Foo"}
-	if !reflect.DeepEqual(got.Candidates, want) {
-		t.Fatalf("Candidates = %v, want %v", got.Candidates, want)
+	if !reflect.DeepEqual(got.InputAliases, want) {
+		t.Fatalf("Candidates = %v, want %v", got.InputAliases, want)
 	}
 
 	bar, _ := reflect.TypeOf(S{}).FieldByName("Bar")
-	got = typeinfo.ResolveField(bar)
-	if got.Canonical != "bar" {
-		t.Fatalf("Bar canonical = %q, want bar", got.Canonical)
+	got = typeinfo.FieldNamesOf(bar)
+	if got.Primary != "bar" {
+		t.Fatalf("Bar canonical = %q, want bar", got.Primary)
 	}
-	if !reflect.DeepEqual(got.Candidates, []string{"bar", "Bar"}) {
-		t.Fatalf("Bar candidates = %v, want [bar Bar]", got.Candidates)
+	if !reflect.DeepEqual(got.InputAliases, []string{"bar", "Bar"}) {
+		t.Fatalf("Bar candidates = %v, want [bar Bar]", got.InputAliases)
 	}
 }
 

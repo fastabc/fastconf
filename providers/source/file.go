@@ -43,7 +43,7 @@ func (f *File) Describe() contracts.ProviderInfo {
 // Load implements contracts.Provider. A missing file is an empty layer.
 func (f *File) Load(ctx context.Context) (contracts.Snapshot, error) {
 	data, ct, rev, err := f.read(ctx)
-	return decode(f.Name(), data, ct, rev, err)
+	return snapshotFrom(f.Name(), data, ct, rev, err)
 }
 
 // read returns the raw file, its extension as content-type hint and a stat-based revision. A

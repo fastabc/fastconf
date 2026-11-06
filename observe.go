@@ -90,6 +90,9 @@ func WithObserver(os ...Observer) Option {
 	}
 }
 
+// DefaultObserverTimeout bounds each Observer.Observe call.
+const DefaultObserverTimeout = 2 * time.Second
+
 // WithObserverTimeout bounds each Observe call (default
 // DefaultObserverTimeout); a negative value disables the deadline. The
 // deadline only cancels ctx: an observer that ignores ctx still blocks.
@@ -97,20 +100,40 @@ func WithObserverTimeout(d time.Duration) Option {
 	return func(o *options) { o.ObserverTimeout = d }
 }
 
-// observed reports whether any observer is registered. Call sites check it
+// WithTracer installs a Tracer. Passing nil records a deferred error so
+// a missing tracer fails loudly at New() rather than silently dropping
+// every span.
+func WithTracer(t Tracer) Option {
+	return func(o *options) {
+		if t == nil {
+			o.DeferredErrs = append(o.DeferredErrs,
+				fmt.Errorf("%w: WithTracer(nil)", fcerr.ErrFastConf))
+			return
+		}
+		o.Tracer = t
+	}
+}
+
+// Tracer starts reload and pipeline spans.
+type Tracer = obs.Tracer
+
+// Span records stage attributes, errors and completion.
+type Span = obs.Span
+
+// hasObservers reports whether any observer is registered. Call sites check it
 // before building an event so a manager without observers never boxes one.
-func (m *Manager[T]) observed() bool { return len(m.opts.Observers) > 0 }
+func (m *Manager[T]) hasObservers() bool { return len(m.opts.Observers) > 0 }
 
 // emitStage and emitReload are the hot-path emitters; they build nothing
 // when no observer is registered.
 func (m *Manager[T]) emitStage(stage string, d time.Duration, err error) {
-	if m.observed() {
+	if m.hasObservers() {
 		m.emit(StageFinished{Stage: stage, Dur: d, Err: err})
 	}
 }
 
 func (m *Manager[T]) emitReload(reason string, d time.Duration, err error) {
-	if m.observed() {
+	if m.hasObservers() {
 		m.emit(ReloadFinished{Reason: reason, Dur: d, Err: err})
 	}
 }
@@ -118,7 +141,7 @@ func (m *Manager[T]) emitReload(reason string, d time.Duration, err error) {
 // emit delivers e to every observer on the calling goroutine.
 func (m *Manager[T]) emit(e Event) {
 	for _, ob := range m.opts.Observers {
-		ctx, cancel := obs.CallbackContext(m.lifetime, m.opts.ObserverTimeout)
+		ctx, cancel := obs.ObserverContext(m.lifetime, m.opts.ObserverTimeout)
 		ob.Observe(ctx, e)
 		cancel()
 	}
@@ -138,8 +161,12 @@ func lazyDiff[T any](prev, next *State[T]) func() []DiffEntry {
 	}
 }
 
-// timed completes the span and stage event even when a stage returns an error.
-func (m *Manager[T]) timed(ctx context.Context, spanName string, fn func(context.Context, Span) error) (time.Duration, error) {
+func (m *Manager[T]) startSpan(ctx context.Context, name string) (context.Context, obs.Span) {
+	return obs.StartSpan(ctx, m.opts.Tracer, name)
+}
+
+// runTimedStage completes the span and stage event even when a stage returns an error.
+func (m *Manager[T]) runTimedStage(ctx context.Context, spanName string, fn func(context.Context, Span) error) (time.Duration, error) {
 	start := time.Now()
 	ctx, sp := m.startSpan(ctx, spanName)
 	err := fn(ctx, sp)

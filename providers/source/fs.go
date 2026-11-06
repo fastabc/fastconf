@@ -64,7 +64,7 @@ func (f *FS) Load(ctx context.Context) (contracts.Snapshot, error) {
 		return contracts.Snapshot{}, err
 	}
 	rev := fmt.Sprintf("%x", sha256.Sum256(data))
-	return decode(f.Name(), data, path.Ext(f.path), rev, nil)
+	return snapshotFrom(f.Name(), data, path.Ext(f.path), rev, nil)
 }
 
 var _ contracts.Provider = (*FS)(nil)

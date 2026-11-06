@@ -51,5 +51,3 @@ type ReloadError struct {
 	Reason string
 	At     time.Time
 }
-
-const ErrorChanCap = 16

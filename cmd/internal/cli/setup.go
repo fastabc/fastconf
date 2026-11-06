@@ -1,5 +1,5 @@
 // Package cli shares command-line flags and manager setup across FastConf binaries.
-// RegisterFlags parses common settings; LoadConfig applies command-specific options.
+// RegisterFlags registers common flags; NewManager starts a Manager from them.
 package cli
 
 import (
@@ -88,11 +88,11 @@ func ChangedValues(fs *flag.FlagSet, build func(name, value string, out map[stri
 	return out, nil
 }
 
-// LoadConfig builds a fastconf.Manager[T] from a populated Flags value
-// plus any extra Option overrides. It is the canonical Manager
-// constructor for CLI binaries; -dir / -profile / -strict / -watch
-// behaviour stays consistent across fastconfd and fastconfctl.
-func LoadConfig[T any](ctx context.Context, f Flags, extra ...fastconf.Option) (*fastconf.Manager[T], error) {
+// NewManager starts a fastconf.Manager[T] from f plus extra options.
+// It is the canonical Manager constructor for CLI binaries;
+// -dir / -profile / -strict / -watch behaviour stays consistent
+// across fastconfd and fastconfctl.
+func NewManager[T any](ctx context.Context, f Flags, extra ...fastconf.Option) (*fastconf.Manager[T], error) {
 	opts, err := f.Options(extra...)
 	if err != nil {
 		return nil, err
@@ -135,7 +135,7 @@ func (f Flags) Options(extra ...fastconf.Option) ([]fastconf.Option, error) {
 type ProviderFactory func(cfg map[string]any) (contracts.Provider, error)
 
 // Providers maps "-provider" names to factories. Binaries may add entries
-// before calling LoadConfig.
+// before calling NewManager.
 var Providers = map[string]ProviderFactory{
 	"env": func(cfg map[string]any) (contracts.Provider, error) {
 		prefix, _ := cfg["value"].(string)

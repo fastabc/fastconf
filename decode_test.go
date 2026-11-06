@@ -126,7 +126,7 @@ func TestIsUnknownField_RealDecoders(t *testing.T) {
 
 // decodeTestInput exercises the production encode/decode bridge for one test input.
 func decodeTestInput[T any](m map[string]any, target *T, yamlBridge, strict bool) error {
-	input, err := encodeInput(m, yamlBridge)
+	input, err := encodeBridgeInput(m, yamlBridge)
 	if err != nil {
 		return err
 	}

@@ -13,10 +13,10 @@ import (
 // SubscribeOption customises a [Subscribe] registration. The only
 // constructor today is [WithEqual]; the type is exported so callers can
 // write helper functions that return options.
-type SubscribeOption[S any] func(*subscribeOpts[S])
+type SubscribeOption[S any] func(*subscribeConfig[S])
 
-// subscribeOpts carries the resolved per-subscriber knobs.
-type subscribeOpts[S any] struct {
+// subscribeConfig carries the resolved per-subscriber knobs.
+type subscribeConfig[S any] struct {
 	equal func(old, new *S) bool
 }
 
@@ -25,7 +25,7 @@ type subscribeOpts[S any] struct {
 // skip publication entirely. Use WithObserver to observe unchanged reloads.
 // See docs/cookbook/runtime/subscribe.md for comparator examples.
 func WithEqual[S any](equal func(old, new *S) bool) SubscribeOption[S] {
-	return func(o *subscribeOpts[S]) { o.equal = equal }
+	return func(o *subscribeConfig[S]) { o.equal = equal }
 }
 
 // Subscribe calls fn after commits, including rollback, when extract's value changes.
@@ -46,7 +46,7 @@ func Subscribe[T any, S any](
 	if m == nil || extract == nil || fn == nil {
 		return func() {}
 	}
-	var cfg subscribeOpts[S]
+	var cfg subscribeConfig[S]
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
@@ -116,11 +116,11 @@ func (m *Manager[T]) notifySubscribers(prev, next *State[T]) {
 	m.subscriberMu.RUnlock()
 	slices.SortFunc(subs, func(a, b keyed) int { return cmp.Compare(a.id, b.id) })
 	for _, s := range subs {
-		callSubscriber(m, s.fn, prev, next)
+		callSubscriberRecovering(m, s.fn, prev, next)
 	}
 }
 
-func callSubscriber[T any](m *Manager[T], fn func(prev, next *State[T]), prev, next *State[T]) {
+func callSubscriberRecovering[T any](m *Manager[T], fn func(prev, next *State[T]), prev, next *State[T]) {
 	defer func() {
 		r := recover()
 		if r == nil {

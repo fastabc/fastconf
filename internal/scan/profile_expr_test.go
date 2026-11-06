@@ -23,7 +23,7 @@ func TestEval(t *testing.T) {
 		{"a-b.c_d", []string{"a-b.c_d"}, true},
 	}
 	for _, c := range cases {
-		got, err := Eval(c.expr, NewSet(c.active...))
+		got, err := Eval(c.expr, NewProfileSet(c.active...))
 		if err != nil {
 			t.Fatalf("Eval(%q): %v", c.expr, err)
 		}
@@ -36,7 +36,7 @@ func TestEval(t *testing.T) {
 func TestEvalErrors(t *testing.T) {
 	bad := []string{"prod &", "(prod", "prod ) extra", "& prod", "!"}
 	for _, e := range bad {
-		if _, err := Eval(e, NewSet("prod")); err == nil {
+		if _, err := Eval(e, NewProfileSet("prod")); err == nil {
 			t.Fatalf("Eval(%q) expected error", e)
 		}
 	}

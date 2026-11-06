@@ -81,7 +81,7 @@ func TestRunReloadRequestSkipsCanceledWork(t *testing.T) {
 		}
 		called := false
 		done := make(chan error, 1)
-		m.runReloadRequest(reloadRequest{ctx: ctx, doneCh: done, applyFn: func(context.Context) error {
+		m.runReloadRequest(reloadRequest{ctx: ctx, doneCh: done, run: func(context.Context) error {
 			called = true
 			return nil
 		}})

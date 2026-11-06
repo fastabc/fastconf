@@ -52,7 +52,7 @@ func fillResyncQueue(t *testing.T, m *Manager[map[string]int]) func() {
 	var once sync.Once
 	unblock := func() { once.Do(func() { close(release) }) }
 	t.Cleanup(unblock)
-	m.reloadCh <- reloadRequest{applyFn: func(ctx context.Context) error {
+	m.reloadCh <- reloadRequest{run: func(ctx context.Context) error {
 		close(started)
 		select {
 		case <-release:
@@ -63,7 +63,7 @@ func fillResyncQueue(t *testing.T, m *Manager[map[string]int]) func() {
 	}}
 	awaitResync(t, started)
 	for i := 0; i < reloadChanCap; i++ {
-		m.reloadCh <- reloadRequest{applyFn: func(context.Context) error { return nil }}
+		m.reloadCh <- reloadRequest{run: func(context.Context) error { return nil }}
 	}
 	return unblock
 }
@@ -142,13 +142,13 @@ func TestProviderOverflowDuringResyncAndMultipleProviders(t *testing.T) {
 		sendResyncEvent(m, p)
 		sendResyncEvent(m, q)
 	}
-	if len(m.resyncCh) != 1 {
+	if len(m.overflowResyncCh) != 1 {
 		t.Fatal("overflow refresh must stay bounded")
 	}
 	unblock()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := m.enqueue(ctx, reloadRequest{applyFn: func(context.Context) error { return nil }}); err != nil {
+	if err := m.submitAndWait(ctx, reloadRequest{run: func(context.Context) error { return nil }}); err != nil {
 		t.Fatalf("ordinary request starved: %v", err)
 	}
 	if got := *m.Get(); got["a"] != 3 || got["b"] != 10 {
@@ -193,7 +193,7 @@ func TestProviderOverflowPauseFailureAndClose(t *testing.T) {
 			release()
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			if err := m.enqueue(ctx, reloadRequest{applyFn: func(context.Context) error { return nil }}); err != nil {
+			if err := m.submitAndWait(ctx, reloadRequest{run: func(context.Context) error { return nil }}); err != nil {
 				t.Fatal(err)
 			}
 			if m.Snapshot() != before {

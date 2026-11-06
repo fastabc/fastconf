@@ -21,11 +21,11 @@ import (
 // Diagnostic rank offsets for non-file layers. Precedence is determined by
 // layerClass, then in-class priority; these offsets do not bound user priorities.
 const (
-	bandGenerator = 7000
-	bandProvider  = 8000
-	bandOverride  = 9000
+	rankOffsetGenerator = 7000
+	rankOffsetProvider  = 8000
+	rankOffsetOverride  = 9000
 
-	prioritySecretResolved = bandOverride + 500
+	rankSecretResolved = rankOffsetOverride + 500
 )
 
 // layerClass fixes the precedence between source categories. A priority
@@ -41,25 +41,25 @@ const (
 )
 
 func compareLayers(a, b stagedLayer) int {
-	return cmp.Or(cmp.Compare(a.class, b.class), cmp.Compare(a.prio, b.prio))
+	return cmp.Or(cmp.Compare(a.class, b.class), cmp.Compare(a.classPriority, b.classPriority))
 }
 
 // Assemble: build []stagedLayer from File / Generator / Provider layers.
 
 // stagedLayer is the unit produced by assemble() and consumed by commit().
-// Exactly one of data (owned), cached (borrowed file data) or patch is set.
-// Layers sort by class, then prio, then declaration order; src.Priority is
+// Exactly one of data (owned), cachedLayer (borrowed file data) or patch is set.
+// Layers sort by class, then classPriority, then declaration order; src.Priority is
 // the diagnostic rank (source offset plus local priority).
 type stagedLayer struct {
-	src    SourceRef
-	class  layerClass
-	prio   int
-	data   map[string]any
-	cached *decodedLayer
-	patch  []byte
-	// sum is the sha256 of a file layer's bytes; zero for layers that do
+	src           SourceRef
+	class         layerClass
+	classPriority int
+	data          map[string]any
+	cachedLayer   *decodedLayer
+	patch         []byte
+	// fileSum is the sha256 of a file layer's bytes; zero for layers that do
 	// not come from a file (providers, generators, overrides).
-	sum [32]byte
+	fileSum [32]byte
 }
 
 type assemblyResult struct {
@@ -71,12 +71,12 @@ type assemblyResult struct {
 	// nothing else can change the result (see inputFingerprint); zero
 	// otherwise.
 	fingerprint [32]byte
-	// watchDirs lists the scanned file directories, including empty or
+	// scannedDirs lists the scanned file directories, including empty or
 	// missing ones; it is filled even when assembly fails part-way.
-	watchDirs []string
+	scannedDirs []string
 }
 
-type assemblyMeta struct {
+type rootMetaSettings struct {
 	metaSum      [32]byte
 	appendSlices bool
 	mergeKeys    map[string]string
@@ -91,36 +91,36 @@ func (m *Manager[T]) assemble(ctx context.Context, hostnameOverride string, extr
 	}
 	generation := codec.Generation()
 
-	var meta assemblyMeta
+	var meta rootMetaSettings
 	var staged []stagedLayer
-	var watchDirs []string
+	var scannedDirs []string
 	strict := m.opts.Strict
 	if !m.opts.SkipDiscovery {
-		scanOpt, discovered, err := m.buildScanOptions(hostnameOverride)
+		scanOpt, discovered, err := m.resolveDiscovery(hostnameOverride)
 		if err != nil {
 			return assemblyResult{}, discoveryError(err)
 		}
 		meta = discovered
 		strict = scanOpt.Strict
-		scanOpt.OnDir = func(dir string) { watchDirs = append(watchDirs, dir) }
+		scanOpt.OnDir = func(dir string) { scannedDirs = append(scannedDirs, dir) }
 		staged, err = m.assembleFileLayers(scanOpt)
 		if err != nil {
-			return assemblyResult{watchDirs: watchDirs}, discoveryError(err)
+			return assemblyResult{scannedDirs: scannedDirs}, discoveryError(err)
 		}
 	}
 	generatorLayers, err := m.assembleGeneratorLayers(ctx)
 	if err != nil {
-		return assemblyResult{watchDirs: watchDirs}, err
+		return assemblyResult{scannedDirs: scannedDirs}, err
 	}
 	staged = append(staged, generatorLayers...)
 	providerLayers, err := m.assembleProviderLayers(ctx)
 	if err != nil {
-		return assemblyResult{watchDirs: watchDirs}, err
+		return assemblyResult{scannedDirs: scannedDirs}, err
 	}
 	staged = append(staged, providerLayers...)
 	staged = append(staged, extra...)
 	if len(staged) == 0 {
-		return assemblyResult{watchDirs: watchDirs}, fcerr.ErrNoSources
+		return assemblyResult{scannedDirs: scannedDirs}, fcerr.ErrNoSources
 	}
 	slices.SortStableFunc(staged, compareLayers)
 	return assemblyResult{
@@ -129,16 +129,16 @@ func (m *Manager[T]) assemble(ctx context.Context, hostnameOverride string, extr
 		appendSlices: meta.appendSlices,
 		mergeKeys:    meta.mergeKeys,
 		fingerprint:  m.inputFingerprint(staged, meta.metaSum, generation),
-		watchDirs:    watchDirs,
+		scannedDirs:  scannedDirs,
 	}, nil
 }
 
-func (m *Manager[T]) buildScanOptions(hostnameOverride string) (scan.ScanOptions, assemblyMeta, error) {
-	scanOpt := scan.ScanOptions{
+func (m *Manager[T]) resolveDiscovery(hostnameOverride string) (scan.Options, rootMetaSettings, error) {
+	scanOpt := scan.Options{
 		Strict: m.opts.Strict,
 		FS:     m.opts.FS,
 	}
-	var metaOut assemblyMeta
+	var metaOut rootMetaSettings
 	metaBytes, err := scan.LoadMeta(m.opts.FS, m.opts.Dir)
 	if err != nil {
 		return scanOpt, metaOut, discoveryError(err)
@@ -149,10 +149,10 @@ func (m *Manager[T]) buildScanOptions(hostnameOverride string) (scan.ScanOptions
 		if err := yaml.Unmarshal(metaBytes, &meta); err != nil {
 			return scanOpt, metaOut, fmt.Errorf("%w: _meta.yaml: %v", fcerr.ErrDecode, err)
 		}
-		meta.Apply(&scanOpt)
+		meta.ApplyTo(&scanOpt)
 		metaOut.appendSlices = meta.Spec.AppendSlices
 	}
-	metaOut.mergeKeys = m.metaKeys.combined(metaBytes, func() map[string]string {
+	metaOut.mergeKeys = m.metaKeys.getOrBuild(metaBytes, func() map[string]string {
 		// Programmatic entries (WithMergeKeys) win on conflict.
 		keys := maps.Clone(meta.Spec.MergeKeys)
 		if keys == nil && len(m.opts.MergeKeys) > 0 {
@@ -165,7 +165,7 @@ func (m *Manager[T]) buildScanOptions(hostnameOverride string) (scan.ScanOptions
 	// to whichever set was resolved.
 	if names := m.opts.activeProfiles(meta.Spec.ProfileEnv, meta.Spec.DefaultProfile); len(names) > 0 {
 		scanOpt.Profiles = slices.Clone(names)
-		scanOpt.MatchAnd = m.opts.ProfileMatch
+		scanOpt.GlobalMatch = m.opts.ProfileMatch
 	}
 
 	// Resolve multi-axis overlays. Plan callers on CI runners can pin
@@ -181,11 +181,11 @@ func (m *Manager[T]) buildScanOptions(hostnameOverride string) (scan.ScanOptions
 	for _, e := range axisErrs {
 		m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf: hostname resolution failed; axis skipped", slog.String("axis", e.Axis), slog.Any("err", e.Err))
 	}
-	scanOpt.ExtraOverlays = append(scanOpt.ExtraOverlays, extras...)
+	scanOpt.AxisOverlays = append(scanOpt.AxisOverlays, extras...)
 	return scanOpt, metaOut, nil
 }
 
-func (m *Manager[T]) assembleFileLayers(scanOpt scan.ScanOptions) ([]stagedLayer, error) {
+func (m *Manager[T]) assembleFileLayers(scanOpt scan.Options) ([]stagedLayer, error) {
 	staged := make([]stagedLayer, 0, 8)
 	for layer, err := range scan.Scan(m.opts.Dir, scanOpt) {
 		if err != nil {
@@ -207,7 +207,7 @@ func (m *Manager[T]) assembleFileLayers(scanOpt scan.ScanOptions) ([]stagedLayer
 			if perr != nil {
 				return nil, fmt.Errorf("%w: %s: %w", fcerr.ErrMerge, layer.Path, perr)
 			}
-			staged = append(staged, stagedLayer{src: src, prio: src.Priority, patch: patchBytes, sum: sha256.Sum256(layer.Bytes)})
+			staged = append(staged, stagedLayer{src: src, classPriority: src.Priority, patch: patchBytes, fileSum: sha256.Sum256(layer.Bytes)})
 			continue
 		}
 		generation := codec.Generation()
@@ -216,11 +216,11 @@ func (m *Manager[T]) assembleFileLayers(scanOpt scan.ScanOptions) ([]stagedLayer
 			return nil, fmt.Errorf("%w: %w", fcerr.ErrDecode, derr)
 		}
 		sum := sha256.Sum256(layer.Bytes)
-		raw, derr := m.layerCache.decoded(layer, sum, dec, generation)
+		raw, derr := m.layerCache.getOrDecode(layer, sum, dec, generation)
 		if derr != nil {
 			return nil, fmt.Errorf("%w: %s: %w", fcerr.ErrDecode, layer.Path, derr)
 		}
-		staged = append(staged, stagedLayer{src: src, prio: src.Priority, cached: raw, sum: sum})
+		staged = append(staged, stagedLayer{src: src, classPriority: src.Priority, cachedLayer: raw, fileSum: sum})
 	}
 	return staged, nil
 }
@@ -245,12 +245,12 @@ func (m *Manager[T]) assembleGeneratorLayers(ctx context.Context) ([]stagedLayer
 				src: SourceRef{
 					Path:     "gen://" + g.Name() + "/" + gs.Name,
 					Kind:     LayerGenerator,
-					Priority: bandGenerator + gs.Priority,
+					Priority: rankOffsetGenerator + gs.Priority,
 					Codec:    gs.Codec,
 				},
-				class: classGenerator,
-				prio:  gs.Priority,
-				data:  raw,
+				class:         classGenerator,
+				classPriority: gs.Priority,
+				data:          raw,
 			})
 		}
 	}
@@ -290,13 +290,13 @@ func (m *Manager[T]) assembleProviderLayers(ctx context.Context) ([]stagedLayer,
 			src: SourceRef{
 				Path:     "provider://" + p.Name(),
 				Kind:     LayerProvider,
-				Priority: bandProvider + e.Info.Priority,
+				Priority: rankOffsetProvider + e.Info.Priority,
 				Revision: snap.Revision,
 				Stale:    snap.Stale,
 			},
-			class: classProvider,
-			prio:  e.Info.Priority,
-			data:  snap.Map,
+			class:         classProvider,
+			classPriority: e.Info.Priority,
+			data:          snap.Map,
 		})
 	}
 	return staged, nil
@@ -308,4 +308,17 @@ func discoveryError(err error) error {
 		return err
 	}
 	return fmt.Errorf("%w: %w", fcerr.ErrDecode, err)
+}
+
+// mapLayerKind translates an internal scan.Kind into the public
+// LayerKind enum reported via SourceRef.
+func mapLayerKind(k scan.Kind) LayerKind {
+	switch k {
+	case scan.KindMerge:
+		return LayerMerge
+	case scan.KindPatch:
+		return LayerPatch
+	default:
+		return LayerUnknown
+	}
 }

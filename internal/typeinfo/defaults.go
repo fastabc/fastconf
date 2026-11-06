@@ -1,6 +1,3 @@
-// Reload-pipeline helpers that are pure functions of *T: struct defaults and field-meta checks.
-// The manager keeps the stage definitions and delegates the per-field reflection walks here.
-
 package typeinfo
 
 import (
@@ -15,8 +12,8 @@ import (
 var defaultsCache = NewCache[[]defaultEntry]()
 
 type defaultEntry struct {
-	index  []int
-	tagVal string
+	index []int
+	raw   string
 }
 
 // ApplyStructDefaults populates zero-valued fields of *t whose `fc` tag declares a "default=..."
@@ -29,7 +26,7 @@ func ApplyStructDefaults[T any](t *T) error {
 	if !v.IsValid() {
 		return nil
 	}
-	plan := planForType(v.Type())
+	plan := defaultsPlanFor(v.Type())
 	for _, e := range plan {
 		fv := fieldAt(v, e.index)
 		if !fv.IsValid() || !fv.CanSet() {
@@ -38,14 +35,14 @@ func ApplyStructDefaults[T any](t *T) error {
 		if !fv.IsZero() {
 			continue
 		}
-		if err := assignFromTag(fv, e.tagVal); err != nil {
-			return fmt.Errorf("fastconf default %q: %w", e.tagVal, err)
+		if err := assignFromTag(fv, e.raw); err != nil {
+			return fmt.Errorf("fastconf default %q: %w", e.raw, err)
 		}
 	}
 	return nil
 }
 
-func planForType(t reflect.Type) []defaultEntry {
+func defaultsPlanFor(t reflect.Type) []defaultEntry {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
@@ -57,8 +54,8 @@ func planForType(t reflect.Type) []defaultEntry {
 		Walk(t, func(_ string, idx []int, f reflect.StructField) bool {
 			if val, ok := defaultTagValue(f.Tag.Get(TagKey)); ok {
 				entries = append(entries, defaultEntry{
-					index:  append([]int(nil), idx...),
-					tagVal: val,
+					index: append([]int(nil), idx...),
+					raw:   val,
 				})
 			}
 			ft := f.Type

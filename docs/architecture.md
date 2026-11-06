@@ -36,7 +36,7 @@ The [extensions guide](getting-started/extensions.md) lists optional adapters;
 
 | Concern | Source entry points |
 |---|---|
-| Public entry points and options | [`load_file.go`](../load_file.go), [`manager.go`](../manager.go), [`options.go`](../options.go), [`config.go`](../config.go) |
+| Public entry points and options | [`load_file.go`](../load_file.go), [`manager.go`](../manager.go), [`options.go`](../options.go), [`options_resolve.go`](../options_resolve.go) |
 | File discovery and source assembly | [`assemble.go`](../assemble.go), [`internal/scan/`](../internal/scan) |
 | Caching and unchanged-input detection | [`layer_cache.go`](../layer_cache.go), [`input_fingerprint.go`](../input_fingerprint.go) |
 | Writer, reload and pipeline | [`reload_queue.go`](../reload_queue.go), [`reload.go`](../reload.go), [`pipeline.go`](../pipeline.go), [`stages.go`](../stages.go) |

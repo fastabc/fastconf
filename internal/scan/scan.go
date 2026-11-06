@@ -41,32 +41,32 @@ type Layer struct {
 	Bytes    []byte
 }
 
-// ExtraOverlay describes an additional directory to include as file layers after the main base and
-// overlay dirs. It is used by the multi-axis overlay feature (see ScanOptions.ExtraOverlays).
-type ExtraOverlay struct {
+// AxisOverlay describes an additional directory to include as file layers after the main base and
+// overlay dirs. It is used by the multi-axis overlay feature (see Options.AxisOverlays).
+type AxisOverlay struct {
 	Dir      string // path relative to the scan root, e.g. "hosts/ua"
 	Profile  string // label for provenance reporting, e.g. "host:ua"
 	Priority int    // base priority for layers in this directory
 }
 
-// ScanOptions controls scan behaviour. The single-profile use case goes through Profiles with one
+// Options controls scan behaviour. The single-profile use case goes through Profiles with one
 // element; there is no separate scalar field.
-type ScanOptions struct {
-	BaseDir       string         // default "base"
-	OverlayDir    string         // default "overlays"
-	Profiles      []string       // Active profile set; empty = base-only, one element = single-profile, more = multi-axis expression matching.
-	MatchAnd      string         // Optional global expression AND-ed with each overlay's match.
-	PatchSuffixes []string       // default [".patch.yaml", ".patch.json"]
-	Strict        bool           // require base; reject unknown extensions and non-regular layer entries
-	FS            fs.FS          // optional virtual filesystem for tests
-	ExtraOverlays []ExtraOverlay // Additional axis directories (multi-axis overlay feature).
+type Options struct {
+	BaseDir       string        // default "base"
+	OverlayDir    string        // default "overlays"
+	Profiles      []string      // Active profile set; empty = base-only, one element = single-profile, more = multi-axis expression matching.
+	GlobalMatch   string        // Optional global expression AND-ed with each overlay's match.
+	PatchSuffixes []string      // default [".patch.yaml", ".patch.json"]
+	Strict        bool          // require base; reject unknown extensions and non-regular layer entries
+	FS            fs.FS         // optional virtual filesystem for tests
+	AxisOverlays  []AxisOverlay // Additional axis directories (multi-axis overlay feature).
 	// OnDir, when non-nil, is called with every contributing directory (base, matched overlays,
 	// extra overlays) before it is read, even when it is empty or missing, so a watcher can
 	// subscribe before the contents are observed.
 	OnDir func(dir string)
 }
 
-func (o *ScanOptions) defaults() {
+func (o *Options) defaults() {
 	if o.BaseDir == "" {
 		o.BaseDir = "base"
 	}
@@ -78,17 +78,14 @@ func (o *ScanOptions) defaults() {
 	}
 }
 
-// LayerSeq is the iterator of discovered layers returned by Scan.
-type LayerSeq = iter.Seq2[Layer, error]
-
 // Scan yields layers in base→overlay priority order, lexicographic within each tier.
 // The iterator permits early stopping on discovery or decode errors.
-func Scan(root string, opt ScanOptions) LayerSeq {
+func Scan(root string, opt Options) iter.Seq2[Layer, error] {
 	opt.defaults()
 
 	return func(yield func(Layer, error) bool) {
 		// 1) base layers (BandFileBase..BandFileBase+999)
-		baseLayers, err := collect(opt.FS, root, opt.BaseDir, "", BandFileBase, opt)
+		baseLayers, err := collectDir(opt.FS, root, opt.BaseDir, "", BandFileBase, opt)
 		if err != nil {
 			yield(Layer{}, err)
 			return
@@ -111,7 +108,7 @@ func Scan(root string, opt ScanOptions) LayerSeq {
 		// 2) overlay layers (BandFileOverlay..BandFileOverlay+999)
 		// Active profiles select direct overlay directories by metadata expression or name.
 		if len(opt.Profiles) > 0 {
-			overlayLayers, err := collectOverlaysByExpression(opt.FS, root, opt)
+			overlayLayers, err := collectProfileOverlays(opt.FS, root, opt)
 			if err != nil {
 				yield(Layer{}, err)
 				return
@@ -124,14 +121,14 @@ func Scan(root string, opt ScanOptions) LayerSeq {
 		}
 
 		// Additional axes follow profiles; priority wins, declaration order breaks ties.
-		extras := slices.Clone(opt.ExtraOverlays)
-		slices.SortStableFunc(extras, func(a, b ExtraOverlay) int { return cmp.Compare(a.Priority, b.Priority) })
+		extras := slices.Clone(opt.AxisOverlays)
+		slices.SortStableFunc(extras, func(a, b AxisOverlay) int { return cmp.Compare(a.Priority, b.Priority) })
 		for _, extra := range extras {
-			if extra.Priority < BandExtraOverlay || extra.Priority > bandFileEnd-overlayStride {
+			if extra.Priority < BandAxis || extra.Priority > bandFileEnd-overlayStride {
 				yield(Layer{}, fmt.Errorf("scan: extra overlay %q exceeds the file priority band", extra.Dir))
 				return
 			}
-			extraLayers, err := collect(opt.FS, root, extra.Dir, extra.Profile, extra.Priority, opt)
+			extraLayers, err := collectDir(opt.FS, root, extra.Dir, extra.Profile, extra.Priority, opt)
 			if err != nil {
 				yield(Layer{}, err)
 				return
@@ -149,9 +146,9 @@ func Scan(root string, opt ScanOptions) LayerSeq {
 	}
 }
 
-// collectOverlaysByExpression selects lexical direct subdirectories by metadata match
+// collectProfileOverlays selects lexical direct subdirectories by metadata match
 // or, without metadata, by membership in the active profile set.
-func collectOverlaysByExpression(fsys fs.FS, root string, opt ScanOptions) ([]Layer, error) {
+func collectProfileOverlays(fsys fs.FS, root string, opt Options) ([]Layer, error) {
 	dir := path.Join(root, opt.OverlayDir)
 	if opt.OnDir != nil {
 		opt.OnDir(dir)
@@ -164,14 +161,14 @@ func collectOverlaysByExpression(fsys fs.FS, root string, opt ScanOptions) ([]La
 		return nil, fmt.Errorf("scan: read overlays %q: %w", dir, err)
 	}
 	slices.SortStableFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
-	active := NewSet(opt.Profiles...)
+	active := NewProfileSet(opt.Profiles...)
 	var globalExpr string
-	if strings.TrimSpace(opt.MatchAnd) != "" {
+	if strings.TrimSpace(opt.GlobalMatch) != "" {
 		// Validate eagerly so a typo fails the scan, not the first overlay hit.
-		if _, err := Eval(opt.MatchAnd, active); err != nil {
-			return nil, fmt.Errorf("scan: MatchAnd: %w", err)
+		if _, err := Eval(opt.GlobalMatch, active); err != nil {
+			return nil, fmt.Errorf("scan: GlobalMatch: %w", err)
 		}
-		globalExpr = opt.MatchAnd
+		globalExpr = opt.GlobalMatch
 	}
 	var out []Layer
 	priorityBase := BandFileOverlay
@@ -189,7 +186,7 @@ func collectOverlaysByExpression(fsys fs.FS, root string, opt ScanOptions) ([]La
 		}
 		if globalExpr != "" {
 			// Include the overlay name so the global filter can exclude that directory.
-			scoped := NewSet(opt.Profiles...)
+			scoped := NewProfileSet(opt.Profiles...)
 			scoped[e.Name()] = struct{}{}
 			ok, err := Eval(globalExpr, scoped)
 			if err != nil {
@@ -199,10 +196,10 @@ func collectOverlaysByExpression(fsys fs.FS, root string, opt ScanOptions) ([]La
 				continue
 			}
 		}
-		if priorityBase >= BandExtraOverlay {
-			return nil, fmt.Errorf("scan: too many matched overlays; max %d (priority band width)", (BandExtraOverlay-BandFileOverlay)/overlayStride)
+		if priorityBase >= BandAxis {
+			return nil, fmt.Errorf("scan: too many matched overlays; max %d (priority band width)", (BandAxis-BandFileOverlay)/overlayStride)
 		}
-		layers, err := collect(fsys, root, sub, e.Name(), priorityBase, opt)
+		layers, err := collectDir(fsys, root, sub, e.Name(), priorityBase, opt)
 		if err != nil {
 			return nil, err
 		}
@@ -222,17 +219,17 @@ func collectOverlaysByExpression(fsys fs.FS, root string, opt ScanOptions) ([]La
 const overlayStride = 100
 
 // Layer priority bands assigned by Scan. Base files occupy BandFileBase+i, matched overlay
-// directories BandFileOverlay+dir*100+i, and multi-axis overlays start at BandExtraOverlay by
+// directories BandFileOverlay+dir*100+i, and multi-axis overlays start at BandAxis by
 // convention. Every file band sits below the framework's generator and provider bands.
 const (
-	BandFileBase     = 1000
-	BandFileOverlay  = 2000
-	BandExtraOverlay = 3000
-	bandFileEnd      = 7000
+	BandFileBase    = 1000
+	BandFileOverlay = 2000
+	BandAxis        = 3000
+	bandFileEnd     = 7000
 )
 
 // MaxAxes is the number of axis windows below the generator band.
-const MaxAxes = (bandFileEnd - BandExtraOverlay) / overlayStride
+const MaxAxes = (bandFileEnd - BandAxis) / overlayStride
 
 // baseBandWidth is the priority window for the base directory: its files occupy
 // BandFileBase..BandFileBase+baseBandWidth-1 and must not reach the overlay band.
@@ -244,9 +241,9 @@ type overlayMeta struct {
 	Match string `yaml:"match"`
 }
 
-func overlayMatches(fsys fs.FS, root, sub, name string, active Set) (bool, error) {
+func overlayMatches(fsys fs.FS, root, sub, name string, active ProfileSet) (bool, error) {
 	metaPath := path.Join(root, sub, "_meta.yaml")
-	data, _, err := readLayer(fsys, metaPath, true)
+	data, _, err := readRegularFile(fsys, metaPath, true)
 	if err != nil {
 		// No per-overlay meta — fall back to "name == active member".
 		if errors.Is(err, fs.ErrNotExist) {
@@ -271,7 +268,7 @@ func overlayMatches(fsys fs.FS, root, sub, name string, active Set) (bool, error
 	return ok, nil
 }
 
-func collect(fsys fs.FS, root, sub, profile string, base int, opt ScanOptions) ([]Layer, error) {
+func collectDir(fsys fs.FS, root, sub, profile string, base int, opt Options) ([]Layer, error) {
 	dir := path.Join(root, sub)
 	if opt.OnDir != nil {
 		opt.OnDir(dir)
@@ -302,7 +299,7 @@ func collect(fsys fs.FS, root, sub, profile string, base int, opt ScanOptions) (
 			}
 			continue
 		}
-		data, ok, err := readLayer(fsys, full, opt.Strict)
+		data, ok, err := readRegularFile(fsys, full, opt.Strict)
 		if err != nil {
 			return nil, err
 		}
@@ -329,17 +326,15 @@ func classify(name string, patchSuffixes []string) (Kind, string, bool) {
 		if strings.HasSuffix(lname, sfx) {
 			// Codec extension is the patch suffix minus ".patch".
 			ext := strings.TrimPrefix(sfx, ".patch")
-			return KindPatch, codecOf(ext), true
+			return KindPatch, codec.LookupExt(ext), true
 		}
 	}
 	ext := filepath.Ext(lname)
-	if c := codecOf(ext); c != "" {
+	if c := codec.LookupExt(ext); c != "" {
 		return KindMerge, c, true
 	}
 	return KindUnknown, "", false
 }
-
-func codecOf(ext string) string { return codec.LookupExt(ext) }
 
 func readDir(fsys fs.FS, dir string) ([]fs.DirEntry, error) {
 	if fsys != nil {
@@ -351,8 +346,8 @@ func readDir(fsys fs.FS, dir string) ([]fs.DirEntry, error) {
 // MaxFileBytes bounds each discovered file, matching LoadFile and remote providers.
 const MaxFileBytes = contracts.DefaultMaxBodyBytes
 
-// readLayer follows symlinks so Kubernetes ConfigMap entries remain loadable.
-func readLayer(fsys fs.FS, p string, strict bool) ([]byte, bool, error) {
+// readRegularFile follows symlinks so Kubernetes ConfigMap entries remain loadable.
+func readRegularFile(fsys fs.FS, p string, strict bool) ([]byte, bool, error) {
 	info, err := statFile(fsys, p)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -371,7 +366,7 @@ func readLayer(fsys fs.FS, p string, strict bool) ([]byte, bool, error) {
 		return nil, false, fmt.Errorf("scan: read %q: %w", p, err)
 	}
 	defer func() { _ = f.Close() }()
-	data, err := readLayerData(f, info.Size())
+	data, err := readBounded(f, info.Size())
 	if err != nil {
 		return nil, false, fmt.Errorf("scan: read %q: %w", p, err)
 	}
@@ -392,8 +387,8 @@ func openFile(fsys fs.FS, p string) (fs.File, error) {
 	return os.Open(p)
 }
 
-// readLayerData preallocates from size, but reads growing files completely up to MaxFileBytes+1.
-func readLayerData(f fs.File, size int64) ([]byte, error) {
+// readBounded preallocates from size, but reads growing files completely up to MaxFileBytes+1.
+func readBounded(f fs.File, size int64) ([]byte, error) {
 	if size < 0 || size > MaxFileBytes {
 		return contracts.ReadAllMax(f, MaxFileBytes)
 	}

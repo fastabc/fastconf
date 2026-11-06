@@ -13,8 +13,8 @@ type Provider struct {
 	priority int
 }
 
-// New wraps explicitly set flags at [contracts.PriorityCLI]. Use cmd/internal/cli.ChangedValues or
-// integrations/cli/pflag.FromChanged to exclude defaults.
+// New wraps explicitly set flags at [contracts.PriorityCLI]. Use [FromStdFlag] or
+// integrations/cli/pflag.FromChanged to exclude parser defaults.
 func New(data map[string]any) *Provider {
 	if data == nil {
 		data = map[string]any{}

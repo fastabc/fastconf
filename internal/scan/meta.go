@@ -16,9 +16,9 @@ type MetaFile struct {
 	Spec       MetaSpec `yaml:"spec"`
 }
 
-// MetaSpec mirrors the YAML schema. Apply() copies the subset that the scanner needs
+// MetaSpec mirrors the YAML schema. ApplyTo() copies the subset that the scanner needs
 // (BaseDir/OverlayDir/PatchSuffixes/Strict); the profile, append, and merge-key fields are
-// consumed separately by the manager's buildScanOptions (root assemble.go).
+// consumed separately by the manager's resolveDiscovery (root assemble.go).
 type MetaSpec struct {
 	BaseDir        string   `yaml:"baseDir"`
 	OverlayDir     string   `yaml:"overlayDir"`
@@ -33,10 +33,10 @@ type MetaSpec struct {
 	MergeKeys map[string]string `yaml:"mergeKeys"`
 }
 
-// Apply overlays non-empty fields from meta onto ScanOptions. A true Strict
+// ApplyTo overlays non-empty fields from meta onto Options. A true Strict
 // enables strict handling even when the caller supplied false; this bool does
 // not distinguish an explicit false from an unset option.
-func (m *MetaFile) Apply(opt *ScanOptions) {
+func (m *MetaFile) ApplyTo(opt *Options) {
 	if m == nil {
 		return
 	}
@@ -59,7 +59,7 @@ func (m *MetaFile) Apply(opt *ScanOptions) {
 // merge semantics and must not silently fall back to defaults.
 func LoadMeta(fsys fs.FS, root string) ([]byte, error) {
 	p := path.Join(root, "_meta.yaml")
-	data, _, err := readLayer(fsys, p, true)
+	data, _, err := readRegularFile(fsys, p, true)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil

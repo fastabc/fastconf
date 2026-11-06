@@ -11,21 +11,21 @@ import (
 	"github.com/fastabc/fastconf/internal/watcher"
 )
 
-type fileReloadSlot struct {
+type dirReloadSlot struct {
 	mu      sync.Mutex
 	running bool
 	pending bool
 	reason  string
 }
 
-// startWatcher subscribes parent directories before loading their contents,
+// startFileWatcher subscribes parent directories before loading their contents,
 // so file creation and Kubernetes symlink swaps cannot slip between scan and watch.
-func (m *Manager[T]) startWatcher(ctx context.Context) error {
+func (m *Manager[T]) startFileWatcher(ctx context.Context) error {
 	if m.opts.FS != nil {
 		m.opts.Logger.LogAttrs(context.Background(), slog.LevelDebug, "watch: skipped (virtual fs in use)")
 		return nil
 	}
-	paths := collectWatchPaths(&m.opts)
+	paths := staticWatchPaths(&m.opts)
 	// Also watch every directory the initial reload scanned: profile- and
 	// axis-specific overlays that the static list above misses. The reload
 	// loop has not served a request yet, so scannedDirs is stable here.
@@ -43,12 +43,12 @@ func (m *Manager[T]) startWatcher(ctx context.Context) error {
 			return
 		default:
 		}
-		if m.watchPaused.Load() {
+		if m.eventsPaused.Load() {
 			m.opts.Logger.LogAttrs(context.Background(), slog.LevelDebug, "watch: event ignored (paused)", slog.String("key", key), slog.String("reason", reason))
 			return
 		}
-		entry, _ := m.fileReloads.LoadOrStore(key, &fileReloadSlot{})
-		slot := entry.(*fileReloadSlot)
+		entry, _ := m.dirReloadSlots.LoadOrStore(key, &dirReloadSlot{})
+		slot := entry.(*dirReloadSlot)
 		slot.mu.Lock()
 		slot.reason = reason
 		if slot.running {
@@ -111,7 +111,7 @@ func (m *Manager[T]) refreshWatchPaths(dirs []string) {
 	}
 }
 
-func collectWatchPaths(o *options) []string {
+func staticWatchPaths(o *options) []string {
 	seen := map[string]struct{}{}
 	out := []string{}
 	add := func(p string) {
@@ -160,9 +160,9 @@ func normalizeWatchPath(p string) string {
 // still run. After Resume, explicitly Reload to catch changes made while paused.
 func (m *Manager[T]) Pause() {
 	if m != nil {
-		m.watchPaused.Store(true)
+		m.eventsPaused.Store(true)
 		select {
-		case <-m.resyncCh:
+		case <-m.overflowResyncCh:
 		default:
 		}
 	}
@@ -171,9 +171,9 @@ func (m *Manager[T]) Pause() {
 // Resume re-enables event-driven reloads after Pause.
 func (m *Manager[T]) Resume() {
 	if m != nil {
-		m.watchPaused.Store(false)
+		m.eventsPaused.Store(false)
 	}
 }
 
 // Paused reports whether event-driven reloads are paused.
-func (m *Manager[T]) Paused() bool { return m != nil && m.watchPaused.Load() }
+func (m *Manager[T]) Paused() bool { return m != nil && m.eventsPaused.Load() }

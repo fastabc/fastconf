@@ -2,6 +2,7 @@ package fastconf
 
 import (
 	"context"
+	"time"
 
 	"github.com/fastabc/fastconf/internal/fcerr"
 )
@@ -14,20 +15,20 @@ const reloadChanCap = 16
 // A nil ctx from watcher triggers uses the manager lifetime; hooks without a
 // context must return before the writer can finish.
 type reloadRequest struct {
-	ctx     context.Context
-	reason  string
-	key     string                      // optional: parent dir for fs-driven reloads (audit dim)
-	applyFn func(context.Context) error // if non-nil, called instead of m.reload (e.g. rollback)
-	doneCh  chan error
+	ctx    context.Context
+	reason string
+	key    string                      // optional: parent dir for fs-driven reloads (audit dim)
+	run    func(context.Context) error // if non-nil, called instead of m.reload (e.g. rollback)
+	doneCh chan error
 }
 
 // requestReload queues work with the caller's context and waits for its result,
 // ErrClosed, or cancellation. Cancellation also reaches the in-flight pipeline.
 func (m *Manager[T]) requestReload(ctx context.Context, reason, key string) error {
-	return m.enqueue(ctx, reloadRequest{reason: reason, key: key})
+	return m.submitAndWait(ctx, reloadRequest{reason: reason, key: key})
 }
 
-func (m *Manager[T]) enqueue(ctx context.Context, req reloadRequest) error {
+func (m *Manager[T]) submitAndWait(ctx context.Context, req reloadRequest) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -97,23 +98,23 @@ func (m *Manager[T]) reloadLoop() {
 				return
 			case req := <-m.reloadCh:
 				m.runReloadRequest(req)
-			case <-m.resyncCh:
-				m.resyncProvider()
+			case <-m.overflowResyncCh:
+				m.runOverflowResync()
 				continue
 			}
 		}
 		select {
-		case <-m.resyncCh:
-			m.resyncProvider()
+		case <-m.overflowResyncCh:
+			m.runOverflowResync()
 		default:
 		}
 	}
 }
 
-func (m *Manager[T]) resyncProvider() {
+func (m *Manager[T]) runOverflowResync() {
 	// A failed refresh preserves the old state and reports through Errors; do
 	// not spin retrying invalid input. Resume requires an explicit Reload.
-	if m.watchPaused.Load() || m.lifetime.Err() != nil {
+	if m.eventsPaused.Load() || m.lifetime.Err() != nil {
 		return
 	}
 	m.runReloadRequest(reloadRequest{reason: "provider:resync"})
@@ -134,8 +135,8 @@ func (m *Manager[T]) runReloadRequest(req reloadRequest) {
 		err = m.lifetime.Err()
 	}
 	if err == nil {
-		if req.applyFn != nil {
-			err = req.applyFn(pipeCtx)
+		if req.run != nil {
+			err = req.run(pipeCtx)
 		} else {
 			err = m.reload(pipeCtx, req.reason, req.key)
 		}
@@ -149,3 +150,43 @@ func (m *Manager[T]) runReloadRequest(req reloadRequest) {
 		req.doneCh <- err
 	}
 }
+
+// Errors reports failed reloads and plans, including errors returned synchronously.
+// The bounded channel evicts the oldest error on overflow and closes during Close.
+// A nil Manager returns a closed channel.
+func (m *Manager[T]) Errors() <-chan ReloadError {
+	if m == nil {
+		return closedErrCh
+	}
+	return m.errorsCh
+}
+
+func (m *Manager[T]) publishReloadError(reason string, err error) {
+	if err == nil {
+		return
+	}
+	// Only the reload goroutine (reloadLoop, and subscriber callbacks it
+	// runs) publishes, so no send can race Close's close(errorsCh).
+	re := fcerr.ReloadError{Err: err, Reason: reason, At: time.Now()}
+	for {
+		select {
+		case m.errorsCh <- re:
+			return
+		default:
+		}
+		select {
+		case <-m.errorsCh:
+		default:
+		}
+	}
+}
+
+// closedErrCh is returned by Errors() on a nil manager, avoiding a per-call
+// allocation.
+var closedErrCh = func() chan ReloadError {
+	ch := make(chan ReloadError)
+	close(ch)
+	return ch
+}()
+
+const errorsChanCap = 16

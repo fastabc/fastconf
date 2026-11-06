@@ -6,6 +6,11 @@ historical releases.
 
 ## [Unreleased]
 
+### Changed
+
+- Internal file layout and identifier names now follow each component's role.
+  No exported API or runtime behavior changed.
+
 ## [v1.3.0]
 
 ### Added

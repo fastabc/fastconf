@@ -11,9 +11,6 @@ import (
 	"github.com/fastabc/fastconf/internal/fcerr"
 )
 
-// Reload entry point and pipeline orchestration. reload_queue.go serializes
-// later requests; New and Load run the initial pipeline synchronously.
-
 // Reload synchronously reloads sources, preserving the published state on failure.
 // WithOverride adds a copied one-shot layer; WithReason sets the audit reason.
 // Do not mutate override input concurrently with this call.
@@ -32,10 +29,10 @@ func (m *Manager[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 		// Option errors fail on the reload goroutine like any other reload,
 		// so the Errors() channel keeps a single writer.
 		optErr := cfg.err
-		return m.enqueue(ctx, reloadRequest{
-			ctx:     ctx,
-			reason:  overrideReloadReason(cfg.reason),
-			applyFn: func(context.Context) error { return optErr },
+		return m.submitAndWait(ctx, reloadRequest{
+			ctx:    ctx,
+			reason: overrideReloadReason(cfg.reason),
+			run:    func(context.Context) error { return optErr },
 		})
 	}
 	if cfg.override == nil {
@@ -45,16 +42,16 @@ func (m *Manager[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 		src: SourceRef{
 			Path:     "override://once",
 			Kind:     LayerOverride,
-			Priority: bandOverride,
+			Priority: rankOffsetOverride,
 		},
 		class: classOverride,
 		data:  cfg.override,
 	}
 	reason := overrideReloadReason(cfg.reason)
-	return m.enqueue(ctx, reloadRequest{
+	return m.submitAndWait(ctx, reloadRequest{
 		ctx:    ctx,
 		reason: reason,
-		applyFn: func(pipeCtx context.Context) error {
+		run: func(pipeCtx context.Context) error {
 			return m.reload(pipeCtx, reason, "", extra)
 		},
 	})
@@ -124,7 +121,7 @@ func overrideReloadReason(reason string) string {
 // the watched directory, if any; extra layers join the normal priority order.
 func (m *Manager[T]) reload(ctx context.Context, reason, key string, extra ...stagedLayer) error {
 	start := time.Now()
-	if m.observed() {
+	if m.hasObservers() {
 		m.emit(ReloadStarted{Reason: reason})
 	}
 	m.opts.Logger.LogAttrs(context.Background(), slog.LevelDebug, "fastconf reload start", slog.String("reason", reason))
@@ -135,7 +132,7 @@ func (m *Manager[T]) reload(ctx context.Context, reason, key string, extra ...st
 	defer root.End()
 
 	var assembly assemblyResult
-	_, err := m.timed(ctx, "fastconf.assemble", func(ctx context.Context, sp Span) (err error) {
+	_, err := m.runTimedStage(ctx, "fastconf.assemble", func(ctx context.Context, sp Span) (err error) {
 		assembly, err = m.assemble(ctx, "", extra...)
 		if err == nil {
 			sp.SetAttribute("layers", int64(len(assembly.staged)))
@@ -145,14 +142,14 @@ func (m *Manager[T]) reload(ctx context.Context, reason, key string, extra ...st
 	// Watch every scanned directory whether or not this reload publishes:
 	// a new source with an unchanged value, or a broken file in a new
 	// overlay, must still be observed on its next edit.
-	m.refreshWatchPaths(assembly.watchDirs)
+	m.refreshWatchPaths(assembly.scannedDirs)
 	if err != nil {
 		root.RecordError(err)
 		m.emitReload(reason, time.Since(start), err)
 		m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf reload shadow_failed", slog.String("reason", reason), slog.Any("err", err))
 		return err
 	}
-	_, err = m.timed(ctx, "fastconf.commit", func(ctx context.Context, _ Span) error { return m.commit(ctx, assembly, reason, key) })
+	_, err = m.runTimedStage(ctx, "fastconf.commit", func(ctx context.Context, _ Span) error { return m.commit(ctx, assembly, reason, key) })
 	if err != nil {
 		root.RecordError(err)
 		m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf reload commit_failed", slog.String("reason", reason), slog.Any("err", err))

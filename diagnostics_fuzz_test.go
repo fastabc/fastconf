@@ -43,7 +43,7 @@ func FuzzDiagnosticViews(f *testing.F) {
 			Dynamic: map[string]any{"a.b": map[string]any{"token": canary}}}
 		origins := provenance.NewIndex(provenance.Full)
 		origins.RecordValue("dynamic.a.b.token", SourceRef{}, canary)
-		s := &State[config]{value: &cfg, secrets: paths, redactionPlan: plan, origins: origins}
+		s := &State[config]{value: &cfg, secretPatterns: paths, redactionPlan: plan, origins: origins}
 		before, err := json.Marshal(cfg)
 		if err != nil {
 			t.Fatal(err)
@@ -69,7 +69,7 @@ func FuzzDiagnosticViews(f *testing.F) {
 		}
 		next := cfg
 		next.Token = canary + "-changed"
-		other := &State[config]{value: &next, redactionPlan: plan, secrets: paths}
+		other := &State[config]{value: &next, redactionPlan: plan, secretPatterns: paths}
 		diff := s.Diff(other)
 		if len(diff) != 1 || diff[0].Path != "token" || diff[0].Change != DiffModified ||
 			strings.Contains(diff[0].Before.(string), canary) || strings.Contains(diff[0].After.(string), canary) {

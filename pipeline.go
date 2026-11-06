@@ -1,8 +1,5 @@
 package fastconf
 
-// Stages execute serially on the reload writer. Failure aborts publication;
-// Plan shares the stages but collects findings without mutating manager state.
-
 import (
 	"context"
 	"fmt"
@@ -60,6 +57,9 @@ func defaultStages[T any]() []stage[T] {
 	}
 }
 
+// Stages execute serially on the reload writer. Failure aborts publication;
+// Plan shares the stages but collects findings without mutating manager state.
+//
 // runStages executes every stage in order, recording metrics and
 // spans per stage. Returns the first error encountered; subsequent
 // stages are skipped.
@@ -69,7 +69,7 @@ func (m *Manager[T]) runStages(ctx context.Context, pipeline *pipelineState[T]) 
 			return err
 		}
 		name := s.name
-		elapsed, err := m.timed(ctx, "fastconf."+name, func(ctx context.Context, sp Span) error {
+		elapsed, err := m.runTimedStage(ctx, "fastconf."+name, func(ctx context.Context, sp Span) error {
 			err := s.run(ctx, m, pipeline)
 			sp.SetAttribute("fastconf.stage", name)
 			sp.SetAttribute("fastconf.stage.index", int64(i))

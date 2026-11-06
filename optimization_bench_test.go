@@ -140,7 +140,7 @@ func BenchmarkLayerCacheVersions(b *testing.B) {
 		for version := 0; version < 32; version++ {
 			data := []byte(fmt.Sprintf(`{"payload":%q,"version":%d}`, strings.Repeat("x", 256<<10), version))
 			layer := scan.Layer{Path: "same.json", Codec: "json", Bytes: data}
-			if _, err := cache.decoded(layer, sha256.Sum256(data), dec, 0); err != nil {
+			if _, err := cache.getOrDecode(layer, sha256.Sum256(data), dec, 0); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -165,14 +165,14 @@ func BenchmarkLayerCacheAlternating(b *testing.B) {
 	sums := [][32]byte{sha256.Sum256(layers[0].Bytes), sha256.Sum256(layers[1].Bytes)}
 	var cache layerCache
 	for i, layer := range layers {
-		if _, err := cache.decoded(layer, sums[i], dec, 0); err != nil {
+		if _, err := cache.getOrDecode(layer, sums[i], dec, 0); err != nil {
 			b.Fatal(err)
 		}
 	}
 	next := 0
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := cache.decoded(layers[next], sums[next], dec, 0); err != nil {
+		if _, err := cache.getOrDecode(layers[next], sums[next], dec, 0); err != nil {
 			b.Fatal(err)
 		}
 		next ^= 1

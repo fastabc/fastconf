@@ -13,31 +13,31 @@ import (
 // Plan contains immutable type metadata and path rules. It is safe to share
 // between snapshots and concurrent readers; no configuration values are cached.
 type Plan struct {
-	root     *jsonPlan
+	root     *typePlan
 	patterns patternPlan
 }
 
-type jsonField struct {
+type planField struct {
 	name       string
 	candidates []string
 	marked     bool
-	child      *jsonPlan
+	child      *typePlan
 	inline     bool
 }
 
-type jsonPlan struct {
+type typePlan struct {
 	kind            reflect.Kind
 	opaque, secrets bool
-	fields          []jsonField
-	origins         []jsonField
-	elem            *jsonPlan
+	fields          []planField
+	origins         []planField
+	elem            *typePlan
 }
 
 // Compile builds metadata once, including cycles in recursive types.
 func Compile(t reflect.Type, patterns []string) *Plan {
-	memo := map[reflect.Type]*jsonPlan{}
-	var build func(reflect.Type) *jsonPlan
-	build = func(t reflect.Type) *jsonPlan {
+	memo := map[reflect.Type]*typePlan{}
+	var build func(reflect.Type) *typePlan
+	build = func(t reflect.Type) *typePlan {
 		if t == nil {
 			return nil
 		}
@@ -47,7 +47,7 @@ func Compile(t reflect.Type, patterns []string) *Plan {
 		if p := memo[t]; p != nil {
 			return p
 		}
-		p := &jsonPlan{kind: t.Kind(), opaque: opaqueJSONType(t), secrets: hasSecrets(t)}
+		p := &typePlan{kind: t.Kind(), opaque: opaqueJSONType(t), secrets: hasSecrets(t)}
 		memo[t] = p
 		if !p.secrets || p.opaque {
 			return p
@@ -64,7 +64,7 @@ func Compile(t reflect.Type, patterns []string) *Plan {
 					marked = marked || HasTag(f.Tag.Get(typeinfo.TagKey))
 					ft = f.Type
 				}
-				p.fields = append(p.fields, jsonField{name: field.Name, marked: marked, child: build(ft)})
+				p.fields = append(p.fields, planField{name: field.Name, marked: marked, child: build(ft)})
 			}
 			p.origins = provenanceFields(t, false, map[reflect.Type]bool{}, build)
 		case reflect.Map, reflect.Array, reflect.Slice:
@@ -77,22 +77,22 @@ func Compile(t reflect.Type, patterns []string) *Plan {
 
 // provenanceFields retains parent aliases and inherited secret flags alongside flattened
 // children. Input paths also include YAML-only fields and inline maps absent from JSON output.
-func provenanceFields(t reflect.Type, marked bool, stack map[reflect.Type]bool, build func(reflect.Type) *jsonPlan) []jsonField {
+func provenanceFields(t reflect.Type, marked bool, stack map[reflect.Type]bool, build func(reflect.Type) *typePlan) []planField {
 	if stack[t] {
 		return nil
 	}
 	stack[t] = true
 	defer delete(stack, t)
-	var fields []jsonField
+	var fields []planField
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
 		if !field.IsExported() && !field.Anonymous {
 			continue
 		}
-		aliases := typeinfo.ResolveField(field)
+		aliases := typeinfo.FieldNamesOf(field)
 		secret := marked || HasTag(field.Tag.Get(typeinfo.TagKey))
 		child := build(field.Type)
-		fields = append(fields, jsonField{candidates: aliases.Candidates, marked: secret, child: child})
+		fields = append(fields, planField{candidates: aliases.InputAliases, marked: secret, child: child})
 		if !aliases.Flatten && !typeinfo.YAMLInline(field.Tag.Get("yaml")) {
 			continue
 		}
@@ -104,7 +104,7 @@ func provenanceFields(t reflect.Type, marked bool, stack map[reflect.Type]bool, 
 		case reflect.Struct:
 			fields = append(fields, provenanceFields(ft, secret, stack, build)...)
 		case reflect.Map:
-			fields = append(fields, jsonField{marked: secret, child: child, inline: true})
+			fields = append(fields, planField{marked: secret, child: child, inline: true})
 		}
 	}
 	return fields
@@ -135,12 +135,18 @@ func opaqueJSONType(t reflect.Type) bool {
 	return false
 }
 
+// PatternsMatch reports whether a WithSecretPaths pattern covers path or any
+// path inside value, treating dots in flattened provenance paths conservatively.
+func (p *Plan) PatternsMatch(path string, value any) bool {
+	return p.patterns.matchesValue(value, path)
+}
+
 // PathHasSecrets checks provenance against the type, even when the final
 // value omits a field or removes a list. Containers with secret descendants
 // are masked as a whole because their historical shape can differ.
 func (p *Plan) PathHasSecrets(path string) bool { return p.root.pathHasSecrets(path) }
 
-func (p *jsonPlan) pathHasSecrets(path string) bool {
+func (p *typePlan) pathHasSecrets(path string) bool {
 	if p == nil || !p.secrets {
 		return false
 	}
@@ -188,7 +194,7 @@ func (p *jsonPlan) pathHasSecrets(path string) bool {
 	return false
 }
 
-func (p *jsonPlan) redact(node any, path string, redact Redactor) any {
+func (p *typePlan) redact(node any, path string, redact Redactor) any {
 	if node == nil || p == nil || !p.secrets {
 		return node
 	}

@@ -3,25 +3,38 @@ package fastconf
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/fastabc/fastconf/internal/fcerr"
 	"github.com/fastabc/fastconf/policy"
 )
 
+// ErrFastConf is the umbrella sentinel for every error returned by
+// the FastConf framework.
 var ErrFastConf = fcerr.ErrFastConf
 
 var (
+	// ErrNoSources: no file, provider or generator produced a layer.
 	ErrNoSources = fcerr.ErrNoSources
-	ErrDecode    = fcerr.ErrDecode
-	ErrMerge     = fcerr.ErrMerge
+	// ErrDecode: a file under WithDir could not be read, accepted or parsed,
+	// a provider payload failed to parse, or an unknown
+	// key was rejected by WithUnknownFields(UnknownError).
+	ErrDecode = fcerr.ErrDecode
+	// ErrMerge: a strict merge type conflict or a failing RFC 6902 patch layer.
+	ErrMerge = fcerr.ErrMerge
+	// ErrTransform: a transform, typed hook or secret resolver failed.
 	ErrTransform = fcerr.ErrTransform
-	ErrProvider  = fcerr.ErrProvider
-	ErrInvalid   = fcerr.ErrInvalid
-	ErrClosed    = fcerr.ErrClosed
-	ErrTooLarge  = fcerr.ErrTooLarge
+	// ErrProvider: a provider or generator Load failed.
+	ErrProvider = fcerr.ErrProvider
+	// ErrInvalid: a validator, field-meta rule or policy rejected the
+	// decoded value; PolicyError satisfies it too.
+	ErrInvalid = fcerr.ErrInvalid
+	// ErrClosed: the manager was closed.
+	ErrClosed = fcerr.ErrClosed
+	// ErrTooLarge: a source body exceeded its size limit.
+	ErrTooLarge = fcerr.ErrTooLarge
 )
 
+// ReloadError is one entry on Manager.Errors: the failure, the reload reason and its time.
 type ReloadError = fcerr.ReloadError
 
 // PolicyError aggregates the violations that aborted a reload.
@@ -29,6 +42,7 @@ type PolicyError struct {
 	Violations []policy.Violation
 }
 
+// Error describes the policy violations that aborted the reload.
 func (e *PolicyError) Error() string {
 	parts := make([]string, 0, len(e.Violations))
 	for _, v := range e.Violations {
@@ -37,44 +51,7 @@ func (e *PolicyError) Error() string {
 	return "fastconf: policy denied: " + strings.Join(parts, "; ")
 }
 
+// Is reports whether target is ErrInvalid or ErrFastConf.
 func (e *PolicyError) Is(target error) bool {
 	return target == ErrInvalid || target == ErrFastConf
-}
-
-// closedErrCh is returned by Errors() on a nil manager, avoiding a per-call
-// allocation.
-var closedErrCh = func() chan ReloadError {
-	ch := make(chan ReloadError)
-	close(ch)
-	return ch
-}()
-
-// Errors reports failed reloads and plans, including errors returned synchronously.
-// The bounded channel evicts the oldest error on overflow and closes during Close.
-// A nil Manager returns a closed channel.
-func (m *Manager[T]) Errors() <-chan ReloadError {
-	if m == nil {
-		return closedErrCh
-	}
-	return m.errsCh
-}
-
-func (m *Manager[T]) publishReloadError(reason string, err error) {
-	if err == nil {
-		return
-	}
-	// Only the reload goroutine (reloadLoop, and subscriber callbacks it
-	// runs) publishes, so no send can race Close's close(errsCh).
-	re := fcerr.ReloadError{Err: err, Reason: reason, At: time.Now()}
-	for {
-		select {
-		case m.errsCh <- re:
-			return
-		default:
-		}
-		select {
-		case <-m.errsCh:
-		default:
-		}
-	}
 }

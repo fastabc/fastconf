@@ -1,3 +1,5 @@
+// Package obs defines the dependency-free tracing surface behind fastconf.Tracer
+// and the per-call context used to bound observer callbacks.
 package obs
 
 import (
@@ -17,12 +19,14 @@ type Span interface {
 	SetAttribute(key string, value any)
 }
 
+// NoopTracer creates spans that do not record telemetry.
 type NoopTracer struct{}
 
 func (NoopTracer) Start(ctx context.Context, _ string) (context.Context, Span) {
 	return ctx, NoopSpan{}
 }
 
+// NoopSpan discards span operations.
 type NoopSpan struct{}
 
 func (NoopSpan) End()                         {}
@@ -41,10 +45,10 @@ func StartSpan(ctx context.Context, tracer Tracer, name string) (context.Context
 	return c, sp
 }
 
-// CallbackContext bounds one observer callback:
+// ObserverContext bounds one observer callback:
 // it adds a per-call deadline unless timeout is negative. The parent
 // remains cancelable even when the per-call deadline is disabled.
-func CallbackContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+func ObserverContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if timeout < 0 {
 		return context.WithCancel(parent)
 	}

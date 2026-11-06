@@ -52,7 +52,7 @@ func main() {
 	defer func() { _ = ln.Close() }()
 
 	bus := newEventBus()
-	mgr, err := cli.LoadConfig[map[string]any](ctx, flags,
+	mgr, err := cli.NewManager[map[string]any](ctx, flags,
 		fastconf.WithLogger(log),
 		fastconf.WithObserver(bus),
 		fastconf.WithSecretPaths(f.secretPaths...),

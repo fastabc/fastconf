@@ -10,12 +10,12 @@ import (
 	"unicode"
 )
 
-// Set is a small string-set helper used by the evaluator.
-type Set map[string]struct{}
+// ProfileSet is a small string-set helper used by the evaluator.
+type ProfileSet map[string]struct{}
 
-// NewSet builds a Set from the given profile names.
-func NewSet(active ...string) Set {
-	s := make(Set, len(active))
+// NewProfileSet builds a ProfileSet from the given profile names.
+func NewProfileSet(active ...string) ProfileSet {
+	s := make(ProfileSet, len(active))
 	for _, a := range active {
 		a = strings.TrimSpace(a)
 		if a != "" {
@@ -26,10 +26,10 @@ func NewSet(active ...string) Set {
 }
 
 // Has reports whether name is a member of the active set.
-func (s Set) Has(name string) bool { _, ok := s[name]; return ok }
+func (s ProfileSet) Has(name string) bool { _, ok := s[name]; return ok }
 
 // Eval parses and evaluates the expression against the active set.
-func Eval(expr string, active Set) (bool, error) {
+func Eval(expr string, active ProfileSet) (bool, error) {
 	fn, err := Compile(expr)
 	if err != nil {
 		return false, err
@@ -41,10 +41,10 @@ func Eval(expr string, active Set) (bool, error) {
 // constant-true predicate, which lets callers treat "no `match:` field in _meta.yaml" as "always
 // match" without a nil check. Callers can also use Compile to validate user-supplied expressions
 // at startup time and surface errors before the first reload.
-func Compile(expr string) (func(Set) bool, error) {
+func Compile(expr string) (func(ProfileSet) bool, error) {
 	expr = strings.TrimSpace(expr)
 	if expr == "" {
-		return func(Set) bool { return true }, nil
+		return func(ProfileSet) bool { return true }, nil
 	}
 	p := &parser{src: expr}
 	v, err := p.parseExpr()
@@ -54,10 +54,10 @@ func Compile(expr string) (func(Set) bool, error) {
 	if p.pos != len(p.src) {
 		return nil, fmt.Errorf("profile: trailing input at %d: %q", p.pos, p.src[p.pos:])
 	}
-	return func(s Set) bool { return v(s) }, nil
+	return func(s ProfileSet) bool { return v(s) }, nil
 }
 
-type evalFn func(Set) bool
+type evalFn func(ProfileSet) bool
 
 type parser struct {
 	src string
@@ -88,7 +88,7 @@ func (p *parser) parseOr() (evalFn, error) {
 			return nil, err
 		}
 		l, r := left, right
-		left = func(s Set) bool { return l(s) || r(s) }
+		left = func(s ProfileSet) bool { return l(s) || r(s) }
 	}
 	return left, nil
 }
@@ -105,7 +105,7 @@ func (p *parser) parseAnd() (evalFn, error) {
 			return nil, err
 		}
 		l, r := left, right
-		left = func(s Set) bool { return l(s) && r(s) }
+		left = func(s ProfileSet) bool { return l(s) && r(s) }
 	}
 	return left, nil
 }
@@ -117,7 +117,7 @@ func (p *parser) parseNot() (evalFn, error) {
 		if err != nil {
 			return nil, err
 		}
-		return func(s Set) bool { return !inner(s) }, nil
+		return func(s ProfileSet) bool { return !inner(s) }, nil
 	}
 	return p.parseAtom()
 }
@@ -143,7 +143,7 @@ func (p *parser) parseAtom() (evalFn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return func(s Set) bool { return s.Has(id) }, nil
+	return func(s ProfileSet) bool { return s.Has(id) }, nil
 }
 
 func (p *parser) parseIdent() (string, error) {

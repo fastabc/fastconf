@@ -2,7 +2,6 @@ package fastconf
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -23,12 +22,12 @@ type Manager[T any] struct {
 	// metaKeys caches the combined _meta.yaml + WithMergeKeys table per
 	// _meta.yaml content; owned by the single writer like layerCache.
 	metaKeys metaKeysCache
-	// lastInputs is the input fingerprint of the published state, zero
+	// publishedFingerprint is the input fingerprint of the published state, zero
 	// when unknown; owned by the single writer.
-	lastInputs [32]byte
-	gen        atomic.Uint64
-	closeOnce  sync.Once
-	closeDone  chan struct{}
+	publishedFingerprint [32]byte
+	gen                  atomic.Uint64
+	closeOnce            sync.Once
+	closeDone            chan struct{}
 	// lifetime is canceled exactly once, by Shutdown (or by a failed New /
 	// finished Load); its Done channel is the only close signal.
 	lifetimeCancel context.CancelFunc
@@ -39,28 +38,28 @@ type Manager[T any] struct {
 	subscribers   map[uint64]subscriber[T]
 	subscriberSeq atomic.Uint64
 
-	// Background goroutines spawned by startWatcher / startProviderWatchers.
-	bgWG        sync.WaitGroup
-	fileWatcher *watcher.Watcher
-	fileReloads sync.Map // directory key → *fileReloadSlot
+	// Background goroutines spawned by startFileWatcher / startProviderWatchers.
+	bgWG           sync.WaitGroup
+	fileWatcher    *watcher.Watcher
+	dirReloadSlots sync.Map // directory key → *dirReloadSlot
 	// scannedDirs holds the directories the last reload scanned (writer-owned).
 	scannedDirs []string
 
 	// Serialized external reload trigger; watcher → reloadCh → reload goroutine.
 	reloadCh chan reloadRequest
 	// A single pending refresh survives provider notification overflow.
-	resyncCh chan struct{}
+	overflowResyncCh chan struct{}
 
 	// Writer-owned, evict-oldest error queue; closed after the reload loop exits.
-	errsCh chan fcerr.ReloadError
+	errorsCh chan fcerr.ReloadError
 
 	// Optional in-memory history ring + watch-pause toggle.
-	history     *ring[State[T]]
-	historyMu   sync.Mutex
-	watchPaused atomic.Bool
+	history      *ring[State[T]]
+	historyMu    sync.Mutex
+	eventsPaused atomic.Bool
 
 	// Per-provider last revision, passed to Watcher.Watch on resubscribe.
-	resume *resumeState
+	providerRevisions *revisionTable
 
 	// Tenant tag used by policy evaluation and committed events.
 	tenant string
@@ -126,21 +125,21 @@ func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) 
 	// (trace ids, loggers) but ends solely via Close/Shutdown.
 	lifetime, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	return &Manager[T]{
-		opts:           o,
-		lifetime:       lifetime,
-		lifetimeCancel: cancel,
-		stages:         defaultStages[T](),
-		closeDone:      make(chan struct{}),
-		subscribers:    map[uint64]subscriber[T]{},
-		reloadCh:       make(chan reloadRequest, reloadChanCap),
-		resyncCh:       make(chan struct{}, 1),
-		errsCh:         make(chan fcerr.ReloadError, fcerr.ErrorChanCap),
-		history:        newRing[State[T]](o.HistoryCap),
-		resume:         newResumeState(),
-		tenant:         o.Tenant,
-		typedHookPlan:  buildTypedHookPlan[T](&o),
-		redactionPlan:  secret.Compile(reflect.TypeFor[T](), o.SecretPaths),
-		customEncoding: hasCustomEncoding(reflect.TypeFor[T]()),
+		opts:              o,
+		lifetime:          lifetime,
+		lifetimeCancel:    cancel,
+		stages:            defaultStages[T](),
+		closeDone:         make(chan struct{}),
+		subscribers:       map[uint64]subscriber[T]{},
+		reloadCh:          make(chan reloadRequest, reloadChanCap),
+		overflowResyncCh:  make(chan struct{}, 1),
+		errorsCh:          make(chan fcerr.ReloadError, errorsChanCap),
+		history:           newRing[State[T]](o.HistoryCap),
+		providerRevisions: newRevisionTable(),
+		tenant:            o.Tenant,
+		typedHookPlan:     buildTypedHookPlan[T](&o),
+		redactionPlan:     secret.Compile(reflect.TypeFor[T](), o.SecretPaths),
+		customEncoding:    hasCustomEncoding(reflect.TypeFor[T]()),
 	}, nil
 }
 
@@ -148,7 +147,7 @@ func (m *Manager[T]) startBackground() error {
 	m.bgWG.Add(1)
 	go m.reloadLoop()
 	if m.opts.Watch {
-		if err := m.startWatcher(m.lifetime); err != nil {
+		if err := m.startFileWatcher(m.lifetime); err != nil {
 			return err
 		}
 	}
@@ -222,17 +221,7 @@ func (m *Manager[T]) Shutdown(ctx context.Context) error {
 
 func (m *Manager[T]) finishClose() {
 	m.bgWG.Wait()
-	// reloadLoop, the only errsCh writer, has returned.
-	close(m.errsCh)
+	// reloadLoop, the only errorsCh writer, has returned.
+	close(m.errorsCh)
 	close(m.closeDone)
-}
-
-func checkTypedOptions[T any](o *options) error {
-	want := reflect.TypeFor[T]()
-	for _, got := range o.TypedFor {
-		if got != want {
-			return fmt.Errorf("%w: WithValidate/WithPolicy registered for *%v, manager decodes *%v", fcerr.ErrFastConf, got, want)
-		}
-	}
-	return nil
 }

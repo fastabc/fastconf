@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/internal/coalesce"
+	"github.com/fastabc/fastconf/internal/scan"
 	"github.com/fastabc/fastconf/policy"
 	"github.com/fastabc/fastconf/providers/source"
 )
@@ -262,5 +264,18 @@ func assertMismatchedOption(t *testing.T, opt Option) {
 				t.Fatalf("err %q missing %q", err, want)
 			}
 		}
+	}
+}
+
+func TestWithAxes_CopiesEveryField(t *testing.T) {
+	var o options
+	WithAxes(Axis{Dir: "region", Env: "FC_REGION", Priority: 7, FromHostname: true})(&o)
+	want := scan.AxisSpec{Dir: "region", EnvVar: "FC_REGION", Priority: 7, DefaultFromHostname: true}
+	if len(o.OverlayAxes) != 1 || o.OverlayAxes[0] != want {
+		t.Fatalf("axes = %+v, want [%+v]", o.OverlayAxes, want)
+	}
+	// Guard against a field added to Axis but not to AxisSpec (or vice versa).
+	if a, s := reflect.TypeFor[Axis]().NumField(), reflect.TypeFor[scan.AxisSpec]().NumField(); a != s {
+		t.Fatalf("Axis has %d fields, scan.AxisSpec has %d", a, s)
 	}
 }

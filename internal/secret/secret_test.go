@@ -33,7 +33,7 @@ func TestCompiledPlanRecursiveAndConcurrent(t *testing.T) {
 					view["public"].(map[string]any)["a.b"].(map[string]any)["token"] != "***REDACTED***" {
 					t.Errorf("unsafe compiled view: %+v", view)
 				}
-				if !plan.PathHasSecrets("next.next.token") || !plan.PatternsMatchValue("canary", "public.a.b.token") {
+				if !plan.PathHasSecrets("next.next.token") || !plan.PatternsMatch("public.a.b.token", "canary") {
 					t.Error("compiled provenance missed recursive or dotted key")
 				}
 			}
@@ -183,7 +183,7 @@ func TestProvenancePatternsMatchHistoricalContainers(t *testing.T) {
 		{"config", nil, false}, {"config", []string{"config.items.*.token"}, true},
 		{"config.items.0.token", []string{"config"}, true}, {"config", []string{"other.**"}, false},
 	} {
-		if got := secret.Compile(reflect.TypeFor[map[string]any](), tc.patterns).PatternsMatchValue(value, tc.path); got != tc.want {
+		if got := secret.Compile(reflect.TypeFor[map[string]any](), tc.patterns).PatternsMatch(tc.path, value); got != tc.want {
 			t.Errorf("%s/%v: got %v", tc.path, tc.patterns, got)
 		}
 	}

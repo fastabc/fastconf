@@ -1,8 +1,5 @@
 package fastconf
 
-// Plan / dry-run preview. The pipeline is shared with commit but no
-// atomic publish happens and the generation is not incremented.
-
 import (
 	"context"
 	"time"
@@ -56,10 +53,10 @@ func (m *Manager[T]) Plan(ctx context.Context, opts ...PlanOption) (*PlanResult[
 		}
 	}
 	var res *PlanResult[T]
-	err := m.enqueue(ctx, reloadRequest{
+	err := m.submitAndWait(ctx, reloadRequest{
 		ctx:    ctx,
 		reason: "plan",
-		applyFn: func(pipeCtx context.Context) error {
+		run: func(pipeCtx context.Context) error {
 			r, err := m.runPlan(pipeCtx, cfg.hostname)
 			if err != nil {
 				return err
@@ -75,7 +72,7 @@ func (m *Manager[T]) Plan(ctx context.Context, opts ...PlanOption) (*PlanResult[
 }
 
 // runPlan performs the dry-run pipeline on the reload goroutine. It must
-// only be called from reloadLoop via Plan's enqueue so the single-writer
+// only be called from reloadLoop via Plan's submitAndWait so the single-writer
 // invariant holds.
 func (m *Manager[T]) runPlan(ctx context.Context, hostname string) (*PlanResult[T], error) {
 	assembly, err := m.assemble(ctx, hostname)

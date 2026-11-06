@@ -91,14 +91,14 @@ type withMeta struct {
 }
 
 func TestFieldMetaFor_Caches(t *testing.T) {
-	specs1 := fieldMetaFor(reflect.TypeFor[withMeta]())
-	specs2 := fieldMetaFor(reflect.TypeFor[withMeta]())
+	specs1 := fieldMetaPlanFor(reflect.TypeFor[withMeta]())
+	specs2 := fieldMetaPlanFor(reflect.TypeFor[withMeta]())
 	if len(specs1) != 3 {
 		t.Fatalf("want 3 specs, got %d: %+v", len(specs1), specs1)
 	}
 	// Same backing slice on cache hit.
 	if &specs1[0] != &specs2[0] {
-		t.Fatal("fieldMetaFor should reuse cached plan")
+		t.Fatal("fieldMetaPlanFor should reuse cached plan")
 	}
 }
 
@@ -156,7 +156,7 @@ func TestFieldMetaFor_IgnoresNonConstraintTags(t *testing.T) {
 	type config struct {
 		Host string `fc:"default=localhost,desc=host,secret"`
 	}
-	if specs := fieldMetaFor(reflect.TypeFor[config]()); len(specs) != 0 {
+	if specs := fieldMetaPlanFor(reflect.TypeFor[config]()); len(specs) != 0 {
 		t.Fatalf("non-constraint tags produced metadata: %+v", specs)
 	}
 	var value config

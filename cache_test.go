@@ -306,14 +306,14 @@ func TestFileLayerCacheInvalidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = m.Close() }()
-	scan := scan.ScanOptions{FS: fs}
+	scan := scan.Options{FS: fs}
 	check := func(want string, count int64) {
 		t.Helper()
 		layers, err := m.assembleFileLayers(scan)
 		if err != nil || len(layers) != 1 {
 			t.Fatalf("layers=%v err=%v", layers, err)
 		}
-		raw := layers[0].cached.clone()
+		raw := layers[0].cachedLayer.cloneTree()
 		if got := raw["nested"].(map[string]any)["value"]; got != want {
 			t.Fatalf("value=%v want=%v", got, want)
 		}
@@ -348,7 +348,7 @@ func TestLayerCacheBoundAndEviction(t *testing.T) {
 	var cache layerCache
 	for i := 0; i < maxCachedLayers+10; i++ {
 		layer := scan.Layer{Path: fmt.Sprint(i), Codec: "test", Bytes: []byte("original")}
-		raw, err := cache.decoded(layer, sha256.Sum256(layer.Bytes), dec, 0)
+		raw, err := cache.getOrDecode(layer, sha256.Sum256(layer.Bytes), dec, 0)
 		if err != nil || raw == nil || raw.tree["nested"].(map[string]any)["value"] != "original" {
 			t.Fatalf("decode %d: %v %v", i, raw, err)
 		}
@@ -358,13 +358,13 @@ func TestLayerCacheBoundAndEviction(t *testing.T) {
 	}
 	before := calls.Load()
 	layer := scan.Layer{Path: "0", Codec: "test", Bytes: []byte("original")}
-	if _, err := cache.decoded(layer, sha256.Sum256(layer.Bytes), dec, 0); err != nil {
+	if _, err := cache.getOrDecode(layer, sha256.Sum256(layer.Bytes), dec, 0); err != nil {
 		t.Fatal(err)
 	}
 	if calls.Load() != before+1 {
 		t.Fatal("oldest layer was not evicted")
 	}
-	if _, err := cache.decoded(layer, sha256.Sum256(layer.Bytes), dec, 0); err != nil {
+	if _, err := cache.getOrDecode(layer, sha256.Sum256(layer.Bytes), dec, 0); err != nil {
 		t.Fatal(err)
 	}
 	if calls.Load() != before+1 {
@@ -372,7 +372,7 @@ func TestLayerCacheBoundAndEviction(t *testing.T) {
 	}
 	// The codec name is independently part of the key.
 	layer.Codec = "other"
-	if _, err := cache.decoded(layer, sha256.Sum256(layer.Bytes), dec, 0); err != nil {
+	if _, err := cache.getOrDecode(layer, sha256.Sum256(layer.Bytes), dec, 0); err != nil {
 		t.Fatal(err)
 	}
 	if calls.Load() != before+2 {
@@ -484,7 +484,7 @@ func TestLayerCacheKeepsLatestVersion(t *testing.T) {
 	layer := scan.Layer{Path: "same", Codec: "test"}
 	for _, version := range []string{"one", "two", "one"} {
 		layer.Bytes = []byte(version)
-		entry, err := cache.decoded(layer, sha256.Sum256(layer.Bytes), dec, 1)
+		entry, err := cache.getOrDecode(layer, sha256.Sum256(layer.Bytes), dec, 1)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -498,7 +498,7 @@ func TestLayerCacheKeepsLatestVersion(t *testing.T) {
 	if calls.Load() != 3 {
 		t.Fatalf("reverted content should decode again, calls=%d", calls.Load())
 	}
-	if _, err := cache.decoded(layer, sha256.Sum256(layer.Bytes), dec, 2); err != nil {
+	if _, err := cache.getOrDecode(layer, sha256.Sum256(layer.Bytes), dec, 2); err != nil {
 		t.Fatal(err)
 	}
 	if calls.Load() != 4 {

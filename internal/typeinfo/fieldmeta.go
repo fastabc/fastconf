@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// fieldSpec stores a field's path, index and parsed fc constraints.
-type fieldSpec struct {
+// fieldConstraint stores a field's path, index and parsed fc constraints.
+type fieldConstraint struct {
 	Path     string
 	Index    []int
 	Required bool
@@ -18,12 +18,12 @@ type fieldSpec struct {
 	OneOf    []string
 }
 
-var fieldMetaCache = NewCache[[]fieldSpec]()
+var fieldMetaCache = NewCache[[]fieldConstraint]()
 
 // parseFieldTag parses required, min, max and oneof constraints. Other tokens, including defaults
 // and descriptions, are ignored.
-func parseFieldTag(tag string) fieldSpec {
-	var fs fieldSpec
+func parseFieldTag(tag string) fieldConstraint {
+	var fs fieldConstraint
 	for _, raw := range strings.Split(tag, ",") {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
@@ -48,16 +48,16 @@ func parseFieldTag(tag string) fieldSpec {
 	return fs
 }
 
-// fieldMetaFor returns the cached metadata plan after pointer indirection; non-struct types yield nil.
-func fieldMetaFor(t reflect.Type) []fieldSpec {
+// fieldMetaPlanFor returns the cached metadata plan after pointer indirection; non-struct types yield nil.
+func fieldMetaPlanFor(t reflect.Type) []fieldConstraint {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {
 		return nil
 	}
-	return fieldMetaCache.GetOrCompute(t, func() []fieldSpec {
-		var entries []fieldSpec
+	return fieldMetaCache.GetOrCompute(t, func() []fieldConstraint {
+		var entries []fieldConstraint
 		Walk(t, func(path string, idx []int, f reflect.StructField) bool {
 			tag := f.Tag.Get(TagKey)
 			if tag != "" {
@@ -91,7 +91,7 @@ func CheckFieldMeta(target any) []Violation {
 	if target == nil {
 		return nil
 	}
-	specs := fieldMetaFor(reflect.TypeOf(target))
+	specs := fieldMetaPlanFor(reflect.TypeOf(target))
 	if len(specs) == 0 {
 		return nil
 	}
@@ -152,4 +152,22 @@ func numericAsFloat(v reflect.Value) float64 {
 		return v.Float()
 	}
 	return 0
+}
+
+// fieldAt follows a metadata index without allocating optional parent objects. The final pointer
+// is returned intact so required can inspect its nil value.
+func fieldAt(value reflect.Value, index []int) reflect.Value {
+	for _, i := range index {
+		for value.Kind() == reflect.Pointer {
+			if value.IsNil() {
+				return reflect.Value{}
+			}
+			value = value.Elem()
+		}
+		if value.Kind() != reflect.Struct {
+			return reflect.Value{}
+		}
+		value = value.Field(i)
+	}
+	return value
 }

@@ -15,6 +15,7 @@ var errUnsafeAxisValue = errors.New("scan: axis value must be a single path segm
 
 // AxisSpec is the scanner form of fastconf.Axis; see docs/cookbook/sources/layers.md
 // for environment presence, empty opt-out, hostname fallback and priority rules.
+// Its field names are reachable through fastconf.Option and remain stable in v1.
 type AxisSpec struct {
 	// Dir is the directory name relative to config root, e.g. "hosts".
 	Dir string
@@ -37,8 +38,8 @@ type AxisError struct {
 
 // ResolveAxes selects and orders extra overlays; hostFn supplies absent-env hostname
 // fallbacks. Failed axes are skipped and reported separately as non-fatal errors.
-func ResolveAxes(specs []AxisSpec, hostFn func() (string, error)) ([]ExtraOverlay, []AxisError) {
-	out := make([]ExtraOverlay, 0, len(specs))
+func ResolveAxes(specs []AxisSpec, hostFn func() (string, error)) ([]AxisOverlay, []AxisError) {
+	out := make([]AxisOverlay, 0, len(specs))
 	var errs []AxisError
 	specs = slices.Clone(specs)
 	slices.SortStableFunc(specs, func(a, b AxisSpec) int { return cmp.Compare(a.Priority, b.Priority) })
@@ -51,7 +52,7 @@ func ResolveAxes(specs []AxisSpec, hostFn func() (string, error)) ([]ExtraOverla
 				val = envVal
 			case present:
 				// Explicit empty → opt-out, regardless of
-				// DefaultFromHostname.
+				// FromHostname.
 				continue
 			}
 		}
@@ -70,10 +71,10 @@ func ResolveAxes(specs []AxisSpec, hostFn func() (string, error)) ([]ExtraOverla
 			errs = append(errs, AxisError{Axis: ax.Dir, Err: fmt.Errorf("%w: %q", errUnsafeAxisValue, val)})
 			continue
 		}
-		out = append(out, ExtraOverlay{
+		out = append(out, AxisOverlay{
 			Dir:      path.Join(ax.Dir, val),
 			Profile:  ax.Dir + ":" + val,
-			Priority: BandExtraOverlay + rank*overlayStride,
+			Priority: BandAxis + rank*overlayStride,
 		})
 	}
 	return out, errs

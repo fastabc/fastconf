@@ -1,6 +1,7 @@
 package fastconf
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"maps"
@@ -22,14 +23,14 @@ type State[T any] struct {
 	generation uint64
 	cause      ReloadCause
 
-	origins       *provenance.Index
-	redactor      secret.Redactor
-	secrets       []string
-	redactionPlan *secret.Plan
-	raw           atomic.Pointer[cachedTree]
+	origins        *provenance.Index
+	redactor       secret.Redactor
+	secretPatterns []string
+	redactionPlan  *secret.Plan
+	jsonTree       atomic.Pointer[jsonTreeBox]
 }
 
-type cachedTree struct{ value map[string]any }
+type jsonTreeBox struct{ value map[string]any }
 
 // Value returns the decoded configuration value. Treat the returned
 // pointer as read-only; mutation is undefined behavior.
@@ -91,7 +92,7 @@ func (s *State[T]) Cause() ReloadCause {
 // newState builds an immutable snapshot from the completed pipeline.
 func (m *Manager[T]) newState(p *pipelineState[T], hash [32]byte, generation uint64, cause ReloadCause) *State[T] {
 	return &State[T]{value: p.target, hash: hash, sources: p.sources, generation: generation,
-		origins: p.origins, cause: cause, redactor: m.opts.SecretRedactor, secrets: m.opts.SecretPaths, redactionPlan: m.redactionPlan}
+		origins: p.origins, cause: cause, redactor: m.opts.SecretRedactor, secretPatterns: m.opts.SecretPaths, redactionPlan: m.redactionPlan}
 }
 
 // restampState returns a snapshot with the same immutable payload as s but a new
@@ -102,17 +103,17 @@ func restampState[T any](s *State[T], generation uint64, cause ReloadCause) *Sta
 		return nil
 	}
 	next := &State[T]{
-		value:         s.value,
-		hash:          s.hash,
-		sources:       slices.Clone(s.sources),
-		generation:    generation,
-		origins:       s.origins,
-		cause:         cause,
-		redactor:      s.redactor,
-		secrets:       s.secrets,
-		redactionPlan: s.redactionPlan,
+		value:          s.value,
+		hash:           s.hash,
+		sources:        slices.Clone(s.sources),
+		generation:     generation,
+		origins:        s.origins,
+		cause:          cause,
+		redactor:       s.redactor,
+		secretPatterns: s.secretPatterns,
+		redactionPlan:  s.redactionPlan,
 	}
-	next.raw.Store(s.raw.Load())
+	next.jsonTree.Store(s.jsonTree.Load())
 	return next
 }
 
@@ -121,7 +122,8 @@ func restampState[T any](s *State[T], generation uint64, cause ReloadCause) *Sta
 // matched by WithSecretPaths, displayed through WithRedactor. The tree is a
 // fresh copy the caller may modify. Use Unredacted for plaintext.
 func (s *State[T]) Map() map[string]any {
-	return s.tree(s.displayRedactor())
+	tree, _ := s.viewTree(s.displayRedactor())
+	return tree
 }
 
 // Dump serializes the redacted view (see Map) as YAML, JSON or TOML with
@@ -150,7 +152,7 @@ func (s *State[T]) Explain(path string) []Origin {
 	plan := s.secretPlan()
 	for i := range origins {
 		if origins[i].Value != nil && (plan.PathHasSecrets(path) ||
-			plan.PatternsMatchValue(origins[i].Value, path)) {
+			plan.PatternsMatch(path, origins[i].Value)) {
 			origins[i].Value = r(path, origins[i].Value)
 		}
 	}
@@ -165,7 +167,10 @@ func (s *State[T]) Unredacted() Unredacted[T] { return Unredacted[T]{s: s} }
 type Unredacted[T any] struct{ s *State[T] }
 
 // Map returns the snapshot tree without masking secrets.
-func (u Unredacted[T]) Map() map[string]any { return u.s.tree(nil) }
+func (u Unredacted[T]) Map() map[string]any {
+	tree, _ := u.s.viewTree(nil)
+	return tree
+}
 
 // Dump serializes the snapshot without masking secrets.
 func (u Unredacted[T]) Dump(format Format) ([]byte, error) { return dumpState(u.s, format, nil) }
@@ -177,17 +182,12 @@ func (s *State[T]) displayRedactor() secret.Redactor {
 	return secret.DefaultRedactor
 }
 
-// tree is the single map[string]any view behind Map, Dump and Diff. When
-// redactor is nil the raw JSON tree is returned; otherwise secret paths
-// are passed through redactor. Centralizing here guarantees every view
-// sees the same key ordering and redaction policy.
-func (s *State[T]) tree(redactor secret.Redactor) map[string]any {
-	tree, _ := s.treeChecked(redactor)
-	return tree
-}
-
-func (s *State[T]) treeChecked(redactor secret.Redactor) (map[string]any, error) {
-	raw, err := s.rawTreeChecked()
+// viewTree is the single map[string]any view behind Map, Dump and Diff: a
+// private copy of the cached JSON tree, with secret paths passed through
+// redactor when it is non-nil. Centralizing here guarantees every view sees
+// the same key ordering and redaction policy.
+func (s *State[T]) viewTree(redactor secret.Redactor) (map[string]any, error) {
+	raw, err := s.cachedJSONTree()
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +200,7 @@ func (s *State[T]) treeChecked(redactor secret.Redactor) (map[string]any, error)
 	plan := s.secretPlan()
 	// Interface configurations may carry a more specific runtime type.
 	if t := reflect.TypeOf(*s.value); t != reflect.TypeFor[T]() {
-		plan = secret.Compile(t, s.secrets)
+		plan = secret.Compile(t, s.secretPatterns)
 	}
 	return plan.Apply(raw, redactor), nil
 }
@@ -211,25 +211,25 @@ func (s *State[T]) secretPlan() *secret.Plan {
 	if s.redactionPlan != nil {
 		return s.redactionPlan
 	}
-	return secret.Compile(reflect.TypeFor[T](), s.secrets)
+	return secret.Compile(reflect.TypeFor[T](), s.secretPatterns)
 }
 
-// rawTreeChecked returns a shared read-only JSON view of this immutable value.
+// cachedJSONTree returns a shared read-only JSON view of this immutable value.
 // Racing first readers may encode independently; only a successful view is
 // retained. Encoding errors remain observable and can be retried by callers.
-func (s *State[T]) rawTreeChecked() (map[string]any, error) {
+func (s *State[T]) cachedJSONTree() (map[string]any, error) {
 	if s == nil || s.value == nil {
 		return nil, nil
 	}
-	if cached := s.raw.Load(); cached != nil {
+	if cached := s.jsonTree.Load(); cached != nil {
 		return cached.value, nil
 	}
-	raw, err := valueMapChecked(s.value)
+	raw, err := encodeJSONTree(s.value)
 	if err != nil {
 		return nil, err
 	}
-	s.raw.CompareAndSwap(nil, &cachedTree{value: raw})
-	return s.raw.Load().value, nil
+	s.jsonTree.CompareAndSwap(nil, &jsonTreeBox{value: raw})
+	return s.jsonTree.Load().value, nil
 }
 
 // canonicalHash uses the same field rules as the decode bridge. Both encoders
@@ -245,4 +245,25 @@ func canonicalHash[T any](v *T, yamlBridge bool) ([32]byte, error) {
 		return zero, err
 	}
 	return sha256.Sum256(buf), nil
+}
+
+// encodeJSONTree turns any pointer into a generic map[string]any view by
+// round-tripping through encoding/json, so the user's struct tags govern
+// field names. It preserves JSON numbers and reports serialization
+// failures; a nil input yields a nil map.
+func encodeJSONTree(v any) (map[string]any, error) {
+	if v == nil {
+		return nil, nil
+	}
+	buf, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{}
+	dec := json.NewDecoder(bytes.NewReader(buf))
+	dec.UseNumber()
+	if err := dec.Decode(&out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

@@ -30,7 +30,7 @@ func FuzzExpr(f *testing.F) {
 		if err != nil {
 			return
 		}
-		active := NewSet("prod", "eu")
+		active := NewProfileSet("prod", "eu")
 		_ = fn(active)
 	})
 }

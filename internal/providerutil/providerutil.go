@@ -1,35 +1,17 @@
+// Package providerutil holds helpers shared by the root module's providers:
+// a redirect-safe HTTP client, the latest-document holder for streaming
+// providers, nonblocking event offers and retry backoff. ReadAllMax and
+// SafeError are frozen forwarding shims for published v1 cloud modules.
 package providerutil
 
 import (
-	"io"
 	"maps"
-	"net/http"
 	"sync"
 	"time"
 
 	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/contracts"
 )
-
-// Doer executes an HTTP request.
-type Doer interface {
-	Do(*http.Request) (*http.Response, error)
-}
-
-// HTTPClient keeps credentials and replayable request bodies at their original
-// endpoint. A zero timeout permits protocol-specific long polling with context.
-func HTTPClient(timeout time.Duration) *http.Client {
-	return &http.Client{
-		Timeout: timeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-}
-
-// ReadAllMax is the compatibility entry point for contracts.ReadAllMax.
-// Frozen: published sub-modules up to v1.2.x import this; keep the signature until v2.
-func ReadAllMax(r io.Reader, max int64) ([]byte, error) { return contracts.ReadAllMax(r, max) }
 
 // Latest retains the most recently decoded streaming document. Callers must
 // not mutate a stored map; Snapshot copies its top level and the manager
@@ -89,10 +71,6 @@ func MaybeCoerce(s string, enabled bool) any {
 	}
 	return confmap.Coerce(s, confmap.CoerceOptions{IgnoreCase: true})
 }
-
-// SafeError is the compatibility entry point for contracts.SafeError.
-// Frozen: published sub-modules up to v1.2.x import this; keep the signature until v2.
-func SafeError(message string, cause error) error { return contracts.SafeError(message, cause) }
 
 // Backoff doubles Min up to Max; callers must set 0 < Min <= Max.
 // It is owned by one retry loop.

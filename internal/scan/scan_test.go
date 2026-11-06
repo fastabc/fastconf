@@ -10,6 +10,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
 )
 
@@ -38,7 +39,7 @@ func TestScan_OverlayStrideOverflow(t *testing.T) {
 		fs[fmt.Sprintf("conf.d/overlays/prod/%03d.yaml", i)] = &fstest.MapFile{Data: []byte("k: 1")}
 	}
 	var seenErr error
-	Scan("conf.d", ScanOptions{Profiles: []string{"prod"}, FS: fs})(func(_ Layer, err error) bool {
+	Scan("conf.d", Options{Profiles: []string{"prod"}, FS: fs})(func(_ Layer, err error) bool {
 		if err != nil {
 			seenErr = err
 			return false
@@ -58,7 +59,7 @@ func TestScan_BaseAndOverlayOrder(t *testing.T) {
 		"conf.d/overlays/prod/05-d.patch.yaml": &fstest.MapFile{Data: []byte("[]")},
 	}
 	var got []string
-	Scan("conf.d", ScanOptions{Profiles: []string{"prod"}, FS: fs})(func(layer Layer, err error) bool {
+	Scan("conf.d", Options{Profiles: []string{"prod"}, FS: fs})(func(layer Layer, err error) bool {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -87,7 +88,7 @@ func TestScan_UnknownExtensionStrict(t *testing.T) {
 		"conf.d/base/99-x.txt":  &fstest.MapFile{Data: []byte("nope")},
 	}
 	var seenErr error
-	Scan("conf.d", ScanOptions{FS: fs, Strict: true})(func(_ Layer, err error) bool {
+	Scan("conf.d", Options{FS: fs, Strict: true})(func(_ Layer, err error) bool {
 		if err != nil {
 			seenErr = err
 			return false
@@ -105,7 +106,7 @@ func TestScan_UnderscorePrefixSkipped(t *testing.T) {
 		"conf.d/base/_fragment.yaml": &fstest.MapFile{Data: []byte("k: 2")},
 	}
 	count := 0
-	Scan("conf.d", ScanOptions{FS: fs})(func(_ Layer, err error) bool {
+	Scan("conf.d", Options{FS: fs})(func(_ Layer, err error) bool {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -129,7 +130,7 @@ func (k Kind) string() string {
 }
 
 // TestCodecOf_ReturnsBuiltins pins the codec discovery contract:
-// codecOf returns names that decoder.For() can actually resolve, and
+// codec.LookupExt returns names that decoder.For() can actually resolve, and
 // rejects everything else as the empty string.
 func TestCodecOf_ReturnsBuiltins(t *testing.T) {
 	cases := map[string]string{
@@ -144,14 +145,14 @@ func TestCodecOf_ReturnsBuiltins(t *testing.T) {
 		"":      "",
 	}
 	for ext, want := range cases {
-		if got := codecOf(ext); got != want {
-			t.Errorf("codecOf(%q) = %q, want %q", ext, got, want)
+		if got := codec.LookupExt(ext); got != want {
+			t.Errorf("codec.LookupExt(%q) = %q, want %q", ext, got, want)
 		}
 	}
 }
 
 // TestScan_ProfileExpressionOverlayMatching exercises
-// collectOverlaysByExpression + overlayMatches via the public Scan.
+// collectProfileOverlays + overlayMatches via the public Scan.
 func TestScan_ProfileExpressionOverlayMatching(t *testing.T) {
 	// Two overlay dirs: "canary" and "prod".
 	// canary has a _meta.yaml with match: "canary".
@@ -172,7 +173,7 @@ func TestScan_ProfileExpressionOverlayMatching(t *testing.T) {
 		{"no_profiles_no_overlay", nil, []string{""}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			layers, err := collectLayers("conf.d", ScanOptions{Profiles: tc.profiles, FS: fs})
+			layers, err := collectLayers("conf.d", Options{Profiles: tc.profiles, FS: fs})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -187,25 +188,25 @@ func TestScan_ProfileExpressionOverlayMatching(t *testing.T) {
 	}
 }
 
-// TestScan_MatchAnd_GlobalFilter exercises the MatchAnd global expression.
-// MatchAnd is AND-ed with each overlay's match; if the expression evaluates
+// TestScan_GlobalMatchFilter exercises the GlobalMatch global expression.
+// GlobalMatch is AND-ed with each overlay's match; if the expression evaluates
 // false for an overlay, that overlay is excluded even if it would otherwise match.
-func TestScan_MatchAnd_GlobalFilter(t *testing.T) {
+func TestScan_GlobalMatchFilter(t *testing.T) {
 	fs := fstest.MapFS{
 		"conf.d/base/00.yaml":           &fstest.MapFile{Data: []byte("k: base")},
 		"conf.d/overlays/prod/10.yaml":  &fstest.MapFile{Data: []byte("k: prod")},
 		"conf.d/overlays/debug/10.yaml": &fstest.MapFile{Data: []byte("k: debug")},
 	}
-	// Active: {prod, debug}. MatchAnd: "!debug" suppresses debug overlay.
+	// Active: {prod, debug}. GlobalMatch: "!debug" suppresses debug overlay.
 	// For each overlay, scoped = Profiles ∪ {overlay_name}. Eval("!debug", {prod, debug, <name>})
 	// is false for debug's own scoped set but also false for prod since debug is in scoped (from Profiles).
-	// MatchAnd is evaluated with scoped = Profiles ∪ {overlay_name}, so "!debug" with Profiles={prod}
+	// GlobalMatch is evaluated with scoped = Profiles ∪ {overlay_name}, so "!debug" with Profiles={prod}
 	// keeps prod and suppresses debug.
 	var got []string
-	Scan("conf.d", ScanOptions{
-		Profiles: []string{"prod"}, // only prod active; debug not in active set
-		MatchAnd: "!debug",         // redundant exclusion but valid: debug not in {prod} anyway
-		FS:       fs,
+	Scan("conf.d", Options{
+		Profiles:    []string{"prod"}, // only prod active; debug not in active set
+		GlobalMatch: "!debug",         // redundant exclusion but valid: debug not in {prod} anyway
+		FS:          fs,
 	})(func(layer Layer, err error) bool {
 		if err != nil {
 			t.Fatal(err)
@@ -215,7 +216,7 @@ func TestScan_MatchAnd_GlobalFilter(t *testing.T) {
 	})
 	for _, p := range got {
 		if p == "debug" {
-			t.Errorf("debug should have been suppressed by MatchAnd='!debug'")
+			t.Errorf("debug should have been suppressed by GlobalMatch='!debug'")
 		}
 	}
 	var foundProd bool
@@ -238,7 +239,7 @@ func TestScan_OverlayMetaYAML_InvalidExpression(t *testing.T) {
 		"conf.d/overlays/bad/10.yaml":    &fstest.MapFile{Data: []byte("k: bad")},
 	}
 	var sawErr bool
-	Scan("conf.d", ScanOptions{Profiles: []string{"bad"}, FS: fs})(func(_ Layer, err error) bool {
+	Scan("conf.d", Options{Profiles: []string{"bad"}, FS: fs})(func(_ Layer, err error) bool {
 		if err != nil {
 			sawErr = true
 			return false
@@ -254,11 +255,11 @@ func TestScan_PriorityWindowBoundaries(t *testing.T) {
 	for _, tc := range []struct {
 		name, dir      string
 		base, capacity int
-		opt            ScanOptions
+		opt            Options
 	}{
-		{"base", "base", BandFileBase, baseBandWidth, ScanOptions{}},
-		{"profile", "overlays/prod", BandFileOverlay, overlayStride, ScanOptions{Profiles: []string{"prod"}}},
-		{"axis", "region/eu", BandExtraOverlay, overlayStride, ScanOptions{ExtraOverlays: []ExtraOverlay{{Dir: "region/eu", Profile: "region:eu", Priority: BandExtraOverlay}}}},
+		{"base", "base", BandFileBase, baseBandWidth, Options{}},
+		{"profile", "overlays/prod", BandFileOverlay, overlayStride, Options{Profiles: []string{"prod"}}},
+		{"axis", "region/eu", BandAxis, overlayStride, Options{AxisOverlays: []AxisOverlay{{Dir: "region/eu", Profile: "region:eu", Priority: BandAxis}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fs := fstest.MapFS{}
@@ -299,7 +300,7 @@ func TestScan_PriorityWindowBoundaries(t *testing.T) {
 
 func TestScan_MatchedOverlayCountBound(t *testing.T) {
 	fs := fstest.MapFS{}
-	opt := ScanOptions{FS: fs}
+	opt := Options{FS: fs}
 	for i := range 11 {
 		name := fmt.Sprintf("profile%02d", i)
 		opt.Profiles = append(opt.Profiles, name)
@@ -310,7 +311,7 @@ func TestScan_MatchedOverlayCountBound(t *testing.T) {
 				scanErr = err
 				break
 			}
-			if layer.Priority >= BandExtraOverlay {
+			if layer.Priority >= BandAxis {
 				t.Fatal("profile escaped its band")
 			}
 		}
@@ -320,7 +321,7 @@ func TestScan_MatchedOverlayCountBound(t *testing.T) {
 	}
 }
 
-func collectLayers(root string, opt ScanOptions) ([]Layer, error) {
+func collectLayers(root string, opt Options) ([]Layer, error) {
 	var layers []Layer
 	for l, err := range Scan(root, opt) {
 		if err != nil {
@@ -334,7 +335,7 @@ func collectLayers(root string, opt ScanOptions) ([]Layer, error) {
 func TestScan_FileSizeLimit(t *testing.T) {
 	for _, n := range []int{int(contracts.DefaultMaxBodyBytes), int(contracts.DefaultMaxBodyBytes) + 1} {
 		fsys := fstest.MapFS{"conf.d/base/a.yaml": {Data: bytes.Repeat([]byte("#"), n)}}
-		_, err := collectLayers("conf.d", ScanOptions{FS: fsys})
+		_, err := collectLayers("conf.d", Options{FS: fsys})
 		if n == int(contracts.DefaultMaxBodyBytes) && err != nil {
 			t.Fatal(err)
 		}
@@ -355,7 +356,7 @@ func TestMeta_RejectsSpecialAndOversizedFiles(t *testing.T) {
 			var err error
 			if overlay {
 				fsys["conf.d/overlays/prod/_meta.yaml"] = fsys["conf.d/_meta.yaml"]
-				_, err = overlayMatches(fsys, "conf.d", "overlays/prod", "prod", NewSet("prod"))
+				_, err = overlayMatches(fsys, "conf.d", "overlays/prod", "prod", NewProfileSet("prod"))
 			} else {
 				_, err = LoadMeta(fsys, "conf.d")
 			}
@@ -404,7 +405,7 @@ func TestScan_FileSizeHintDoesNotTruncateOrBypassLimit(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			data := bytes.Repeat([]byte("#"), tc.size)
 			fsys := hintedFS{MapFS: fstest.MapFS{"conf.d/base/a.yaml": {Data: data}}, size: tc.hint}
-			layers, err := collectLayers("conf.d", ScanOptions{FS: fsys})
+			layers, err := collectLayers("conf.d", Options{FS: fsys})
 			if tc.size > int(MaxFileBytes) {
 				if !errors.Is(err, contracts.ErrTooLarge) {
 					t.Fatalf("limit error=%v", err)
@@ -427,7 +428,7 @@ func (f brokenReadFile) Read(b []byte) (int, error) { return copy(b, "a:"), f.er
 
 func TestReadLayerDataPreservesReadErrors(t *testing.T) {
 	for _, want := range []error{io.ErrUnexpectedEOF, fs.ErrPermission} {
-		if _, err := readLayerData(brokenReadFile{err: want}, 10); !errors.Is(err, want) {
+		if _, err := readBounded(brokenReadFile{err: want}, 10); !errors.Is(err, want) {
 			t.Fatalf("read error=%v want=%v", err, want)
 		}
 	}

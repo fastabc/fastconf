@@ -1,7 +1,6 @@
 package fastconf
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -11,27 +10,6 @@ import (
 
 	"github.com/fastabc/fastconf/confmap"
 )
-
-// valueMapChecked turns any pointer into a generic map[string]any view by
-// round-tripping through encoding/json, so the user's struct tags govern
-// field names. It preserves JSON numbers and reports serialization
-// failures; a nil input yields a nil map.
-func valueMapChecked(v any) (map[string]any, error) {
-	if v == nil {
-		return nil, nil
-	}
-	buf, err := json.Marshal(v)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]any{}
-	dec := json.NewDecoder(bytes.NewReader(buf))
-	dec.UseNumber()
-	if err := dec.Decode(&out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
 
 // DiffChange classifies one DiffEntry as an add, removal, or in-place
 // modification of a dotted path between two State values.
@@ -46,6 +24,7 @@ const (
 	DiffModified
 )
 
+// String reports the change kind.
 func (c DiffChange) String() string {
 	switch c {
 	case DiffAdded:
@@ -68,7 +47,7 @@ type DiffEntry struct {
 	After  any
 }
 
-type diffEntry struct {
+type segmentedDiff struct {
 	DiffEntry
 	segs []string
 }
@@ -76,13 +55,13 @@ type diffEntry struct {
 // diffMaps returns sorted dotted-path differences between two generic
 // maps, retaining path segments for unambiguous value lookup. Scalar
 // equality uses JSON comparison so map ordering does not produce diffs.
-func diffMaps(prefix []string, a, b map[string]any) []diffEntry {
+func diffMaps(prefix []string, a, b map[string]any) []segmentedDiff {
 	path := make([]string, len(prefix), len(prefix)+16)
 	copy(path, prefix)
 	return appendDiffs(nil, path, a, b)
 }
 
-func appendDiffs(out []diffEntry, prefix []string, a, b map[string]any) []diffEntry {
+func appendDiffs(out []segmentedDiff, prefix []string, a, b map[string]any) []segmentedDiff {
 	keys := make(map[string]struct{}, len(a)+len(b))
 	for k := range a {
 		keys[k] = struct{}{}
@@ -116,7 +95,7 @@ func appendDiffs(out []diffEntry, prefix []string, a, b map[string]any) []diffEn
 				continue
 			}
 		}
-		out = append(out, diffEntry{DiffEntry: DiffEntry{Path: strings.Join(path, "."), Change: change, Before: va, After: vb}, segs: slices.Clone(path)})
+		out = append(out, segmentedDiff{DiffEntry: DiffEntry{Path: strings.Join(path, "."), Change: change, Before: va, After: vb}, segs: slices.Clone(path)})
 	}
 	return out
 }
@@ -164,8 +143,8 @@ func FormatDiff(entries []DiffEntry) []string {
 // diagnosticDiff detects changes before redaction, then substitutes safe views.
 // Secret-only changes remain visible even when both displayed values are masked.
 func diagnosticDiff[T any](before, after *State[T]) []DiffEntry {
-	a, _ := before.rawTreeChecked()
-	b, _ := after.rawTreeChecked()
+	a, _ := before.cachedJSONTree()
+	b, _ := after.cachedJSONTree()
 	entries := diffMaps(nil, a, b)
 	if len(entries) == 0 {
 		return nil

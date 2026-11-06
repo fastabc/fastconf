@@ -1,4 +1,3 @@
-// Built-in TypedHook implementations.
 package codec
 
 import (

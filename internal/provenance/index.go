@@ -9,9 +9,9 @@ import (
 	"github.com/fastabc/fastconf/confmap"
 )
 
-// maxDepth caps recordTree recursion to defeat pathological YAML anchor/alias graphs that produce
+// maxTreeDepth caps recordTree recursion to defeat pathological YAML anchor/alias graphs that produce
 // self-referential maps.
-const maxDepth = 256
+const maxTreeDepth = 256
 
 // Origin identifies which configuration layer last wrote a particular dotted field path during the
 // merge stage. Origin is opt-in via fastconf.WithProvenance(level): the merger emits an Index only
@@ -80,7 +80,7 @@ func (o *Index) RecordTree(prefix string, m map[string]any, src SourceRef) {
 }
 
 func (o *Index) recordTreeDepth(prefix string, m map[string]any, src SourceRef, depth int) {
-	if o == nil || depth > maxDepth {
+	if o == nil || depth > maxTreeDepth {
 		return
 	}
 	for k, v := range m {

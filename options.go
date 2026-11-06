@@ -9,6 +9,7 @@ import (
 
 	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/internal/coalesce"
 	"github.com/fastabc/fastconf/internal/fcerr"
 	"github.com/fastabc/fastconf/internal/scan"
 	"github.com/fastabc/fastconf/internal/secret"
@@ -71,6 +72,10 @@ func WithUnknownFields(mode UnknownFields) Option {
 	return func(o *options) { o.UnknownFields = mode }
 }
 
+// DefaultDir is the configuration root directory used when WithDir is
+// not supplied. It follows the conf.d convention from /etc/conf.d.
+const DefaultDir = "conf.d"
+
 // WithDir sets the configuration root directory.
 func WithDir(dir string) Option { return func(o *options) { o.Dir = dir } }
 
@@ -125,6 +130,27 @@ func WithWatch(w Watch) Option {
 	}
 }
 
+// Default coalescer windows for the file-system watcher. Events on a
+// single watched parent directory are collapsed into a single reload
+// using these timings. See the internal/coalesce package; runtime
+// overrides go through WithWatch(Watch{...}).
+const (
+	DefaultCoalesceQuiet    = coalesce.DefaultQuiet
+	DefaultCoalesceMaxLag   = coalesce.DefaultMaxLag
+	DefaultCoalesceSwapHint = coalesce.DefaultSwapHint
+)
+
+// CoalesceProfile is the public re-export of the coalescer preset
+// selector. Use ProfileK8s in production and ProfileLocalDev when
+// iterating against editors that write via unlink-rename cascades.
+type CoalesceProfile = coalesce.Profile
+
+// CoalesceProfile values mirroring the internal/coalesce constants.
+const (
+	ProfileK8s      = coalesce.ProfileK8s
+	ProfileLocalDev = coalesce.ProfileLocalDev
+)
+
 // WithAxes adds extra overlay axes; see [Axis]. Repeated calls accumulate.
 func WithAxes(axes ...Axis) Option {
 	return func(o *options) {
@@ -134,12 +160,7 @@ func WithAxes(axes ...Axis) Option {
 			return
 		}
 		for _, a := range axes {
-			o.OverlayAxes = append(o.OverlayAxes, scan.AxisSpec{
-				Dir:                 a.Dir,
-				EnvVar:              a.Env,
-				Priority:            a.Priority,
-				DefaultFromHostname: a.FromHostname,
-			})
+			o.OverlayAxes = append(o.OverlayAxes, scan.AxisSpec{Dir: a.Dir, EnvVar: a.Env, Priority: a.Priority, DefaultFromHostname: a.FromHostname})
 		}
 	}
 }
@@ -151,6 +172,18 @@ func WithAxes(axes ...Axis) Option {
 func WithTenant(id string) Option {
 	return func(o *options) { o.Tenant = id }
 }
+
+// SecretRedactor converts secret values into display values.
+type SecretRedactor = secret.Redactor
+
+// SecretRef identifies an opaque secret reference.
+type SecretRef = secret.Ref
+
+// SecretResolver recognizes and resolves secret references.
+type SecretResolver = secret.Resolver
+
+// SecretResolverFunc adapts functions to SecretResolver.
+type SecretResolverFunc = secret.ResolverFunc
 
 // WithRedactor sets how redacted views display a secret value (default
 // "***REDACTED***"). Which values are secret is
@@ -268,6 +301,10 @@ func WithValidate[T any](fns ...func(*T) error) Option {
 		}
 	}
 }
+
+// DefaultProfileEnv is the environment variable FastConf reads when
+// neither Profile.Names nor Profile.Env is set.
+const DefaultProfileEnv = "APP_PROFILE"
 
 // Profile selects overlays using Names, then comma-separated Env (default APP_PROFILE),
 // then Default, then root spec.defaultProfile. Each directory's match expression

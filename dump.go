@@ -44,9 +44,12 @@ func (f Format) String() string {
 // dumpState encodes a deterministically ordered diagnostic tree, masking
 // secrets when redactor is non-nil and emitting plaintext otherwise.
 func dumpState[T any](s *State[T], format Format, redactor secret.Redactor) ([]byte, error) {
-	tree, err := dumpTree(s, redactor)
+	tree, err := s.viewTree(redactor)
 	if err != nil {
 		return nil, err
+	}
+	if tree == nil {
+		tree = map[string]any{}
 	}
 	switch format {
 	case JSON:
@@ -62,7 +65,7 @@ func dumpState[T any](s *State[T], format Format, redactor secret.Redactor) ([]b
 		}
 		return buf.Bytes(), nil
 	case YAML:
-		node, err := orderedYAMLNode(tree)
+		node, err := sortedYAMLNode(tree)
 		if err != nil {
 			return nil, err
 		}
@@ -71,22 +74,6 @@ func dumpState[T any](s *State[T], format Format, redactor secret.Redactor) ([]b
 		// Format is an open uint8; reject values outside the enum.
 		return nil, fmt.Errorf("fastconf: unknown Format %s", format)
 	}
-}
-
-// dumpTree resolves the map view used by Dump. Nil snapshots fall through
-// to an empty map so callers always get well-formed output.
-func dumpTree[T any](s *State[T], redactor secret.Redactor) (map[string]any, error) {
-	if s == nil {
-		return map[string]any{}, nil
-	}
-	tree, err := s.treeChecked(redactor)
-	if err != nil {
-		return nil, err
-	}
-	if tree == nil {
-		return map[string]any{}, nil
-	}
-	return tree, nil
 }
 
 type tomlNumber json.Number
@@ -143,9 +130,10 @@ func tomlValue(path string, value any) (any, error) {
 	}
 }
 
-// orderedYAMLNode preserves JSON numbers and null containers while producing
-// stable, lexicographically ordered maps for both the YAML bridge and Dump.
-func orderedYAMLNode(v any) (*yaml.Node, error) {
+// sortedYAMLNode converts a JSON-shaped tree into a yaml.Node with keys in
+// lexicographic order, preserving JSON numbers and null containers. Dump and
+// the YAML decode bridge (encodeBridgeInput) both use it.
+func sortedYAMLNode(v any) (*yaml.Node, error) {
 	switch t := v.(type) {
 	case json.Number:
 		tag := "!!int"
@@ -155,7 +143,7 @@ func orderedYAMLNode(v any) (*yaml.Node, error) {
 		return &yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: t.String()}, nil
 	case map[string]any:
 		if t == nil {
-			return orderedYAMLNode(nil)
+			return sortedYAMLNode(nil)
 		}
 		keys := make([]string, 0, len(t))
 		for k := range t {
@@ -164,7 +152,7 @@ func orderedYAMLNode(v any) (*yaml.Node, error) {
 		sort.Strings(keys)
 		node := &yaml.Node{Kind: yaml.MappingNode}
 		for _, k := range keys {
-			child, err := orderedYAMLNode(t[k])
+			child, err := sortedYAMLNode(t[k])
 			if err != nil {
 				return nil, err
 			}
@@ -176,11 +164,11 @@ func orderedYAMLNode(v any) (*yaml.Node, error) {
 		return node, nil
 	case []any:
 		if t == nil {
-			return orderedYAMLNode(nil)
+			return sortedYAMLNode(nil)
 		}
 		node := &yaml.Node{Kind: yaml.SequenceNode}
 		for _, e := range t {
-			child, err := orderedYAMLNode(e)
+			child, err := sortedYAMLNode(e)
 			if err != nil {
 				return nil, err
 			}

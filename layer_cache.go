@@ -25,16 +25,16 @@ type layerCache struct {
 }
 
 // decodedLayer is immutable after decoding. Assembly may borrow it; only a
-// clone may enter merge, whose output can alias its layer inputs.
+// cloneTree may enter merge, whose output can alias its layer inputs.
 type decodedLayer struct {
 	sum        [32]byte
 	generation uint64
 	tree       map[string]any
 }
 
-func (l *decodedLayer) clone() map[string]any { return confmap.DeepClone(l.tree) }
+func (l *decodedLayer) cloneTree() map[string]any { return confmap.DeepClone(l.tree) }
 
-func (c *layerCache) decoded(layer scan.Layer, sum [32]byte, dec contracts.Decoder, generation uint64) (*decodedLayer, error) {
+func (c *layerCache) getOrDecode(layer scan.Layer, sum [32]byte, dec contracts.Decoder, generation uint64) (*decodedLayer, error) {
 	key := layerCacheKey{layer.Path, layer.Codec}
 	if cached := c.entries[key]; cached != nil && cached.sum == sum && cached.generation == generation {
 		return cached, nil
@@ -69,7 +69,7 @@ type metaKeysCache struct {
 	set  bool
 }
 
-func (c *metaKeysCache) combined(metaBytes []byte, build func() map[string]string) map[string]string {
+func (c *metaKeysCache) getOrBuild(metaBytes []byte, build func() map[string]string) map[string]string {
 	sum := sha256.Sum256(metaBytes)
 	if !c.set || c.sum != sum {
 		c.sum, c.keys, c.set = sum, build(), true

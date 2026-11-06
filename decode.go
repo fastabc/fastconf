@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/internal/typeinfo"
 	"gopkg.in/yaml.v3"
 )
@@ -27,41 +26,41 @@ var jsonBufPool = sync.Pool{
 
 const jsonBufRetainMax = 64 * 1024
 
-// encodedInput owns the bridge bytes for one pipeline decode, including a
+// bridgeInput owns the bridge bytes for one pipeline decode, including a
 // possible strict-to-loose retry. JSON buffers return to the bounded pool.
-type encodedInput struct {
+type bridgeInput struct {
 	data   []byte
 	buffer *bytes.Buffer
 	yaml   bool
 }
 
-func encodeInput(m map[string]any, yamlBridge bool) (encodedInput, error) {
+func encodeBridgeInput(m map[string]any, yamlBridge bool) (bridgeInput, error) {
 	if yamlBridge {
-		node, err := orderedYAMLNode(m)
+		node, err := sortedYAMLNode(m)
 		if err != nil {
-			return encodedInput{}, err
+			return bridgeInput{}, err
 		}
 		data, err := yaml.Marshal(node)
-		return encodedInput{data: data, yaml: true}, err
+		return bridgeInput{data: data, yaml: true}, err
 	}
 	buf := jsonBufPool.Get().(*bytes.Buffer)
 	buf.Reset()
-	input := encodedInput{buffer: buf}
+	input := bridgeInput{buffer: buf}
 	if err := json.NewEncoder(buf).Encode(m); err != nil {
 		input.release()
-		return encodedInput{}, err
+		return bridgeInput{}, err
 	}
 	input.data = buf.Bytes()
 	return input, nil
 }
 
-func (e encodedInput) release() {
+func (e bridgeInput) release() {
 	if e.buffer != nil && e.buffer.Cap() <= jsonBufRetainMax {
 		jsonBufPool.Put(e.buffer)
 	}
 }
 
-func (e encodedInput) decode(target any, strict bool) error {
+func (e bridgeInput) decode(target any, strict bool) error {
 	if e.yaml {
 		dec := yaml.NewDecoder(bytes.NewReader(e.data))
 		dec.KnownFields(strict)
@@ -97,25 +96,6 @@ func isUnknownField(err error) bool {
 		}
 	}
 	return false
-}
-
-func buildTypedHookPlan[T any](o *options) *codec.TypedHookPlan {
-	// Build the typed hook plan once. Defaults are included unless
-	// WithoutDefaultTypedHooks was set.
-	hooks := []codec.TypedHook{}
-	if !o.TypedHooksOff {
-		hooks = append(hooks, codec.DefaultTypedHooks()...)
-	}
-	hooks = append(hooks, o.TypedHooks...)
-	if len(hooks) == 0 {
-		return nil
-	}
-	// Field selection must match the bridge that decodes the rewritten map.
-	var planOpts []codec.PlanOption
-	if o.YAMLBridge {
-		planOpts = append(planOpts, codec.WithYAMLFields())
-	}
-	return codec.BuildTypedHookPlan(reflect.TypeFor[T](), hooks, planOpts...)
 }
 
 // warnIfYAMLOnlyTags checks top-level exported fields once per construction,
@@ -154,4 +134,10 @@ func (m *Manager[T]) warnUnknownField(err error) {
 	}
 	m.lastUnknownField.Store(msg)
 	m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf: configuration key has no matching field; ignored (WithUnknownFields(UnknownError) rejects it)", slog.String("err", msg))
+}
+
+// Defaulter supplies computed defaults after decoding and struct-tag defaults,
+// before validation. It is called once per pipeline execution when *T implements it.
+type Defaulter interface {
+	Defaults()
 }

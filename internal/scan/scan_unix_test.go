@@ -24,7 +24,7 @@ func TestScan_SkipsFIFOWithoutBlocking(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		layers, err := collectLayers(root, ScanOptions{})
+		layers, err := collectLayers(root, Options{})
 		if err == nil && len(layers) != 1 {
 			err = os.ErrInvalid
 		}
@@ -38,7 +38,7 @@ func TestScan_SkipsFIFOWithoutBlocking(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("scan blocked on FIFO")
 	}
-	if _, err := collectLayers(root, ScanOptions{Strict: true}); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+	if _, err := collectLayers(root, Options{Strict: true}); err == nil || !strings.Contains(err.Error(), "not a regular file") {
 		t.Fatalf("strict: %v", err)
 	}
 }
@@ -56,7 +56,7 @@ func TestScan_SymlinkToRegularFileLoads(t *testing.T) {
 	if err := os.Symlink(filepath.Join(root, "..data", "app.yaml"), filepath.Join(root, "base", "app.yaml")); err != nil {
 		t.Fatal(err)
 	}
-	if layers, err := collectLayers(root, ScanOptions{}); err != nil || len(layers) != 1 {
+	if layers, err := collectLayers(root, Options{}); err != nil || len(layers) != 1 {
 		t.Fatalf("layers=%v err=%v", layers, err)
 	}
 }

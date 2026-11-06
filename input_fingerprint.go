@@ -50,7 +50,7 @@ func (m *Manager[T]) inputFingerprint(staged []stagedLayer, metaSum [32]byte, ge
 		return [32]byte{}
 	}
 	for _, l := range staged {
-		if l.sum == ([32]byte{}) {
+		if l.fileSum == ([32]byte{}) {
 			return [32]byte{}
 		}
 	}
@@ -62,7 +62,7 @@ func (m *Manager[T]) inputFingerprint(staged []stagedLayer, metaSum [32]byte, ge
 		buf = binary.LittleEndian.AppendUint64(buf, uint64(int64(l.src.Priority)))
 		buf = append(append(buf, l.src.Profile...), 0)
 		buf = append(append(buf, l.src.Codec...), 0)
-		buf = append(buf, l.sum[:]...)
+		buf = append(buf, l.fileSum[:]...)
 	}
 	return sha256.Sum256(buf)
 }

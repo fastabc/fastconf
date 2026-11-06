@@ -26,10 +26,6 @@ func compilePatterns(patterns []string) patternPlan {
 	return out
 }
 
-func (p *Plan) PatternsMatchValue(value any, path string) bool {
-	return p.patterns.matchesValue(value, path)
-}
-
 func (p patternPlan) matchesValue(value any, path string) bool {
 	if len(p.provenance) == 0 {
 		return false

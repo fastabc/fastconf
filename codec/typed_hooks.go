@@ -1,6 +1,3 @@
-// Typed hooks rewrite human-readable scalar values before the decode bridge runs. BuildTypedHookPlan
-// caches target types and field aliases once, avoiding per-reload reflection while accepting both
-// JSON and YAML key conventions.
 package codec
 
 import (
@@ -86,7 +83,8 @@ type planBuilder struct {
 }
 
 // BuildTypedHookPlan inspects t and returns a plan that the walker can apply against any merged
-// map. Pointer/elem unwrapping is automatic.
+// map. Pointer/elem unwrapping is automatic. Target types and field aliases are resolved once, so
+// Apply needs no per-reload reflection and accepts both JSON and YAML key conventions.
 func BuildTypedHookPlan(t reflect.Type, hooks []TypedHook, opts ...PlanOption) *TypedHookPlan {
 	if len(hooks) == 0 || t == nil {
 		return &TypedHookPlan{}
@@ -155,7 +153,7 @@ func (b *planBuilder) shapeFor(t reflect.Type) *typePlan {
 }
 
 func (b *planBuilder) addField(tp *typePlan, f reflect.StructField, index []int) {
-	aliases := typeinfo.ResolveField(f).Candidates
+	aliases := typeinfo.FieldNamesOf(f).InputAliases
 	if len(aliases) == 0 {
 		return
 	}

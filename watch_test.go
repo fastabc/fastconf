@@ -33,7 +33,7 @@ func TestCollectWatchPaths_IncludesProviderWatchPaths(t *testing.T) {
 
 	o := &options{Dir: root}
 	o.addProvider(&watchPathTestProvider{paths: []string{labels, annotations, labels}})
-	got := collectWatchPaths(o)
+	got := staticWatchPaths(o)
 
 	for _, want := range []string{labels, annotations} {
 		abs, err := filepath.Abs(want)
@@ -41,7 +41,7 @@ func TestCollectWatchPaths_IncludesProviderWatchPaths(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !containsPath(got, abs) {
-			t.Fatalf("collectWatchPaths() = %v; missing %q", got, abs)
+			t.Fatalf("staticWatchPaths() = %v; missing %q", got, abs)
 		}
 	}
 }
