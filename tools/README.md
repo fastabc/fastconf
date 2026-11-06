@@ -112,10 +112,12 @@ builds and publishes archives. Resource soak remains a separate manual workflow.
 
 CI compares the Makefile candidate (currently `VERSION=v1.5.0`) against `BASE=v1.4.0`.
 API checks use a reserved prerelease of the next patch (`v1.5.1-api-check`), or
-append `.api-check` to an existing prerelease. Only the disposable candidate's
-archives and matching internal dependency pins use this version. This keeps the
-published baseline separate from the candidate, allows reruns after publication,
-and preserves major/minor compatibility rules. No release or tag is created.
+append `.api-check` to an existing prerelease. The disposable candidate's archives
+and internal dependency pins use this version; `API_VERSION` is converted
+independently by the same rule before invoking gorelease. This keeps the published
+baseline separate from the candidate, allows reruns after publication even with
+an explicit API target, and preserves major/minor compatibility rules.
+No release or tag is created.
 Baseline download failures fail the check; never use `BASE=none` as a fallback.
 
 `BASE=v1.2.0 bash tools/check-candidate.sh --api bash tools/check-api-negative.sh`

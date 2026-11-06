@@ -87,9 +87,10 @@ API checks use a reserved prerelease of the next patch (`v1.5.1-api-check` for
 `VERSION=v1.5.0`), or append `.api-check` to an existing prerelease. The temporary
 archives and matching internal dependency pins use that version, so the baseline
 resolves to published code even when `BASE` equals `VERSION`. Existing release
-tags do not make reruns fail. gorelease enforces the major/minor compatibility
-rules against `API_VERSION` (or the candidate `VERSION` when invoked directly
-without `API_VERSION`). Source manifests stay unchanged. Never publish these check versions.
+tags do not make reruns fail. The same conversion is applied independently to
+`API_VERSION` (defaulting to `VERSION`) before passing it to gorelease, preserving
+the intended major/minor compatibility rules without rejecting an already-published
+version. Source manifests stay unchanged. Never publish these check versions.
 
 Explicit baseline tags must be available locally (`git fetch --tags` for a shallow
 checkout). Candidate checks retain that tag's tree. A module whose `go.mod` does

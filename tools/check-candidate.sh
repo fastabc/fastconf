@@ -12,7 +12,8 @@ if [[ "${1:-}" == --api ]]; then
   # Keep the published baseline distinct from local candidate archives. A
   # prerelease of the next patch preserves the major/minor compatibility rules
   # and permits checking VERSION against its own already-published release.
-  VERSION="$(python3 - "$VERSION" <<'PY'
+  check_version() {
+    python3 - "$1" <<'PY'
 import sys
 version = sys.argv[1]
 if "-" in version:
@@ -21,8 +22,12 @@ else:
     prefix, patch = version.rsplit(".", 1)
     print(f"{prefix}.{int(patch) + 1}-api-check")
 PY
-)"
-  export VERSION BASE="${BASE:-v1.4.0}"
+  }
+  # Makefile/CI set API_VERSION explicitly; it must not name a published tag
+  # either. Convert it independently because API and dependency targets differ.
+  API_VERSION="$(check_version "${API_VERSION:-$VERSION}")"
+  VERSION="$(check_version "$VERSION")"
+  export VERSION API_VERSION BASE="${BASE:-v1.4.0}"
   [[ $# -gt 0 ]] || set -- bash tools/check-api.sh
 fi
 

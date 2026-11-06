@@ -99,21 +99,25 @@ check_failure() {
 }
 # Both stable and prerelease candidates may already have been published.
 check_success
+# Makefile and CI explicitly set API_VERSION, even when the tag already exists.
+API_VERSION=v1.2.0 check_success
 go -C sub mod edit -require=github.com/fastabc/fastconf@v1.2.0-rc.1
 git add .
 git commit -qm prerelease
 VERSION=v1.2.0-rc.1 check_success
+VERSION=v1.2.0-rc.1 API_VERSION=v1.2.0-rc.1 check_success
 go -C sub mod edit -require=github.com/fastabc/fastconf@v1.2.0
 git add .
 git commit -qm stable
 # Comparing the checkout against its already-published version must also work.
 BASE=v1.2.0 check_success
+BASE=v1.2.0 API_VERSION=v1.2.0 check_success
 # A new minor API may be checked while manifests still pin the published version.
 printf 'const Next = 3\n' >> api.go
 git add .
 git commit -qm next-api
 BASE=v1.2.0 API_VERSION=v1.3.0 check_success
-grep -Fq 'version=v1.3.0)' "$TMP/result"
+grep -Fq 'version=v1.3.1-api-check)' "$TMP/result"
 BASE=v1.2.0 API_VERSION=v1.2.1 check_failure 'minor version is not incremented'
 # Retain minor-version enforcement and reject older candidates.
 VERSION=v1.1.1 check_failure 'minor version is not incremented'
