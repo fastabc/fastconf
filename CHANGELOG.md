@@ -8,6 +8,9 @@ v1.4.0 to v1.5.0. Older entries below describe their historical releases.
 
 ### Added
 
+- `transform.Interpolate` with environment defaults, escapes, required values and
+  optional scalar configuration references with cycle/depth checks.
+
 - Absent-key `default` struct tags and `LayerDefault` provenance, with literal
   validation during manager construction.
 

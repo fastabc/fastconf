@@ -106,3 +106,5 @@ Multiple env providers can use different prefixes and replacers. Names derive
 from the prefix (`env:APP_`, `env:LEGACY_`), not the replacer; use distinct
 prefixes to keep diagnostic names distinct. Equal-priority providers merge in
 registration order, with later values winning at the same path.
+
+支持 `${VAR:default}` 和配置引用的新 API 见[变量插值](../processing/interpolation.md)。

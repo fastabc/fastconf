@@ -78,3 +78,5 @@ API changes; it is separate from recipes for the current checkout.
 The [runtime contract](../design/spec.md) owns shared lifecycle, precedence,
 decoding and ownership rules. Recipes link to it instead of defining another
 version of those rules.
+
+- [变量插值与跨字段引用](processing/interpolation.md)

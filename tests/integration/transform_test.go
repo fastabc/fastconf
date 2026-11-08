@@ -185,3 +185,17 @@ func TestTransform_CapturesProtocolsSubtree(t *testing.T) {
 		t.Fatalf("expected \"grpc\" key in protocols, got %v", protoMap)
 	}
 }
+
+func TestInterpolateTransform_EndToEnd(t *testing.T) {
+	type C struct {
+		Port     int    `json:"port"`
+		Callback string `json:"callback"`
+	}
+	st, err := fastconf.Load[C](context.Background(), fastconf.WithFS(transformFS("port: ${PORT:8080}\nserver:\n  base: http://h\ncallback: ${server.base}/cb\n")), fastconf.WithTransform(transform.Interpolate(transform.InterpolateOptions{Refs: true, Lookup: func(string) (string, bool) { return "", false }})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Value().Port != 8080 || st.Value().Callback != "http://h/cb" {
+		t.Fatal(st.Value())
+	}
+}
