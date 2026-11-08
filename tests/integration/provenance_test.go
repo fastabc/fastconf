@@ -102,8 +102,8 @@ func TestExplainDoesNotLeakResolvedSecretsThroughSliceLayers(t *testing.T) {
 		if strings.Contains(rendered, "PLAINTEXT-") {
 			t.Errorf("Explain(%q) leaked resolved plaintext: %s", o.Path, rendered)
 		}
-		if !strings.Contains(rendered, "probe://dbpass") {
-			t.Errorf("Explain(%q) = %s, want the pre-resolution reference", o.Path, rendered)
+		if o.Value != "***REDACTED***" {
+			t.Errorf("Explain(%q) = %s, want automatic redaction", o.Path, rendered)
 		}
 	}
 }
