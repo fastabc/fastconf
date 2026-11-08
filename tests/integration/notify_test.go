@@ -178,3 +178,29 @@ func TestLoad_IgnoresNotifiers(t *testing.T) {
 		t.Fatalf("%v %d", err, n.runs.Load())
 	}
 }
+
+func TestNotifier_RefreshFailurePreservesState(t *testing.T) {
+	n := newFakeNotifier()
+	p := &snapshotProvider{name: "p", data: map[string]any{"value": 1}}
+	m, err := fastconf.New[struct {
+		Value int `json:"value"`
+	}](context.Background(), fastconf.WithProvider(p), fastconf.WithNotifier(n))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.Close() }()
+	before := m.Snapshot()
+	p.data = map[string]any{"value": "invalid"}
+	n.trigger <- struct{}{}
+	select {
+	case err := <-n.results:
+		if !errors.Is(err, fastconf.ErrTransform) {
+			t.Fatalf("refresh error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("refresh did not return")
+	}
+	if m.Snapshot() != before {
+		t.Fatal("failed refresh published state")
+	}
+}

@@ -23,12 +23,8 @@ func (NamedPrimitiveHook) Match(t reflect.Type) bool {
 	if t == nil || t.PkgPath() == "" {
 		return false
 	}
-	for _, iface := range []reflect.Type{
-		reflect.TypeFor[encoding.TextUnmarshaler](), reflect.TypeFor[json.Unmarshaler](), reflect.TypeFor[yaml.Unmarshaler](),
-	} {
-		if t.Implements(iface) || reflect.PointerTo(t).Implements(iface) {
-			return false
-		}
+	if hasUnmarshaler(t) {
+		return false
 	}
 	switch t.Kind() {
 	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
@@ -196,4 +192,16 @@ func (StringPrimitiveHook) ConvertWithTarget(raw any, target reflect.Type) (any,
 		return f, nil
 	}
 	return raw, nil
+}
+
+func hasUnmarshaler(t reflect.Type) bool {
+	for _, iface := range []reflect.Type{
+		reflect.TypeFor[encoding.TextUnmarshaler](), reflect.TypeFor[json.Unmarshaler](), reflect.TypeFor[yaml.Unmarshaler](),
+		reflect.TypeFor[interface{ UnmarshalYAML(func(any) error) error }](),
+	} {
+		if t.Implements(iface) || reflect.PointerTo(t).Implements(iface) {
+			return true
+		}
+	}
+	return false
 }

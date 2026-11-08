@@ -103,3 +103,22 @@ func TestNamedPrimitiveHook_SkipsTextUnmarshaler(t *testing.T) {
 		t.Fatal("matched TextUnmarshaler")
 	}
 }
+
+type namedByte uint8
+type customList []string
+
+func (l *customList) UnmarshalText(raw []byte) error { *l = []string{string(raw)}; return nil }
+func TestListCoercion_NamedByteAndCustomUnmarshaler(t *testing.T) {
+	type C struct {
+		Codes  []namedByte `json:"codes"`
+		Custom customList  `json:"custom"`
+	}
+	m := map[string]any{"codes": "1,2", "custom": "a,b"}
+	hooks := append(codec.DefaultTypedHooks(), codec.NamedPrimitiveHook{})
+	if err := codec.BuildTypedHookPlan(reflect.TypeFor[C](), hooks, codec.WithListCoercion()).Apply(m); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(m["codes"], []any{uint64(1), uint64(2)}) || m["custom"] != "a,b" {
+		t.Fatalf("%#v", m)
+	}
+}

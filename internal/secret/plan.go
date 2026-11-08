@@ -16,6 +16,8 @@ type Plan struct {
 	root       *typePlan
 	patterns   patternPlan
 	exactPaths [][]string
+	inputPaths [][]string
+	typ        reflect.Type
 }
 
 type planField struct {
@@ -73,7 +75,7 @@ func Compile(t reflect.Type, patterns []string) *Plan {
 		}
 		return p
 	}
-	return &Plan{root: build(t), patterns: compilePatterns(patterns)}
+	return &Plan{root: build(t), patterns: compilePatterns(patterns), typ: t}
 }
 
 // provenanceFields retains parent aliases and inherited secret flags alongside flattened
@@ -123,6 +125,13 @@ func (p *Plan) Apply(tree map[string]any, redactor Redactor) map[string]any {
 	}
 	redactPatterns(out, nil, p.patterns.tree, redactor)
 	for _, path := range p.exactPaths {
+		if len(path) == 0 {
+			masked := redactor("", out)
+			if root, ok := masked.(map[string]any); ok {
+				return root
+			}
+			return map[string]any{"$redacted": masked}
+		}
 		redactExact(out, path, "", redactor)
 	}
 	return out
@@ -142,10 +151,12 @@ func opaqueJSONType(t reflect.Type) bool {
 // PatternsMatch reports whether a WithSecretPaths pattern covers path or any
 // path inside value, treating dots in flattened provenance paths conservatively.
 func (p *Plan) PatternsMatch(path string, value any) bool {
-	for _, segs := range p.exactPaths {
-		full := strings.Join(segs, ".")
-		if full == path || path == "" || strings.HasPrefix(full, path+".") || strings.HasPrefix(path, full+".") {
-			return true
+	for _, paths := range [][][]string{p.inputPaths, p.exactPaths} {
+		for _, segs := range paths {
+			full := strings.Join(segs, ".")
+			if full == "" || full == path || path == "" || strings.HasPrefix(full, path+".") || strings.HasPrefix(path, full+".") {
+				return true
+			}
 		}
 	}
 	return p.patterns.matchesValue(value, path)
@@ -269,11 +280,21 @@ func hasSecrets(t reflect.Type) bool {
 
 // WithExactPaths extends a plan without mutating metadata shared by snapshots.
 func (p *Plan) WithExactPaths(paths [][]string) *Plan {
+
 	next := *p
-	next.exactPaths = make([][]string, 0, len(p.exactPaths)+len(paths))
-	for _, path := range append(append([][]string(nil), p.exactPaths...), paths...) {
-		next.exactPaths = append(next.exactPaths, append([]string(nil), path...))
+	next.exactPaths = append([][]string(nil), p.exactPaths...)
+	next.inputPaths = append([][]string(nil), p.inputPaths...)
+	for _, path := range paths {
+		next.inputPaths = append(next.inputPaths, append([]string(nil), path...))
+		outputs := jsonPaths(p.typ, path, 0)
+		if len(outputs) == 0 {
+			outputs = [][]string{path}
+		}
+		for _, output := range outputs {
+			next.exactPaths = append(next.exactPaths, append([]string(nil), output...))
+		}
 	}
+
 	return &next
 }
 func redactExact(node any, segs []string, prefix string, r Redactor) {

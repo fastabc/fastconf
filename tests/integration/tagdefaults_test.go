@@ -131,3 +131,16 @@ func TestTagDefaults_ReloadKeepsExplicitValue(t *testing.T) {
 		t.Fatal(m.Get())
 	}
 }
+
+func TestTagDefaults_CaseInsensitiveJSONPresence(t *testing.T) {
+	type C struct {
+		Port int `json:"port" default:"8080"`
+	}
+	st, err := fastconf.Load[C](context.Background(), fastconf.WithProvider(&snapshotProvider{name: "p", data: map[string]any{"PORT": 9090}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Value().Port != 9090 {
+		t.Fatal(st.Value())
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"strings"
 
 	fage "filippo.io/age"
 )
@@ -30,7 +31,7 @@ func NewDecrypter(identities io.Reader) (func(context.Context, string) (string, 
 			return "", err
 		}
 		// Bound decoding even for an attacker-controlled base64 string.
-		raw, err := io.ReadAll(io.LimitReader(base64.NewDecoder(base64.StdEncoding, bytes.NewBufferString(body)), maxCiphertext+1))
+		raw, err := io.ReadAll(io.LimitReader(base64.NewDecoder(base64.StdEncoding, strings.NewReader(body)), maxCiphertext+1))
 		if err != nil {
 			return "", errors.New("age resolver: invalid base64")
 		}

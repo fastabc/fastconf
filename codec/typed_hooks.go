@@ -160,7 +160,7 @@ func (b *planBuilder) shapeFor(t reflect.Type) *typePlan {
 			}
 		}
 	case reflect.Slice, reflect.Array, reflect.Map:
-		if t.Kind() != reflect.Map && b.lists && listScalar(t.Elem()) {
+		if t.Kind() != reflect.Map && b.lists && t.Elem() != reflect.TypeFor[byte]() && !hasUnmarshaler(t) && listScalar(t.Elem()) {
 			tp.list, tp.live = true, true
 		}
 		tp.elem = b.planFor(t.Elem())
@@ -296,7 +296,7 @@ func (tp *typePlan) apply(v any) (any, error) {
 func listScalar(t reflect.Type) bool {
 	switch t.Kind() {
 	case reflect.Bool, reflect.String, reflect.Int, reflect.Int8, reflect.Int16,
-		reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint16, reflect.Uint32,
+		reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32,
 		reflect.Uint64, reflect.Float32, reflect.Float64:
 		return true
 	}

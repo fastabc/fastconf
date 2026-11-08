@@ -1,6 +1,7 @@
 package transform
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -27,8 +28,7 @@ func Interpolate(opts InterpolateOptions) Func {
 		active := map[string]bool{}
 		var stack []string
 		var expand func(string, string) (string, error)
-		var ref func(string) (string, bool, error)
-		ref = func(path string) (string, bool, error) {
+		ref := func(path string) (string, bool, error) {
 			if v, ok := memo[path]; ok {
 				return v, true, nil
 			}
@@ -66,7 +66,7 @@ func Interpolate(opts InterpolateOptions) Func {
 				return fmt.Sprint(value), true, nil
 			}
 			// json.Number is a named string, distinct from ordinary string values.
-			if n, ok := value.(interface{ String() string }); ok {
+			if n, ok := value.(json.Number); ok {
 				return n.String(), true, nil
 			}
 			return "", false, fmt.Errorf("reference %s is not a scalar", path)

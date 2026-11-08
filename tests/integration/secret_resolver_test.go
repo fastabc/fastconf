@@ -102,3 +102,61 @@ func TestResolvedSecrets_DiffMasksRotationAndRollback(t *testing.T) {
 		t.Fatal(m.Snapshot().Map())
 	}
 }
+
+func TestResolvedSecrets_MaskedWithInputAliases(t *testing.T) {
+	type C struct {
+		Token string `json:"token" yaml:"auth_token"`
+	}
+	for _, tc := range []struct {
+		key  string
+		yaml bool
+	}{{"Token", false}, {"auth_token", true}} {
+		opts := []fastconf.Option{fastconf.WithProvider(&snapshotProvider{name: "p", data: map[string]any{tc.key: "ref+t://x"}}), fastconf.WithSecretResolvers(testPrefix("t", "ref+t://", "plain"))}
+		if tc.yaml {
+			opts = append(opts, fastconf.WithDecodeFormat(fastconf.YAML))
+		}
+		st, err := fastconf.Load[C](context.Background(), opts...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Value().Token != "plain" || st.Map()["token"] != "***REDACTED***" {
+			t.Fatalf("%s: value=%+v map=%v", tc.key, st.Value(), st.Map())
+		}
+	}
+}
+
+func TestResolvedSecrets_MaskedThroughYAMLInline(t *testing.T) {
+	type Credentials struct {
+		Token string `json:"token" yaml:"auth_token"`
+	}
+	type C struct {
+		Credentials Credentials `json:"credentials" yaml:",inline"`
+	}
+	st, err := fastconf.Load[C](context.Background(), fastconf.WithDecodeFormat(fastconf.YAML), fastconf.WithProvider(&snapshotProvider{name: "p", data: map[string]any{"auth_token": "ref+t://x"}}), fastconf.WithSecretResolvers(testPrefix("t", "ref+t://", "plain")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Map()["credentials"].(map[string]any)["token"] != "***REDACTED***" {
+		t.Fatal(st.Map())
+	}
+}
+
+type resolvedJSONSecret struct {
+	Token string `json:"token"`
+}
+
+func (c resolvedJSONSecret) MarshalJSON() ([]byte, error) {
+	return []byte(`{"renamed":"` + c.Token + `"}`), nil
+}
+func TestResolvedSecrets_MaskedWithCustomJSONOutput(t *testing.T) {
+	type C struct {
+		Auth resolvedJSONSecret `json:"auth"`
+	}
+	st, err := fastconf.Load[C](context.Background(), fastconf.WithProvider(&snapshotProvider{name: "p", data: map[string]any{"auth": map[string]any{"token": "ref+t://x"}}}), fastconf.WithSecretResolvers(testPrefix("t", "ref+t://", "plain")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Map()["auth"] != "***REDACTED***" {
+		t.Fatal(st.Map())
+	}
+}

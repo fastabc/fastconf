@@ -13,11 +13,12 @@ const DefaultTagKey = "default"
 
 // TagDefault is an immutable path plan for one absent-key default.
 type TagDefault struct {
-	Path     string
-	Keys     []string
-	Aliases  [][]string
-	Optional []bool
-	Raw      string
+	Path      string
+	Keys      []string
+	Aliases   [][]string
+	Optional  []bool
+	Raw       string
+	foldNames bool
 }
 
 // TagDefaultsFor validates declarations and selects paths using the decode bridge's fields.
@@ -68,6 +69,7 @@ func TagDefaultsFor(t reflect.Type, yamlBridge bool) ([]TagDefault, error) {
 				optional := f.Type.Kind() == reflect.Pointer
 				path := TagDefault{Keys: append(append([]string(nil), parent.Keys...), name), Aliases: append(append([][]string(nil), parent.Aliases...), names.InputAliases), Optional: append(append([]bool(nil), parent.Optional...), optional)}
 				path.Path = strings.Join(path.Keys, ".")
+				path.foldNames = !yamlBridge
 				raw, has := f.Tag.Lookup(DefaultTagKey)
 				if has {
 					if _, conflict := defaultTagValue(f.Tag.Get(TagKey)); conflict {
@@ -128,6 +130,21 @@ func InjectTagDefaults(root map[string]any, defs []TagDefault, force bool, recor
 					break
 				}
 			}
+			if !present && d.foldNames {
+				for actual := range node {
+					for _, alias := range d.Aliases[i] {
+						if strings.EqualFold(actual, alias) {
+							key = actual
+							present = true
+							break
+						}
+					}
+					if present {
+						break
+					}
+				}
+			}
+
 			if i == len(d.Keys)-1 {
 				if !present {
 					node[key] = d.Raw
