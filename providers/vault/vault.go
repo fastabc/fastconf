@@ -238,7 +238,11 @@ func (p *Provider) loadToken() string {
 }
 
 func (p *Provider) readData(ctx context.Context) (map[string]any, int, error) {
-	url := fmt.Sprintf("%s/v1/%s/data/%s", p.addr, p.mount, p.path)
+	return p.readDataAt(ctx, p.path)
+}
+
+func (p *Provider) readDataAt(ctx context.Context, path string) (map[string]any, int, error) {
+	url := fmt.Sprintf("%s/v1/%s/data/%s", p.addr, p.mount, path)
 	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, url, nil)
 	if err != nil {
 		return nil, 0, err
@@ -251,7 +255,7 @@ func (p *Provider) readData(ctx context.Context) (map[string]any, int, error) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != nethttp.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, 0, fmt.Errorf("vault: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, 0, &dataStatusError{code: resp.StatusCode, body: strings.TrimSpace(string(body))}
 	}
 	body, err := contracts.ReadAllMax(resp.Body, p.maxBodyBytes)
 	if err != nil {
@@ -343,3 +347,10 @@ func (p *Provider) expand(in map[string]any) map[string]any {
 	}
 	return out
 }
+
+type dataStatusError struct {
+	code int
+	body string
+}
+
+func (e *dataStatusError) Error() string { return fmt.Sprintf("vault: status %d: %s", e.code, e.body) }

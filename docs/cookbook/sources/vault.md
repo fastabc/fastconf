@@ -44,3 +44,10 @@ resumable revision cursor; if you need disconnect resume semantics, wrap
 Vault in a custom provider whose `Watch(ctx, from)` honors the revision.
 Reading a KV secret does not mark its paths sensitive; configure `fc:"secret"`
 or `WithSecretPaths` for diagnostic redaction. See [secrets](../processing/secrets.md).
+
+## 字段引用 (v1.6.0)
+
+`NewResolver(addr, token, opts...)` 复用 HTTP、mount、body limit 和 `WithAuth` 选项。
+用 `fastconf.PrefixSecretResolver("vault", vault.ResolverPrefix, resolver.Resolve)`
+注册后，`ref+vault://app/db#password` 读取 KV v2 的一个标量；动态 token 在 403 后重登一次。
+解析值自动脱敏，详见[密钥解析](../processing/secrets.md)。

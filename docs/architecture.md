@@ -15,6 +15,7 @@ inventory when changing implementation files.
 | [`confmap/`](../confmap) | Merge, patch, paths, cloning and coercion |
 | [`transform/`](../transform) | Raw-tree transformations and schema migration chains |
 | [`providers/`](../providers) | File, env, flag, label and remote sources; remote cloud sources are separate modules |
+| [`secrets/age/`](../secrets/age) | Independent age decryption adapter; no root module dependency |
 | [`policy/`](../policy), [`cue/`](../cue), [`validate/`](../validate) | Policies and optional validation backends |
 | [`observe/`](../observe), [`observability/`](../observability) | Event composition and optional telemetry backends |
 | [`feature/`](../feature) | Configuration-backed feature rule evaluation |

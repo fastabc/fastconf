@@ -111,3 +111,51 @@ mgr, err := fastconf.New[Config](ctx, fastconf.WithSecretResolvers(resolver))
 
 The application owns credentials, clients and safe error messages. Resolver
 errors should never include ciphertext, plaintext or authentication material.
+
+## Vault KV v2 and age (v1.6.0)
+
+```go
+vr, err := vault.NewResolver(addr, token, vault.WithMount("secret"))
+if err != nil { return err }
+dec, err := age.NewDecrypter(bytes.NewReader(identityFile))
+if err != nil { return err }
+mgr, err := fastconf.New[Config](ctx, fastconf.WithSecretResolvers(
+    fastconf.PrefixSecretResolver("vault", vault.ResolverPrefix, vr.Resolve),
+    fastconf.PrefixSecretResolver("age", age.Prefix, dec),
+))
+```
+
+`vault` is `providers/vault`; `age` is the independent `secrets/age` module.
+Vault bodies are `app/db#password`, resolved from `/v1/<mount>/data/app/db`.
+Static tokens or existing `WithAuth` are supported; a dynamic token retries login once on 403.
+Only string, numeric and boolean values are supported.
+
+age values contain `age:` and standard base64 of binary ciphertext (at most 64 KiB).
+Create them with:
+
+```sh
+printf %s 's3cret' | age -r age1… | base64 | tr -d '\n'
+```
+
+Prepend `age:`; Linux can also use `base64 -w0` to remove line wrapping.
+
+## SOPS（应用自持 provider）
+
+SOPS 字段 `ENC[…]` 的数据密钥依赖文件级 `sops:` 元数据，不能独立作为字段解密。
+其依赖树较大，因此由应用选择依赖并加载整个文件：
+
+```go
+// Application dependency: github.com/getsops/sops/v3/decrypt
+type sopsFile struct{ path string }
+func (s sopsFile) Name() string { return "sops:" + s.path }
+func (s sopsFile) Load(ctx context.Context) (contracts.Snapshot, error) {
+    plain, err := decrypt.File(s.path, "yaml")
+    if err != nil { return contracts.Snapshot{}, err }
+    dec, _ := codec.Lookup("yaml")
+    m, err := dec.Decode(plain)
+    return contracts.Snapshot{Map: m}, err
+}
+// fastconf.WithProvider(sopsFile{"secrets.enc.yaml"})
+```
+
+这些 provider 输出没有经过 resolver；应用应通过 `fc:"secret"` / `WithSecretPaths` 标记敏感字段。
