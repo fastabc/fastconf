@@ -49,6 +49,7 @@ func defaultStages[T any]() []stage[T] {
 		{"merge", runMerge[T]},
 		{"transform", runTransform[T]},
 		{"secret", runSecretResolve[T]},
+		{"defaults", runTagDefaults[T]},
 		{"typed-hooks", runTypedHooks[T]},
 		{"decode", runDecode[T]},
 		{"field-meta", runFieldMetaCheck[T]},

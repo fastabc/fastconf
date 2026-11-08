@@ -138,7 +138,7 @@ func TestLayerKindString(t *testing.T) {
 	for kind, want := range map[LayerKind]string{
 		LayerUnknown: "unknown", LayerMerge: "merge", LayerPatch: "patch",
 		LayerProvider: "provider", LayerSecret: "secret", LayerGenerator: "generator",
-		LayerOverride: "override", LayerKind(255): "unknown",
+		LayerOverride: "override", LayerDefault: "default", LayerKind(255): "unknown",
 	} {
 		if got := kind.String(); got != want {
 			t.Errorf("kind %d: got %q, want %q", kind, got, want)

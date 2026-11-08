@@ -163,6 +163,8 @@ const (
 	// WithOverride. It sits above all provider layers so override
 	// values always win at merge time.
 	LayerOverride
+	// LayerDefault identifies an absent-key struct tag default.
+	LayerDefault
 )
 
 func (k LayerKind) String() string {
@@ -179,6 +181,8 @@ func (k LayerKind) String() string {
 		return "generator"
 	case LayerOverride:
 		return "override"
+	case LayerDefault:
+		return "default"
 	default:
 		return "unknown"
 	}

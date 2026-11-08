@@ -2,6 +2,7 @@ package fastconf
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -9,6 +10,7 @@ import (
 	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/internal/fcerr"
 	"github.com/fastabc/fastconf/internal/secret"
+	"github.com/fastabc/fastconf/internal/typeinfo"
 	"github.com/fastabc/fastconf/internal/watcher"
 )
 
@@ -67,6 +69,7 @@ type Manager[T any] struct {
 	// Immutable hook metadata, nil when all hooks are disabled.
 	typedHookPlan *codec.TypedHookPlan
 	redactionPlan *secret.Plan
+	tagDefaults   []typeinfo.TagDefault
 
 	// lastUnknownField is the last unknown-key message logged under
 	// UnknownWarn, so a persistent typo logs once rather than every reload.
@@ -121,6 +124,27 @@ func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) 
 	if !o.YAMLBridge {
 		warnIfYAMLOnlyTags[T](o.Logger)
 	}
+	defs, err := typeinfo.TagDefaultsFor(reflect.TypeFor[T](), o.YAMLBridge)
+	if err != nil {
+		return nil, fmt.Errorf("%w: default tag: %w", fcerr.ErrFastConf, err)
+	}
+	hookPlan := buildTypedHookPlan[T](&o)
+	if len(defs) > 0 {
+		tree := map[string]any{}
+		typeinfo.InjectTagDefaults(tree, defs, true, nil)
+		if err := hookPlan.Apply(tree); err != nil {
+			return nil, fmt.Errorf("%w: default tag: %w", fcerr.ErrFastConf, err)
+		}
+		input, err := encodeBridgeInput(tree, o.YAMLBridge)
+		if err != nil {
+			return nil, fmt.Errorf("%w: default tag: %w", fcerr.ErrFastConf, err)
+		}
+		err = input.decode(new(T), false)
+		input.release()
+		if err != nil {
+			return nil, fmt.Errorf("%w: default tag: %w", fcerr.ErrFastConf, err)
+		}
+	}
 	// ctx bounds initialisation only: background work keeps its values
 	// (trace ids, loggers) but ends solely via Close/Shutdown.
 	lifetime, cancel := context.WithCancel(context.WithoutCancel(ctx))
@@ -137,7 +161,8 @@ func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) 
 		history:           newRing[State[T]](o.HistoryCap),
 		providerRevisions: newRevisionTable(),
 		tenant:            o.Tenant,
-		typedHookPlan:     buildTypedHookPlan[T](&o),
+		typedHookPlan:     hookPlan,
+		tagDefaults:       defs,
 		redactionPlan:     secret.Compile(reflect.TypeFor[T](), o.SecretPaths),
 		customEncoding:    hasCustomEncoding(reflect.TypeFor[T]()),
 	}, nil

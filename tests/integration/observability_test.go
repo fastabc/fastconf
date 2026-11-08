@@ -402,10 +402,10 @@ func TestPipeline_StageDebugLogs(t *testing.T) {
 	if strings.Contains(logs, `"msg":"fastconf: stage"`) {
 		t.Fatalf("unexpected pre-run stage log in logs:\n%s", logs)
 	}
-	if got := strings.Count(logs, `"msg":"stage done"`); got != 8 {
-		t.Fatalf("stage log count = %d, want 8; logs:\n%s", got, logs)
+	if got := strings.Count(logs, `"msg":"stage done"`); got != 9 {
+		t.Fatalf("stage log count = %d, want 9; logs:\n%s", got, logs)
 	}
-	for _, want := range []string{"merge", "transform", "secret", "typed-hooks", "decode", "field-meta", "validate", "policy"} {
+	for _, want := range []string{"merge", "transform", "secret", "defaults", "typed-hooks", "decode", "field-meta", "validate", "policy"} {
 		if !strings.Contains(logs, `"stage":"`+want+`"`) {
 			t.Fatalf("missing stage %q in logs:\n%s", want, logs)
 		}
@@ -540,11 +540,12 @@ func TestTracerStageAttributes(t *testing.T) {
 		{name: "merge", idx: 0},
 		{name: "transform", idx: 1},
 		{name: "secret", idx: 2},
-		{name: "typed-hooks", idx: 3},
-		{name: "decode", idx: 4},
-		{name: "field-meta", idx: 5},
-		{name: "validate", idx: 6},
-		{name: "policy", idx: 7},
+		{name: "defaults", idx: 3},
+		{name: "typed-hooks", idx: 4},
+		{name: "decode", idx: 5},
+		{name: "field-meta", idx: 6},
+		{name: "validate", idx: 7},
+		{name: "policy", idx: 8},
 	}
 	for _, tc := range want {
 		sp := tr.FindSpan("fastconf." + tc.name)

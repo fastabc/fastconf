@@ -32,6 +32,7 @@ const (
 	LayerPatch     = provenance.LayerPatch
 	LayerProvider  = provenance.LayerProvider
 	LayerSecret    = provenance.LayerSecret
+	LayerDefault   = provenance.LayerDefault
 	LayerGenerator = provenance.LayerGenerator
 	LayerOverride  = provenance.LayerOverride
 )

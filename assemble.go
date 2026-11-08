@@ -26,6 +26,7 @@ const (
 	rankOffsetOverride  = 9000
 
 	rankSecretResolved = rankOffsetOverride + 500
+	rankTagDefault     = -1 // Below every input layer.
 )
 
 // layerClass fixes the precedence between source categories. A priority

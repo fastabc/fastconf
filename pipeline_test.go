@@ -38,7 +38,7 @@ func TestTracer_EmitsAllStages(t *testing.T) {
 
 	want := map[string]int{
 		"fastconf.reload": 1, "fastconf.assemble": 1, "fastconf.commit": 1,
-		"fastconf.merge": 1, "fastconf.transform": 1, "fastconf.secret": 1,
+		"fastconf.merge": 1, "fastconf.transform": 1, "fastconf.secret": 1, "fastconf.defaults": 1,
 		"fastconf.typed-hooks": 1, "fastconf.decode": 1, "fastconf.field-meta": 1,
 		"fastconf.validate": 1, "fastconf.policy": 1,
 	}
@@ -79,7 +79,7 @@ func TestObserver_PerStage(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	want := map[string]int{
-		"assemble": 1, "merge": 1, "transform": 1, "secret": 1, "typed-hooks": 1,
+		"assemble": 1, "merge": 1, "transform": 1, "secret": 1, "defaults": 1, "typed-hooks": 1,
 		"decode": 1, "field-meta": 1, "validate": 1, "policy": 1, "commit": 1,
 	}
 	if !reflect.DeepEqual(stages, want) {
@@ -89,7 +89,7 @@ func TestObserver_PerStage(t *testing.T) {
 
 func TestPipeline_StageOrder(t *testing.T) {
 	stages := defaultStages[map[string]any]()
-	want := []string{"merge", "transform", "secret", "typed-hooks", "decode", "field-meta", "validate", "policy"}
+	want := []string{"merge", "transform", "secret", "defaults", "typed-hooks", "decode", "field-meta", "validate", "policy"}
 	if len(stages) != len(want) {
 		t.Fatalf("len(stages) = %d, want %d", len(stages), len(want))
 	}

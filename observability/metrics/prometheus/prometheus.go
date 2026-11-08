@@ -57,7 +57,7 @@ func New(reg prometheus.Registerer) *Sink {
 		}, []string{"provider"}),
 		stageDur: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "fastconf_stage_duration_seconds",
-			Help:    "Per-stage reload pipeline latency (assemble, merge, transform, secret, typed-hooks, decode, field-meta, validate, policy, commit).",
+			Help:    "Per-stage reload pipeline latency (assemble, merge, transform, secret, defaults, typed-hooks, decode, field-meta, validate, policy, commit).",
 			Buckets: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5},
 		}, []string{"stage", "result"}),
 	}
@@ -95,7 +95,7 @@ func (s *Sink) EventDropped(provider string) {
 }
 
 // StageDuration is called by observe.Metrics.
-// stage ∈ {"assemble","merge","transform","secret","typed-hooks","decode","field-meta","validate","policy","commit"}.
+// stage ∈ {"assemble","merge","transform","secret","defaults","typed-hooks","decode","field-meta","validate","policy","commit"}.
 func (s *Sink) StageDuration(stage string, dur time.Duration, ok bool) {
 	label := "ok"
 	if !ok {

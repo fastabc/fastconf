@@ -264,3 +264,10 @@ seconds, including sidecar `/version.loaded_at` and SSE cause `At`.
 
 Strict merge compares original input types before typed hooks run; list coercion
 and named primitive conversion do not relax strict merge type checks.
+
+### Absent-key defaults stage
+
+The reload pipeline includes `defaults` between `secret` and `typed-hooks`:
+`merge → transform → secret → defaults → typed-hooks → decode → field-meta → validate → policy`.
+The stage injects literal `default` struct tags only for absent keys and records
+`LayerDefault` provenance. Stage observers and metrics include the `defaults` label.

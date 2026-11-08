@@ -102,6 +102,22 @@ func runSecretResolve[T any](ctx context.Context, m *Manager[T], pipeline *pipel
 
 // --- typed-hooks ---
 
+func runTagDefaults[T any](_ context.Context, m *Manager[T], p *pipelineState[T]) error {
+	var record func(string, string)
+	if p.origins != nil {
+		record = func(path, raw string) {
+			src := SourceRef{Kind: LayerDefault, Path: "default://tag", Priority: rankTagDefault}
+			var value any
+			if m.opts.Provenance == provenance.Full {
+				value = raw
+			}
+			p.origins.RecordValue(path, src, value)
+		}
+	}
+	typeinfo.InjectTagDefaults(p.merged, m.tagDefaults, false, record)
+	return nil
+}
+
 // runTypedHooks rewrites leaves of the merged map to forms that the
 // JSON decoder can natively assign to *T's fields ("30s" → int64
 // nanoseconds for time.Duration, etc). The plan is precomputed once at

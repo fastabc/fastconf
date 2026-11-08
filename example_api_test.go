@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing/fstest"
+	"time"
 
 	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/contracts"
@@ -254,4 +255,24 @@ func ExampleWithProvider() {
 	fmt.Printf("%s %t\n", app.Server.Addr, app.Feature.BetaEnabled)
 	// Output:
 	// :9090 true
+}
+
+func ExampleLoad_tagDefaults() {
+	type Config struct {
+		Port    int           `json:"port" default:"8080"`
+		Timeout time.Duration `json:"timeout" default:"5s"`
+		Enabled bool          `json:"enabled" default:"true"`
+		Hosts   []string      `json:"hosts" default:"a,b"`
+	}
+	st, err := fastconf.Load[Config](context.Background(), fastconf.WithFS(fstest.MapFS{
+		"conf.d/base/app.yaml": {Data: []byte("enabled: false\n")},
+	}))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	c := st.Value()
+	fmt.Printf("port=%d timeout=%s enabled=%t hosts=%v\n", c.Port, c.Timeout, c.Enabled, c.Hosts)
+	// Output:
+	// port=8080 timeout=5s enabled=false hosts=[a b]
 }

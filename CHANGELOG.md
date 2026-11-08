@@ -8,10 +8,15 @@ v1.4.0 to v1.5.0. Older entries below describe their historical releases.
 
 ### Added
 
+- Absent-key `default` struct tags and `LayerDefault` provenance, with literal
+  validation during manager construction.
+
 - `codec.WithListCoercion` for scalar lists and `codec.NamedPrimitiveHook` as a
   fallback after application hooks; `azappconfig.WithJSONValues` for JSON settings.
 
 ### Changed
+
+- The reload pipeline and stage metrics now include `defaults` after `secret`.
 
 - Default typed hooks now accept comma-separated lists, JSON array strings,
   contiguous index maps and named numeric/boolean string inputs that previously
