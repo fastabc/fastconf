@@ -1,7 +1,12 @@
 package codec
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"reflect"
+	"strconv"
+	"strings"
 
 	"github.com/fastabc/fastconf/internal/typeinfo"
 )
@@ -39,6 +44,12 @@ func DefaultTypedHooks() []TypedHook {
 // PlanOption customizes BuildTypedHookPlan.
 type PlanOption func(*planBuilder)
 
+// WithListCoercion accepts comma-separated strings, JSON array strings and
+// contiguous index-keyed maps for scalar lists. Byte lists retain their wire format.
+func WithListCoercion() PlanOption {
+	return func(b *planBuilder) { b.lists = true }
+}
+
 // WithYAMLFields makes the plan select fields the way the yaml.v3 decode bridge does: embedded
 // structs flatten only with `yaml:",inline"`. The default follows encoding/json, which flattens
 // untagged anonymous structs.
@@ -67,6 +78,7 @@ type typePlan struct {
 	elem   *typePlan    // slice, array or map elements
 	// live: a hook is reachable. assigns: a direct hook is reachable.
 	live, assigns bool
+	list          bool
 }
 
 type fieldPlan struct {
@@ -78,6 +90,7 @@ type fieldPlan struct {
 type planBuilder struct {
 	hooks []TypedHook
 	yaml  bool
+	lists bool
 	memo  map[reflect.Type]*typePlan
 	all   []*typePlan
 }
@@ -86,7 +99,7 @@ type planBuilder struct {
 // map. Pointer/elem unwrapping is automatic. Target types and field aliases are resolved once, so
 // Apply needs no per-reload reflection and accepts both JSON and YAML key conventions.
 func BuildTypedHookPlan(t reflect.Type, hooks []TypedHook, opts ...PlanOption) *TypedHookPlan {
-	if len(hooks) == 0 || t == nil {
+	if t == nil {
 		return &TypedHookPlan{}
 	}
 	b := &planBuilder{hooks: hooks, memo: map[reflect.Type]*typePlan{}}
@@ -147,6 +160,9 @@ func (b *planBuilder) shapeFor(t reflect.Type) *typePlan {
 			}
 		}
 	case reflect.Slice, reflect.Array, reflect.Map:
+		if t.Kind() != reflect.Map && b.lists && listScalar(t.Elem()) {
+			tp.list, tp.live = true, true
+		}
 		tp.elem = b.planFor(t.Elem())
 	}
 	return tp
@@ -229,6 +245,17 @@ func (tp *typePlan) apply(v any) (any, error) {
 		}
 		return converted, err
 	}
+	if tp.list {
+		var err error
+		v, err = coerceList(v)
+		if err != nil {
+			return v, err
+		}
+		// A non-contiguous map is not a list; leave it to the decode bridge.
+		if _, ok := v.(map[string]any); ok {
+			return v, nil
+		}
+	}
 	var firstErr error
 	keep := func(err error) {
 		if err != nil && firstErr == nil {
@@ -264,6 +291,54 @@ func (tp *typePlan) apply(v any) (any, error) {
 		}
 	}
 	return v, firstErr
+}
+
+func listScalar(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Bool, reflect.String, reflect.Int, reflect.Int8, reflect.Int16,
+		reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint16, reflect.Uint32,
+		reflect.Uint64, reflect.Float32, reflect.Float64:
+		return true
+	}
+	return false
+}
+
+func coerceList(v any) (any, error) {
+	switch node := v.(type) {
+	case string:
+		s := strings.TrimSpace(node)
+		if strings.HasPrefix(s, "[") {
+			dec := json.NewDecoder(strings.NewReader(s))
+			dec.UseNumber()
+			var list []any
+			if err := dec.Decode(&list); err != nil {
+				return v, fmt.Errorf("list coercion: %w", err)
+			}
+			var extra any
+			if err := dec.Decode(&extra); err != io.EOF {
+				return v, fmt.Errorf("list coercion: expected one JSON array")
+			}
+			return list, nil
+		}
+		list := []any{}
+		if s != "" {
+			for part := range strings.SplitSeq(s, ",") {
+				list = append(list, strings.TrimSpace(part))
+			}
+		}
+		return list, nil
+	case map[string]any:
+		list := make([]any, len(node))
+		for i := range list {
+			child, ok := node[strconv.Itoa(i)]
+			if !ok {
+				return v, nil
+			}
+			list[i] = child
+		}
+		return list, nil
+	}
+	return v, nil
 }
 
 // assignedValue carries a hook result of its destination type through the decode bridge. It

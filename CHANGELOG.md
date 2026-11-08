@@ -6,6 +6,17 @@ v1.4.0 to v1.5.0. Older entries below describe their historical releases.
 
 ## [Unreleased]
 
+### Added
+
+- `codec.WithListCoercion` for scalar lists and `codec.NamedPrimitiveHook` as a
+  fallback after application hooks; `azappconfig.WithJSONValues` for JSON settings.
+
+### Changed
+
+- Default typed hooks now accept comma-separated lists, JSON array strings,
+  contiguous index maps and named numeric/boolean string inputs that previously
+  failed decoding. Byte lists and custom unmarshalers keep their wire semantics.
+
 ## [v1.5.0]
 
 **Go 1.25 is now required by the root module.** This is a minor release because

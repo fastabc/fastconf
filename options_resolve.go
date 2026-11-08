@@ -143,11 +143,17 @@ func buildTypedHookPlan[T any](o *options) *codec.TypedHookPlan {
 		hooks = append(hooks, codec.DefaultTypedHooks()...)
 	}
 	hooks = append(hooks, o.TypedHooks...)
+	if !o.DefaultTypedHooksOff {
+		hooks = append(hooks, codec.NamedPrimitiveHook{})
+	}
 	if len(hooks) == 0 {
 		return nil
 	}
 	// Field selection must match the bridge that decodes the rewritten map.
 	var planOpts []codec.PlanOption
+	if !o.DefaultTypedHooksOff {
+		planOpts = append(planOpts, codec.WithListCoercion())
+	}
 	if o.YAMLBridge {
 		planOpts = append(planOpts, codec.WithYAMLFields())
 	}

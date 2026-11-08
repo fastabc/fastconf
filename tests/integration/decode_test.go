@@ -3,6 +3,7 @@ package integration_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net/url"
 	"reflect"
@@ -562,5 +563,51 @@ func TestURLHook_InvalidURLFails(t *testing.T) {
 		fastconf.WithTypedHook(codec.URLHook{}))
 	if err == nil {
 		t.Fatal("expected url parse error")
+	}
+}
+
+func TestKVStringLeaves_DecodeIntoTypedFields(t *testing.T) {
+	type Level int
+	type C struct {
+		Hosts []string        `json:"hosts"`
+		Ports []int           `json:"ports"`
+		Level Level           `json:"level"`
+		Tags  []string        `json:"tags"`
+		Waits []time.Duration `json:"waits"`
+	}
+	st, err := fastconf.Load[C](context.Background(), fastconf.WithProvider(&snapshotProvider{name: "kv", data: map[string]any{
+		"hosts": "a,b", "ports": `["80","443"]`, "level": "3",
+		"tags": map[string]any{"0": "x", "1": "y"}, "waits": "1s,2s",
+	}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := C{[]string{"a", "b"}, []int{80, 443}, 3, []string{"x", "y"}, []time.Duration{time.Second, 2 * time.Second}}
+	if !reflect.DeepEqual(*st.Value(), want) {
+		t.Fatalf("%+v", st.Value())
+	}
+}
+
+type kvLevel int
+type kvLevelHook struct{}
+
+func (kvLevelHook) Match(t reflect.Type) bool { return t == reflect.TypeFor[kvLevel]() }
+func (kvLevelHook) Convert(any) (any, error)  { return int64(7), nil }
+func TestKVStringLeaves_UserHookWinsOverNamedPrimitive(t *testing.T) {
+	type C struct {
+		Level kvLevel `json:"level"`
+	}
+	st, err := fastconf.Load[C](context.Background(), fastconf.WithProvider(&snapshotProvider{name: "kv", data: map[string]any{"level": "debug"}}), fastconf.WithTypedHook(kvLevelHook{}))
+	if err != nil || st.Value().Level != 7 {
+		t.Fatalf("%v %v", st, err)
+	}
+}
+func TestKVStringLeaves_DisabledWithoutDefaultTypedHooks(t *testing.T) {
+	type C struct {
+		Hosts []string `json:"hosts"`
+	}
+	_, err := fastconf.Load[C](context.Background(), fastconf.WithProvider(&snapshotProvider{name: "kv", data: map[string]any{"hosts": "a,b"}}), fastconf.WithoutDefaultTypedHooks())
+	if !errors.Is(err, fastconf.ErrDecode) {
+		t.Fatalf("%v", err)
 	}
 }

@@ -2,8 +2,10 @@ package azappconfig
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
@@ -95,5 +97,40 @@ func TestAtomicFailures(t *testing.T) {
 	cancel()
 	if _, err := p.Load(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
+	}
+}
+
+func TestJSONContentTypeValues(t *testing.T) {
+	row := setting("app:limits", "prod", `{"rps":10,"burst":"x"}`)
+	ct := "application/json; charset=utf-8"
+	row.ContentType = &ct
+	for _, enabled := range []bool{false, true} {
+		var opts []Option
+		if enabled {
+			opts = append(opts, WithJSONValues())
+		}
+		p, err := New(Config{Prefix: "app:", Label: "prod"}, &fakeAPI{pages: [][]sdk.Setting{{row}}}, opts...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		snap, err := p.Load(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var want any = *row.Value
+		if enabled {
+			want = map[string]any{"rps": json.Number("10"), "burst": "x"}
+		}
+		if !reflect.DeepEqual(snap.Map["limits"], want) {
+			t.Fatalf("%#v", snap.Map)
+		}
+	}
+	for _, bad := range []string{`{"sensitive":`, `{} {}`} {
+		row.Value = &bad
+		p, _ := New(Config{Prefix: "app:", Label: "prod"}, &fakeAPI{pages: [][]sdk.Setting{{row}}}, WithJSONValues())
+		_, err := p.Load(context.Background())
+		if err == nil || strings.Contains(err.Error(), bad) {
+			t.Fatalf("unsafe error: %v", err)
+		}
 	}
 }

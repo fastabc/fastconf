@@ -1,12 +1,15 @@
 // Package azappconfig loads an Azure App Configuration key/label selection.
-// Values stay strings. Keys below Prefix are split on colons, preserving dots.
+// Values stay strings unless WithJSONValues is set. Keys below Prefix are split on colons, preserving dots.
 package azappconfig
 
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"net/url"
 	"sort"
 	"strings"
@@ -30,13 +33,19 @@ type Config struct {
 
 // Provider loads the selected configuration using an application-owned client.
 type Provider struct {
-	cfg      Config
-	client   API
-	maxBytes int64
+	cfg        Config
+	client     API
+	maxBytes   int64
+	jsonValues bool
 }
 
 // Option configures a provider before registration.
 type Option func(*Provider)
+
+// WithJSONValues decodes application/json settings, preserving JSON numbers.
+func WithJSONValues() Option {
+	return func(p *Provider) { p.jsonValues = true }
+}
 
 // WithMaxBodyBytes bounds the aggregate selected key, label and value bytes.
 // SDK pages are buffered before this check. Non-positive values restore 4 MiB.
@@ -139,7 +148,20 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 	data, hash := map[string]any{}, sha256.New()
 	for _, key := range keys {
 		setting := settings[key]
-		if err := insert(data, strings.Split(strings.TrimPrefix(key, p.cfg.Prefix), ":"), *setting.Value); err != nil {
+		var leaf any = *setting.Value
+		mediaType, _, _ := mime.ParseMediaType(value(setting.ContentType))
+		if p.jsonValues && mediaType == "application/json" {
+			dec := json.NewDecoder(strings.NewReader(*setting.Value))
+			dec.UseNumber()
+			if err := dec.Decode(&leaf); err != nil {
+				return contracts.Snapshot{}, errors.New("fastconf/azappconfig: invalid JSON value")
+			}
+			var extra any
+			if err := dec.Decode(&extra); err != io.EOF {
+				return contracts.Snapshot{}, errors.New("fastconf/azappconfig: invalid JSON value")
+			}
+		}
+		if err := insert(data, strings.Split(strings.TrimPrefix(key, p.cfg.Prefix), ":"), leaf); err != nil {
 			return contracts.Snapshot{}, err
 		}
 		etag := ""
@@ -162,7 +184,7 @@ func value(s *string) string {
 	return *s
 }
 
-func insert(root map[string]any, keys []string, value string) error {
+func insert(root map[string]any, keys []string, value any) error {
 	for i, key := range keys {
 		if key == "" {
 			return errors.New("fastconf/azappconfig: empty key segment")

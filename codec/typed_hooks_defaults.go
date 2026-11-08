@@ -1,6 +1,8 @@
 package codec
 
 import (
+	"encoding"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -9,7 +11,32 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
+
+// NamedPrimitiveHook is a fallback for named numeric and boolean types without
+// their own unmarshaler. Register it after application hooks.
+type NamedPrimitiveHook struct{ StringPrimitiveHook }
+
+func (NamedPrimitiveHook) Match(t reflect.Type) bool {
+	if t == nil || t.PkgPath() == "" {
+		return false
+	}
+	for _, iface := range []reflect.Type{
+		reflect.TypeFor[encoding.TextUnmarshaler](), reflect.TypeFor[json.Unmarshaler](), reflect.TypeFor[yaml.Unmarshaler](),
+	} {
+		if t.Implements(iface) || reflect.PointerTo(t).Implements(iface) {
+			return false
+		}
+	}
+	switch t.Kind() {
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64:
+		return true
+	}
+	return false
+}
 
 // defaultTypedHooks returns the hook slice used by DefaultTypedHooks. Keeping the constructor
 // private lets the public API delegate cleanly while keeping the implementation next to the hook

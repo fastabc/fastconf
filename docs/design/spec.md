@@ -261,3 +261,6 @@ The sidecar masks `/config` and `/dump` by default. Plaintext needs both
 Commit and rollback record publication time; Plan records preview time without
 publishing a snapshot. JSON uses RFC 3339 strings with optional fractional
 seconds, including sidecar `/version.loaded_at` and SSE cause `At`.
+
+Strict merge compares original input types before typed hooks run; list coercion
+and named primitive conversion do not relax strict merge type checks.

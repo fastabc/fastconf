@@ -90,3 +90,22 @@ text-unmarshaling support.
 The field plan is built once during `New` or `Load`. Each pipeline execution
 walks the input tree; assignment of direct typed results such as URLs also uses
 reflection. These operations do not run on the `Get()` read path.
+
+## KV 字符串叶子
+
+默认 hooks 支持标量列表和没有自定义反序列化器的命名基础类型。用户 hook
+优先于 `NamedPrimitiveHook`；`codec.DefaultTypedHooks()` 的返回值不变。
+单独使用 `codec.BuildTypedHookPlan` 时，通过 `codec.WithListCoercion()` 开启列表转换。
+
+| 输入 | 目标 | 结果 |
+| --- | --- | --- |
+| `"a, b"` | `[]string` | `[a b]` |
+| `'["a,b","c"]'` | `[]string` | `[a,b c]` |
+| `{"0":"80","1":"443"}` | `[]int` | `[80 443]` |
+| `"3"` | `type Level int` | `3` |
+
+元素含逗号时使用 JSON 数组；空串生成空列表。下标必须从 0 连续且没有前导零。
+`[]byte` 保持 base64 语义，字节数组也不参与列表转换。
+`WithoutDefaultTypedHooks()` 同时关闭默认列表转换和命名基础类型兜底。
+Azure App Configuration 的 JSON ContentType 可用 `azappconfig.WithJSONValues()`
+选择性解码（支持 `application/json; charset=utf-8`）。
