@@ -33,9 +33,11 @@ root. Optional modules and local workspace commands are listed in the
 |---|---|
 | [Keyed-list merging](processing/strategic-merge.md) | Merge list objects with `mergeKeys` |
 | [Generators](processing/generators.md) | Implement `contracts.Generator` for encoded layers |
+| [Interpolation](processing/interpolation.md) | Environment defaults and cross-field references (v1.6.0) |
 | [Typed hooks](processing/typed-hooks.md) | Duration and scalar conversion before struct decoding |
 | [`fc` tags](processing/field-meta.md) | Defaults, constraints, explicit zero values and redaction |
-| [Secret resolution](processing/secrets.md) | Implement decryption hooks; configure redaction separately |
+| [Secret resolution](processing/secrets.md) | Ordered resolvers and automatic redaction |
+| [Schema and examples](processing/schema.md) | Generate JSON Schema, annotated YAML and env (v1.6.0) |
 | [Policies](processing/policy.md) | Go rules and optional OPA/CUE adapters |
 
 ## Runtime updates and diagnostics
@@ -78,5 +80,3 @@ API changes; it is separate from recipes for the current checkout.
 The [runtime contract](../design/spec.md) owns shared lifecycle, precedence,
 decoding and ownership rules. Recipes link to it instead of defining another
 version of those rules.
-
-- [变量插值与跨字段引用](processing/interpolation.md)

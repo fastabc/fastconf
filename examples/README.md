@@ -13,6 +13,7 @@ provide source/fixture links, expected output and verification commands.
 | [fs](fs/README.md) | One embedded YAML document through `source.NewFS`, typed loading and validation | `go run ./examples/fs` |
 | [dynamic](dynamic/README.md) | File watching, rejection and shutdown | `go run ./examples/dynamic` |
 | [basic](basic/README.md) | Typed base/prod layering, duration decoding, env override and field validation | `go run ./examples/basic` |
+| [schema](schema/README.md) | JSON Schema, annotated YAML and env from a struct (v1.6.0) | `go run ./examples/schema` |
 | [ini](ini/README.md) | INI base/prod layering, typed scalars and preservation of leading zeros | `go run ./examples/ini` |
 
 ## Runtime changes and application behavior

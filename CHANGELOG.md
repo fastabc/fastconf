@@ -8,6 +8,9 @@ v1.4.0 to v1.5.0. Older entries below describe their historical releases.
 
 ### Added
 
+- `schema` package for Draft 2020-12 JSON Schema and annotated YAML/env examples,
+  using `desc`, `default` and existing `fc` field metadata.
+
 - Vault KV v2 field resolver and independent `secrets/age` decryption module.
 
 - `WithSecretResolvers` and `PrefixSecretResolver` for ordered decrypter chains.

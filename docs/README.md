@@ -52,3 +52,5 @@ claims that every extension is built in. Discover modules through
 `bash tools/modules.sh matrix`; keep dated measurements with their environment.
 Local `archive/`, `plans/` and review directories are ignored by Git and are
 not published API contracts. This index does not depend on those local records.
+
+- [结构体生成 Schema 与示例](cookbook/processing/schema.md) (v1.6.0)
