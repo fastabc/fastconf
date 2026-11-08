@@ -13,6 +13,7 @@ Run from the repository root with a clean workspace and record the commit,
 Go version, OS, architecture and `GOMAXPROCS` alongside the samples:
 
 ```bash
+export GOPROXY=direct
 go version
 go env GOOS GOARCH
 GOWORK=off GOMAXPROCS=4 go test . -run '^$' \
@@ -150,7 +151,8 @@ the five-minute multi-size/platform soak was not run for this change.
 
 Raw optimization samples and profiles are local under
 `/tmp/fastconf-implementation-20261025/`. The corresponding dated cross-library
-comparison is recorded in the [comparison report](../../benchmarks/compare/REPORT.zh.md).
+comparison remains in Git history; the current [comparison report](../../benchmarks/compare/REPORT.zh.md)
+records the latest measured source snapshot.
 
 ## 2026-11-01 reliability and lean-refactor measurements
 
@@ -202,7 +204,7 @@ GOPROXY=direct GOWORK=off GOMAXPROCS=4 go -C benchmarks/compare test -run '^$' \
   -benchmem -benchtime=500ms -count=5
 ```
 
-## 2026-11-08 宽配置解码测量
+## 2026-11-08 实施期间的宽配置解码测量（历史记录）
 
 Apple M5 Pro，darwin/arm64，Go 1.26.10，默认 GOMAXPROCS=18，非 race，
 每种模式 6 个样本，以下为中位数。`BenchmarkReloadWide` 使用一个 provider，
@@ -231,3 +233,95 @@ jsonv2 为 1.89 ms / 1,186,188 B / 21,436 allocs。桥接约占默认完整 relo
 本次结果同样支持继续使用标准 JSON 桥，不实现流式解码器；待 `encoding/json/v2`
 脱离 GOEXPERIMENT 后再评估切换。CI 在 Go 1.26 上运行实验模式全量根模块测试，
 以持续验证 unknown-field 识别及桥接语义。
+
+## 2026-11-08 FastConf v1.6.0 复测
+
+本轮将当前源码定义为 **FastConf v1.6.0**，被测提交为
+`d0364e0cc7247463f34156723dfc2c59f8338615`。Apple M5 Pro，Darwin 27.0.0 / arm64，
+Go 1.26.10，固定 GOMAXPROCS=4、GOGC=100，GOEXPERIMENT 默认为空，不使用 race 计时。
+根模块及其包共 31 组基准，每组 6 次、benchtime=500ms，共 186 条样本。
+表格使用全部样本的中位数，不删除离群值；原始样本和 benchstat 区间均保留。
+
+根模块正确性测试及比较适配器的 race 检查在计时前通过。
+本次任务的构建、race 和各套 benchmark 串行执行；系统及其他应用仍可能产生调度噪声。
+历史章节保留原样，不将不同日期、源码或采样时长的差异直接归因于某项代码改动。
+
+### 根模块结果
+
+| Benchmark | ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: |
+| `BenchmarkGetWarmState` | 0.2347 | 0 | 0 |
+| `BenchmarkReloadNoop` | 2,647 | 2,968 | 31 |
+| `BenchmarkReloadCommitSmall` | 7,683 | 8,276 | 111 |
+| `BenchmarkReloadCommitYAML` | 11,026.5 | 27,321 | 165 |
+| `BenchmarkReloadDocument/4KiB` | 4,315.5 | 7,784 | 31 |
+| `BenchmarkReloadDocument/64KiB` | 30,282 | 76,648 | 31 |
+| `BenchmarkReloadDocument/1024KiB` | 368,753 | 1,059,688 | 31 |
+| `BenchmarkSubscribeContention` | 13,040 | 10,158.5 | 115 |
+| `BenchmarkReloadManySubscribers/1` | 7,526 | 8,276 | 111 |
+| `BenchmarkReloadManySubscribers/10` | 8,097.5 | 8,437.5 | 112 |
+| `BenchmarkReloadManySubscribers/50` | 9,284 | 9,173.5 | 112 |
+| `BenchmarkTypedHooksWide` | 2,629 | 3,080 | 31 |
+| `BenchmarkStateMapCold` | 1,394.5 | 2,880 | 30 |
+| `BenchmarkReloadCommitObserver` | 14,035 | 16,505 | 222 |
+| `BenchmarkRedactionPlan` | 38,731 | 98,632 | 1,184 |
+| `BenchmarkRedactionPlanBuild` | 929 | 1,896 | 30 |
+| `BenchmarkUnknownWarnDecode/YAML=false` | 944.4 | 2,137 | 22 |
+| `BenchmarkUnknownWarnDecode/YAML=true` | 10,863.5 | 46,259.5 | 220 |
+| `BenchmarkDiffDeep/equal` | 30,560 | 4,264 | 5 |
+| `BenchmarkDiffDeep/sparse` | 30,824.5 | 4,552 | 8 |
+| `BenchmarkDiffDeep/dense` | 34,612.5 | 16,664 | 75 |
+| `BenchmarkSubscriberChurn` | 58.12 | 88 | 3 |
+| `BenchmarkLayerCacheVersions` | 55,807,823 | 84,918,082 | 1,098 |
+| `BenchmarkLayerCacheAlternating` | 708,295 | 1,309,522 | 24 |
+| `BenchmarkGet` | 0.3203 | 0 | 0 |
+| `BenchmarkGetParallel` | 0.1116 | 0 | 0 |
+| `BenchmarkReloadLarge` | 135,626 | 209,064 | 1,320 |
+| `BenchmarkReloadLargeIncremental` | 293,396.5 | 462,492 | 3,995 |
+| `BenchmarkReloadWide` | 4,128,289.5 | 3,624,536 | 62,428 |
+| `BenchmarkFeatureEval` | 34.78 | 0 | 0 |
+| `BenchmarkExplainDeep` | 285.3 | 2,048 | 1 |
+
+`Get` / `GetWarmState` 是不同夹具的紧循环吞吐量，不是业务请求延迟。
+本轮单独运行的 `bench-guard` 也通过：0.3189 ns/op，0 B/op，0 allocs/op。
+`GetParallel` 是并行吞吐量，不能解释为一次独立读取的尾延迟。
+
+`ReloadNoop`、`ReloadDocument` 和未改变文件的 `TypedHooksWide` 可以命中输入指纹，
+因此 `TypedHooksWide` 不能当作每次都执行 typed hooks 的计时。
+`ReloadLarge` 为 256 层文件无变化重载；`ReloadLargeIncremental` 每次改变一层；
+`ReloadWide` 使用 Provider，强制完整管线；几者的成本边界不同。
+
+`LayerCacheVersions` 的一次操作包含同一个 256 KiB 文档的 32 个版本及 GC，
+六次 `live-B` 的中位数为 263,080 B。它是 GC 后保留堆的净增，
+不是上表的累计分配 B/op，也不是进程 RSS。`LayerCacheAlternating` 只测缓存取值/重解码，
+不包含文件读取、合并与发布。`RedactionPlanBuild` 的初始化成本与共享计划的 warm Map 分开计量。
+
+### 宽配置 JSON 实验对照
+
+以下两种模式与根模块数据使用相同 4 个 P、6 次 500ms 采样。
+每次完整 reload 加载 100 个 section × 100 个 int 叶子。
+
+| 模式 | ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: |
+| 默认 JSON | 4,128,289.5 | 3,624,536 | 62,428 |
+| GOEXPERIMENT=jsonv2 | 3,638,195.5 | 2,942,495 | 32,175.5 |
+
+本轮 jsonv2 的耗时中位数低 11.9%，分配字节低 18.8%，
+分配次数低 48.5%。这里只比较完整管线，未重测桥接独立微基准；
+上节实施期间的 18 个 P 和临时桥接数据仍是历史记录，不与本轮混算。
+本次数据不改变继续使用标准 JSON 桥、等待 json/v2 稳定后再评估切换的结论。
+
+### 复现与原始数据
+
+```bash
+export GOPROXY=direct GOWORK=off GOMAXPROCS=4 GOGC=100 GOEXPERIMENT=
+go test -mod=readonly -run '^$' -bench . -benchmem -benchtime=500ms -count=6 ./...
+GOEXPERIMENT=jsonv2 go test -mod=readonly -run '^$' \
+  -bench '^BenchmarkReloadWide$' -benchmem -benchtime=500ms -count=6 .
+bash tools/bench-guard.sh
+```
+
+本地证据目录为 `/tmp/fastconf-benchmarks-20261108-d0364e0/`，包括环境、正确性结果、
+`root-raw.txt`、`root-summary.txt`、JSON 实验原始数据及摘要、只读路径 guard 结果。
+原始数据不进入发布模块。跨库比较的基准、独立延迟和 RSS 见
+[v1.6.0 比较报告](../../benchmarks/compare/REPORT.zh.md)。

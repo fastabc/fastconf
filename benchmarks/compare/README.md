@@ -11,15 +11,15 @@ tool requires 1.26):
 
 ```sh
 cd benchmarks/compare
-GOWORK=off go test -race ./...
-bash run.sh results/local
+GOPROXY=direct GOWORK=off go test -race ./...
+GOPROXY=direct bash run.sh results/local
 ```
 
 The default run uses GOMAXPROCS=4, GOGC=100, 10 benchmark repeats at 1 second and
 100 individual latency samples per adapter/size/operation. For a shorter run:
 
 ```sh
-COUNT=5 BENCHTIME=200ms SAMPLES=100 bash run.sh results/local
+GOPROXY=direct COUNT=6 BENCHTIME=500ms SAMPLES=100 bash run.sh results/local
 ```
 
 Use an idle machine. Do not overlap builds, race tests or other benchmarks. The
@@ -85,9 +85,11 @@ The installed module source was read to verify those signatures. See
 [compare.go](compare.go), [benchmarks](compare_test.go) and
 [sample tool](cmd/sample/main.go) for the complete measured work.
 
-Measured results: [2026-10-25 report (中文)](REPORT.zh.md), including raw samples
-and limitations. That report describes its recorded source and environment, not
-the performance of every later checkout.
+Measured results: [FastConf v1.6.0 / 2026-11-08 (中文)](REPORT.zh.md),
+using source `d0364e0`, six 500 ms runs per case and 100 independent latency samples.
+The local `replace` selects that source even though the dependency declaration
+still says v1.5.0. The 2026-10-25 snapshot remains in Git history.
+The report describes its recorded source and environment.
 
 Related: [runtime performance contract](../../docs/design/perf.md) and
 [repository tooling](../../tools/README.md).
