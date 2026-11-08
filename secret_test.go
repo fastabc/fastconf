@@ -426,3 +426,16 @@ func TestSecretResolver_ListElementProvenancePath(t *testing.T) {
 		t.Fatalf("bracket path still present: %+v", got)
 	}
 }
+
+func TestSecretResolver_LegacyOptionField(t *testing.T) {
+	m, err := New[map[string]string](context.Background(), WithFS(fstest.MapFS{
+		"conf.d/base/app.yaml": {Data: []byte("token: enc:private\n")},
+	}), func(o *options) { o.SecretResolver = &fakeResolver{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.Close() }()
+	if m.Get() == nil || (*m.Get())["token"] != "private" {
+		t.Fatalf("%v", m.Get())
+	}
+}

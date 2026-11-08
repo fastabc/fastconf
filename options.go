@@ -344,6 +344,7 @@ func WithPolicy[T any](ps ...policy.Policy[T]) Option {
 // WithSecretResolver sets the resolver for secret references before decoding.
 func WithSecretResolver(r SecretResolver) Option {
 	return func(o *options) {
+		o.SecretResolver = r
 		o.SecretResolvers = nil
 		if r != nil {
 			o.SecretResolvers = []secret.Resolver{r}

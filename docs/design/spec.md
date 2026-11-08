@@ -162,25 +162,28 @@ provider snapshots, transforms and `State.Map`; they are not solely internal.
 INI input: default-section keys map to the root,
 other sections to child maps, and leaf values remain strings until typed hooks.
 Strict merging checks raw types before those hooks, so an INI string cannot
-override a YAML number in strict mode. See the [INI recipe](../cookbook/sources/ini.md)
+override a YAML number in strict mode. List coercion and named primitive
+conversion do not relax those checks. See the [INI recipe](../cookbook/sources/ini.md)
 for syntax and compatibility details; INI is not a dump or struct-tag format.
 
 ## Reload pipeline
 
 ```text
-assemble → merge → transform → secret → typed-hooks → decode
+assemble → merge → transform → secret → defaults → typed-hooks → decode
          → field-meta → validate → policy → commit
 ```
 
 Assembly discovers files, invokes generators and loads providers. Merge
 applies deep/strategic merge and RFC 6902 patches in layer order. Transforms
-include optional schema migration functions. Provenance records layer writes
-and resolved secret leaves; it is not a complete trace of arbitrary transform,
-hook or default mutations. Secret resolution precedes typed
-hooks and decode. Decode applies struct-tag defaults and then `Defaulter`.
-Field metadata, user validators and policies run before publication. Tag defaults
-fill Go zero values, including explicit false, 0 and empty strings. Use lower
-priority base layers to preserve explicit zero overrides; see [field semantics](../cookbook/processing/field-meta.md).
+include optional schema migration functions. Provenance records layer writes,
+resolved secret leaves and absent-key `default` tags. It is not a complete trace
+of arbitrary transform or hook mutations. Secret resolution precedes the
+`defaults` stage, which injects literal `default:"…"` values only for absent keys;
+then typed hooks convert inputs before decode. Decode applies legacy
+`fc:"default=…"` zero-value defaults and then `Defaulter`. These two mechanisms
+remain distinct: `default` preserves explicit false, 0, empty strings and nulls;
+legacy `fc` defaults replace decoded zero values. Field metadata, validators and
+policies run before publication; see [field semantics](../cookbook/processing/field-meta.md).
 UnknownWarn uses the configured logger, whose default discards output. Production
 struct examples select UnknownError; permissive callers must supply WithLogger.
 
@@ -239,10 +242,15 @@ Async targets receive `context.Background()`, so the owner must supply their
 I/O deadlines; the manager callback timeout does not bound async delivery.
 Tracing exposes the reload, assemble, pipeline-stage and commit spans.
 
+Manager-owned `contracts.Notifier` workers synchronously enqueue reload requests;
+paused managers skip their refreshes. Early return and panic produce ProviderError
+and restart with 250ms–30s backoff. WithResync adds periodic jittered reconciliation.
+Both belong to the manager lifetime and are ignored by Load.
+
 ## Diagnostic views
 
 `State.Map`, `Dump`, `Diff`, `Explain` and plan/observer diffs mask
-`fc:"secret"` fields and `WithSecretPaths` matches. A provenance container
+`fc:"secret"` fields, `WithSecretPaths` matches and resolver-produced values. A provenance container
 with secret descendants is masked as a whole, including historical values
 absent from the final snapshot. Secret changes are detected before masking.
 `Unredacted().Map/Dump` are the explicit plaintext views. `Value` and `Get`
@@ -261,18 +269,3 @@ The sidecar masks `/config` and `/dump` by default. Plaintext needs both
 Commit and rollback record publication time; Plan records preview time without
 publishing a snapshot. JSON uses RFC 3339 strings with optional fractional
 seconds, including sidecar `/version.loaded_at` and SSE cause `At`.
-
-Strict merge compares original input types before typed hooks run; list coercion
-and named primitive conversion do not relax strict merge type checks.
-
-### Absent-key defaults stage
-
-The reload pipeline includes `defaults` between `secret` and `typed-hooks`:
-`merge → transform → secret → defaults → typed-hooks → decode → field-meta → validate → policy`.
-The stage injects literal `default` struct tags only for absent keys and records
-`LayerDefault` provenance. Stage observers and metrics include the `defaults` label.
-
-Manager-owned `contracts.Notifier` workers synchronously enqueue reload requests;
-paused managers skip their refreshes. Early return and panic produce ProviderError
-and restart with 250ms–30s backoff. WithResync adds periodic jittered reconciliation.
-Both belong to the manager lifetime and are ignored by Load.
