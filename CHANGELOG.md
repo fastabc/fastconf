@@ -8,6 +8,9 @@ v1.4.0 to v1.5.0. Older entries below describe their historical releases.
 
 ### Added
 
+- `contracts.Notifier`, `WithNotifier` and `WithResync` for manager-owned
+  consumer supervision and periodic reconciliation.
+
 - `transform.Interpolate` with environment defaults, escapes, required values and
   optional scalar configuration references with cycle/depth checks.
 

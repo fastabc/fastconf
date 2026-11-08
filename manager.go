@@ -179,6 +179,7 @@ func (m *Manager[T]) startBackground() error {
 	// Provider Watch is its own opt-in (a nil channel means "no watch"),
 	// so it does not depend on the file-watcher switch.
 	m.startProviderWatchers(m.lifetime)
+	m.startNotifiers(m.lifetime)
 	return nil
 }
 

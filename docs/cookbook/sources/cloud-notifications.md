@@ -16,11 +16,33 @@
 
 ## 应用生命周期与恢复
 
-1. 部署时先建立队列/订阅、发布授权、有限重试与死信策略，再启动应用，覆盖首次加载与开始消费之间的窗口。
-2. 创建 SDK 客户端，加载 Manager 的初始配置，然后用 `refresh := func(work context.Context) error { return mgr.Reload(work) }` 启动 `consumer.Run(ctx, refresh)`。`Reload` 带可变参数，因此需要这个小包装。
-3. 同时运行有界、带抖动的周期 Reload。建议从 60 秒起步，按服务配额、实例数和时效要求调整；AppConfig 还会遵守服务端下一次轮询时间。
-4. `Run` 的接收错误返回给应用。应用记录安全错误并带退避重启；刷新、解析失败通过 `Config.OnError` 报告，未配置时写入 `slog`。SQS 删除与 Service Bus settlement 失败也走此回调；Pub/Sub 的异步 Ack/Nack 失败无法通过该回调观察，见下文。持续鉴权错误需要告警，不能只无限静默重启。
-5. 关闭时取消消费与校准 context，等它们退出，再关闭 Manager 和应用拥有的客户端。
+v1.6.0 起，Manager 可托管消费者及周期对账：
+
+```go
+consumer, err := notify.New(notify.Config{QueueURL: queueURL}, sqsClient)
+if err != nil { return err }
+mgr, err := fastconf.New[Config](ctx,
+    fastconf.WithProvider(remote),
+    fastconf.WithNotifier(consumer),
+    fastconf.WithResync(5*time.Minute),
+)
+```
+
+消费者同步等待 writer 的刷新结果后再 ack。暂停时跳过刷新并返回成功。
+`Run` 提前返回（包括 nil 或 panic）时发出 `ProviderError`、记录 warn，按
+250ms–30s 指数退避加抖动重启；运行满 30 秒后重置退避。
+对账间隔增加最多 20% 抖动；暂停时跳过。`Close` / `Shutdown` 取消并等待这些 worker，
+之后应用再关闭借用的 SDK 客户端。消费者必须响应取消。
+`Load` 不启动 worker，因此忽略 `WithNotifier` 和 `WithResync`。
+部署时仍须预先建立队列/订阅与授权，覆盖初始化窗口。
+
+### 自行托管（高级用法）
+
+也可以在应用中监督 `consumer.Run(ctx, func(work context.Context) error {
+return mgr.Reload(work) })`，自行配置退避、周期对账和 worker 退出顺序。
+接收错误由 Run 返回；刷新/解析错误通过消费者的 `Config.OnError` 报告。
+持续鉴权失败需要应用告警。SQS 删除、Service Bus settlement 和 Pub/Sub ack
+限制见下文。
 
 [cloud-reload 示例](../../../examples/cloud-reload/README.md)提供可运行的消费重启、定期校准与退出流程；通过故意漏掉唯一一次更新通知，证明定期校准可以恢复。
 
@@ -38,9 +60,9 @@ consumer, err := notify.New(notify.Config{
     Source: notify.S3, Bucket: "config", Key: "prod/app.yaml",
     RefreshTimeout: 30 * time.Second,
 }, sqsClient) // *sqs.Client，认证与重试由应用配置
-// 检查 err 后，在应用管理的 goroutine 内运行：
-refresh := func(work context.Context) error { return mgr.Reload(work) }
-err = consumer.Run(ctx, refresh)
+// 检查 err 后注册到 Manager：
+mgr, err := fastconf.New[Config](ctx, fastconf.WithProvider(remote),
+    fastconf.WithNotifier(consumer), fastconf.WithResync(5*time.Minute))
 ```
 
 其他来源将 selector 替换为：

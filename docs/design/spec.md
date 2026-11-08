@@ -271,3 +271,8 @@ The reload pipeline includes `defaults` between `secret` and `typed-hooks`:
 `merge → transform → secret → defaults → typed-hooks → decode → field-meta → validate → policy`.
 The stage injects literal `default` struct tags only for absent keys and records
 `LayerDefault` provenance. Stage observers and metrics include the `defaults` label.
+
+Manager-owned `contracts.Notifier` workers synchronously enqueue reload requests;
+paused managers skip their refreshes. Early return and panic produce ProviderError
+and restart with 250ms–30s backoff. WithResync adds periodic jittered reconciliation.
+Both belong to the manager lifetime and are ignored by Load.

@@ -37,6 +37,8 @@ type options struct {
 	Strict         bool
 	Logger         *slog.Logger
 	Providers      []providerEntry
+	Notifiers      []contracts.Notifier
+	ResyncInterval time.Duration
 
 	FileWatch       bool
 	CoalesceWindows coalesce.Options

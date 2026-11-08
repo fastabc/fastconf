@@ -21,3 +21,6 @@ failures. Cancel both loops and join them before closing Manager and SDK clients
 This proves local recovery from a missing event, not cloud routing. See the
 [notification cookbook](../../docs/cookbook/sources/cloud-notifications.md) for
 dedicated subscriptions, credentials, delivery deadlines and dead-letter setup.
+
+Manager 使用 `WithNotifier` 托管消费生命周期，`WithResync` 托管周期对账；
+示例故意漏掉更新通知，依靠 10ms 对账恢复。关闭 Manager 会等待这些 worker。
