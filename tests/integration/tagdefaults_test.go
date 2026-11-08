@@ -3,12 +3,13 @@ package integration_test
 import (
 	"context"
 	"errors"
-	"github.com/fastabc/fastconf"
 	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/fastabc/fastconf"
 )
 
 type tagDefaultsConfig struct {

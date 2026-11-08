@@ -201,3 +201,33 @@ GOPROXY=direct GOWORK=off GOMAXPROCS=4 go -C benchmarks/compare test -run '^$' \
   -bench '^BenchmarkFastConfDiagnostics$/1024KiB/MapWarm$' \
   -benchmem -benchtime=500ms -count=5
 ```
+
+## 2026-11-08 宽配置解码测量
+
+Apple M5 Pro，darwin/arm64，Go 1.26.10，默认 GOMAXPROCS=18，非 race，
+每种模式 6 个样本，以下为中位数。`BenchmarkReloadWide` 使用一个 provider，
+每次加载 100 section × 100 int 叶子，保证执行完整管线，包含 provider 层的复制成本。
+
+| 模式 | ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: |
+| 默认 encoding/json | 4,103,752 | 3,565,308 | 62,422 |
+| GOEXPERIMENT=jsonv2 | 3,412,446 | 2,963,462 | 32,175 |
+
+复现命令：
+
+```sh
+GOPROXY=direct go test -run '^$' -bench BenchmarkReloadWide -benchmem -count=6 .
+GOPROXY=direct GOEXPERIMENT=jsonv2 go test -run '^$' -bench BenchmarkReloadWide -benchmem -count=6 .
+GOPROXY=direct make test-jsonv2
+```
+
+本次另用相同树做临时 JSON marshal/unmarshal 微基准：默认桥接 2.56 ms / 1,986,132 B / 41,740 allocs，
+jsonv2 为 1.89 ms / 1,186,188 B / 21,436 allocs。桥接约占默认完整 reload 的 62%，
+该微基准分配下降约 49%。
+
+设计阶段另一组 10k 叶子结构的测量为：桥接约占 60% 时间，jsonv2 使桥接分配
+从约 24,060 降为 4,061（约 83%）。这些数字依赖目标结构、map/struct 比例及测量边界，
+不能把该分配降幅直接当成当前 map-of-map 全管线的结果。
+本次结果同样支持继续使用标准 JSON 桥，不实现流式解码器；待 `encoding/json/v2`
+脱离 GOEXPERIMENT 后再评估切换。CI 在 Go 1.26 上运行实验模式全量根模块测试，
+以持续验证 unknown-field 识别及桥接语义。

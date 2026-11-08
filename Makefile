@@ -16,7 +16,7 @@ EXTRA_TARGETS ?=
 BINS := fastconfd fastconfctl fastconfgen
 ALL_TARGETS := $(sort $(TARGETS) $(EXTRA_TARGETS))
 
-.PHONY: all help build test race test-all test-workspace test-candidate \
+.PHONY: all help build test test-jsonv2 race test-all test-workspace test-candidate \
         vulnerabilities api-check lint fmt-check deps-check tools-check check tidy tidy-check \
         bench bench-guard cover example example-optional module-matrix versions soak \
         dist dist-clean dist-verify $(addprefix dist-,$(BINS)) FORCE
@@ -32,6 +32,9 @@ build:
 
 test:
 	go test -mod=readonly -race -count=1 -timeout=5m ./...
+
+test-jsonv2:
+	GOEXPERIMENT=jsonv2 go test -count=1 -timeout=5m ./...
 
 race: test
 

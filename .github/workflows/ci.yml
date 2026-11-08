@@ -71,6 +71,21 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.go == '1.26.x'
         run: make bench-guard
 
+  jsonv2:
+    name: test / GOEXPERIMENT=jsonv2
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+          cache-dependency-path: "**/go.sum"
+      - run: make test-jsonv2
+
   vulnerabilities:
     name: vulnerabilities / candidate dependencies
     runs-on: ubuntu-latest

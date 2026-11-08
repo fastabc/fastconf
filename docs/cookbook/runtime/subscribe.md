@@ -75,7 +75,7 @@ defer cancelLog()
 
 ```go
 type audit struct{}
-func (audit) OnEvent(ctx context.Context, ev fastconf.Event) {
+func (audit) Observe(ctx context.Context, ev fastconf.Event) {
     if committed, ok := ev.(fastconf.Committed); ok {
         for _, d := range committed.Diff() {
             if d.Path == "database" || strings.HasPrefix(d.Path, "database.") {

@@ -9,6 +9,7 @@ import (
 	"testing/fstest"
 
 	"github.com/fastabc/fastconf"
+	"github.com/fastabc/fastconf/contracts"
 )
 
 func BenchmarkGet(b *testing.B) {
@@ -107,4 +108,39 @@ func newPublicBenchmarkManager(b testing.TB) *fastconf.Manager[publicBenchmarkCo
 	}
 	b.Cleanup(func() { _ = m.Close() })
 	return m
+}
+
+type wideBenchmarkProvider struct{ data map[string]any }
+
+func (*wideBenchmarkProvider) Name() string { return "wide-benchmark" }
+func (p *wideBenchmarkProvider) Load(context.Context) (contracts.Snapshot, error) {
+	return contracts.Snapshot{Map: p.data}, nil
+}
+
+// BenchmarkReloadWide forces the full pipeline through a provider on every reload,
+// rather than taking the unchanged-file input fingerprint shortcut.
+func BenchmarkReloadWide(b *testing.B) {
+	sections := map[string]any{}
+	for i := range 100 {
+		section := map[string]any{}
+		for j := range 100 {
+			section[fmt.Sprintf("key%03d", j)] = j
+		}
+		sections[fmt.Sprintf("section%03d", i)] = section
+	}
+	type C struct {
+		Sections map[string]map[string]int `json:"sections"`
+	}
+	m, err := fastconf.New[C](context.Background(), fastconf.WithProvider(&wideBenchmarkProvider{map[string]any{"sections": sections}}))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer func() { _ = m.Close() }()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if err := m.Reload(context.Background()); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
