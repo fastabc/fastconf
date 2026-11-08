@@ -2,18 +2,35 @@
 
 [English](README.md) · [中文](README.zh.md)
 
-FastConf 将分层配置加载为强类型 Go 值，支持 YAML、JSON、TOML、INI、环境变量、
-命令行参数和远程 Provider，并通过可选模块支持 AWS、Azure、GCP 云端配置源。
-Manager 串行执行重载并原子发布快照；`Get()` 无锁且零分配。
-加载或校验失败时保留上一次有效快照。
+FastConf 将文件、环境变量与云端配置统一为强类型 Go 配置。既可为 CLI 一次加载，
+也可为常驻服务提供经过校验的热更新、原子快照，以及无锁、零分配的 `Get()`。
+重载失败时，应用继续使用上一次有效配置。
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/fastabc/fastconf.svg)](https://pkg.go.dev/github.com/fastabc/fastconf)
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-文档和安装示例面向 v1.5.0；其他版本的行为请阅读对应 tag 下的文档。
+本 README 介绍当前 v1.6.0 功能；标注 v1.6.0 的新增能力对应本次源码。
+以下固定版本的安装示例使用 v1.5.0，版本行为请以所安装 tag 的文档为准。
 从 v0.20.0 升级见[迁移指南](docs/cookbook/migration-v1.md)；从 v1.4.0 升级见
 [v1.5.0 升级说明](docs/cookbook/migration-v1.md#upgrading-from-v140-to-v150)。
+
+## 为什么选择 FastConf
+
+- **一个结构体，统一多种来源。** 组合 YAML、JSON、TOML、INI、环境变量、参数和远程
+  Provider，通过 Profile、region/host 分层、补丁与按键合并列表表达部署差异。
+- **配置更容易写。** v1.6.0 提供易读的 `default` 标签并保留显式零值，将 KV 字符串
+  转为强类型列表，用插值连接环境变量与配置字段。
+- **运行时变更可预览、可恢复。** `Plan` 预演、发布前校验、按子树订阅及历史回滚，
+  让数据库、日志等资源按实际变化更新；重载失败继续使用旧配置。
+- **云端刷新减少应用接线。** v1.6.0 的 `WithNotifier` 托管通知消费者，
+  `WithResync` 周期对账，为漏通知提供恢复路径。
+- **诊断中自动隐藏密钥。** v1.6.0 支持串联 Vault、age 和应用自定义 resolver，
+  解析结果自动在 `Map`、`Dump`、`Diff`、`Explain` 中脱敏。
+- **配置类型也是文档来源。** v1.6.0 从同一结构体、默认值和字段描述生成 JSON Schema、
+  带注释的 YAML 与 env 示例，减少配置与示例的重复维护。
+- **从开发到运维都有入口。** 来源追溯、变更审计、指标、追踪、CLI 和 Sidecar 配合使用；
+  云 SDK 与遥测后端位于可选模块，按需引入。
 
 ## 安装
 
@@ -106,15 +123,19 @@ log.Printf("port=%d", cfg.Server.Port)
 
 ## 功能分类
 
-| 类别 | 能力与配方 |
-|---|---|
-| 配置来源 | [文件与 Profile](docs/cookbook/sources/layers.md)、[INI](docs/cookbook/sources/ini.md)、[环境变量与 dotenv](docs/cookbook/sources/env-replacer.md)、[Labels](docs/cookbook/sources/labels.md)、[HTTP](docs/cookbook/sources/http.md)、[Vault](docs/cookbook/sources/vault.md)、[Consul](docs/cookbook/sources/consul.md)、[AWS / Azure / GCP](docs/cookbook/sources/cloud.md) |
-| 合并与转换 | base/overlay 分层、RFC 6902 补丁、[按键合并列表](docs/cookbook/processing/strategic-merge.md)、[生成器](docs/cookbook/processing/generators.md)、[类型钩子](docs/cookbook/processing/typed-hooks.md) |
-| 校验与密钥 | [`fc` 标签与默认值](docs/cookbook/processing/field-meta.md)、[Go/OPA/CUE 策略](docs/cookbook/processing/policy.md)、[解析与脱敏](docs/cookbook/processing/secrets.md) |
-| 动态更新 | [订阅](docs/cookbook/runtime/subscribe.md)、[失败处理与临时覆盖](docs/cookbook/runtime/reload-policy.md)、[Plan 预览](docs/cookbook/runtime/plan.md)、[历史与回滚](docs/cookbook/runtime/introspect.md) |
-| 运行观测 | [Observer](docs/cookbook/observability/observer.md)、[指标与追踪](docs/cookbook/observability/observability.md)、[日志](docs/cookbook/observability/log.md)、[超时](docs/cookbook/runtime/provider-timeouts.md) |
-| 部署 | [Kubernetes](docs/cookbook/deployment/k8s.md)、[Sidecar](docs/cookbook/deployment/sidecar.md)、[多租户](docs/cookbook/deployment/tenant.md)、[消息传输参考实现](docs/cookbook/sources/cross-process.md) |
-| 应用功能 | [特性开关与百分比灰度](docs/cookbook/features/features.md) |
+| 能力 | 可实现的场景 | 指南 |
+|---|---|---|
+| 分层与强类型加载 | 一个配置类型接入文件、env/dotenv、参数、Labels、HTTP、Vault、Consul 与 AWS/Azure/GCP 来源 | [来源配方](docs/cookbook/README.md#sources-and-layering) |
+| 部署差异覆盖 | base/overlay Profile、region/host 维度、RFC 6902 补丁、按键列表合并与生成层 | [分层](docs/cookbook/sources/layers.md)、[按键列表](docs/cookbook/processing/strategic-merge.md)、[生成器](docs/cookbook/processing/generators.md) |
+| 易读默认值与转换（v1.6.0） | `default:"5s"`、`default:"a,b"`、命名基础类型、逗号/JSON/下标 map 标量列表；Azure JSON 值可按需开启 | [字段元数据](docs/cookbook/processing/field-meta.md)、[类型钩子](docs/cookbook/processing/typed-hooks.md) |
+| 环境变量与字段插值（v1.6.0） | `${VAR:default}`、必需值检查与 `${server.base_url}` 引用，包含环检测 | [插值](docs/cookbook/processing/interpolation.md) |
+| 发布前校验 | 字段约束、Go validator 与策略，可选 OPA/CUE 适配器 | [校验](docs/cookbook/processing/field-meta.md)、[策略](docs/cookbook/processing/policy.md) |
+| 动态更新与恢复 | 文件/Provider 监听、子树订阅、单次覆盖、Plan 预演、历史与回滚 | [订阅](docs/cookbook/runtime/subscribe.md)、[Plan](docs/cookbook/runtime/plan.md)、[历史](docs/cookbook/runtime/introspect.md) |
+| 托管云通知（v1.6.0） | SNS/SQS、Service Bus、Pub/Sub 消费者由 Manager 托管重启、关闭和周期对账 | [云通知](docs/cookbook/sources/cloud-notifications.md) |
+| 密钥解析与脱敏（v1.6.0） | 有序 resolver、Vault KV v2 字段引用、可选 age 解密，解析结果在诊断中自动隐藏 | [密钥](docs/cookbook/processing/secrets.md) |
+| Schema 与示例生成（v1.6.0） | 从结构体标签生成 Draft 2020-12 JSON Schema、带注释的 YAML 与 env 示例 | [生成指南](docs/cookbook/processing/schema.md)、[可运行示例](examples/schema/README.md) |
+| 运维与部署 | Explain 来源、脱敏 diff、Observer、指标、追踪、日志、CLI、Kubernetes Sidecar 与每租户独立 Manager | [可观测性](docs/cookbook/observability/observability.md)、[Sidecar](docs/cookbook/deployment/sidecar.md)、[多租户](docs/cookbook/deployment/tenant.md) |
+| 特性规则 | 配置驱动的目标匹配与确定性百分比灰度 | [特性开关](docs/cookbook/features/features.md) |
 
 覆盖顺序为：文件 → 生成器 → Provider → 单次 override。Provider 优先级只在
 Provider 之间排序。FastConf 借鉴 Kustomize 的 base/overlay 与补丁思想，
@@ -126,16 +147,15 @@ Provider 之间排序。FastConf 借鉴 Kustomize 的 base/overlay 与补丁思�
 
 ## Benchmarks
 
-以下为 [2026-10-25 比较报告](benchmarks/compare/REPORT.zh.md)的部分中位数：
-Apple M5 Pro、Darwin/arm64、Go 1.26.10、GOMAXPROCS=4；每组运行 10 次，每次 1 秒。
-FastConf 使用报告记录的源码快照，最终发布审查的修正在测量之后；
-完整报告记录源码校验信息与适用范围。
+以下为 **FastConf v1.6.0** 的 [2026-11-08 比较报告](benchmarks/compare/REPORT.zh.md)部分中位数：
+Apple M5 Pro、Darwin/arm64、Go 1.26.10、GOMAXPROCS=4、GOGC=100；每组运行 6 次，每次 500ms。
+FastConf 使用本地源码提交 `d0364e0`；完整报告记录源码校验、固定依赖版本与适用范围。
 
-| 场景 | FastConf | Viper 1.21.0 | Koanf 2.3.0 | Cleanenv 1.5.0 |
+| 场景 | FastConf v1.6.0 | Viper 1.21.0 | Koanf 2.3.0 | Cleanenv 1.5.0 |
 |---|---:|---:|---:|---:|
-| 4 KiB YAML 启动加载（ms/op） | 0.1118 | 0.0953 | 0.1234 | 0.0656 |
-| 64 KiB 有效重载（ms/op） | 1.6183 | 1.5490 | 2.0167 | — |
-| 已发布结构体热读（ns/op） | 0.4410 | 0.4181 | 0.4241 | — |
+| 4 KiB YAML 启动加载（ms/op） | 0.1186 | 0.1012 | 0.1291 | 0.0691 |
+| 64 KiB 有效重载（ms/op） | 1.6452 | 1.5454 | 1.9950 | — |
+| 已发布结构体热读（ns/op） | 0.3900 | 0.4181 | 0.4363 | — |
 
 三个热读路径均为 0 B/op、0 allocs/op。Viper 和 Koanf 使用比较工程的适配器，
 完成解码、校验、去重和原子发布；热读直接读取结构体，不执行字符串键查询。
@@ -170,7 +190,7 @@ _ = cfg
 ```
 
 ```text
-assemble -> merge -> transform -> secret -> typed-hooks -> decode
+assemble -> merge -> transform -> secret -> defaults -> typed-hooks -> decode
          -> field-meta -> validate -> policy -> hash -> publish
 ```
 
@@ -211,19 +231,20 @@ map 递归合并，标量和列表默认替换。`mergeKeys` 使用非空字符�
 | `labels.New` | — | — | 展开 dotted 配置标签，支持映射选项 |
 | `k8s.NewDefault` | 共享文件监听 | — | 保留命名空间下的原始 Downward API 元数据 |
 | `providers/http` | 原生轮询 | — | 远程文档、ETag / 内容哈希 |
-| `providers/vault` | 原生元数据轮询 | — | KV v2，可选认证维护 |
+| `providers/vault` | 原生元数据轮询 | — | KV v2，可选认证维护；v1.6.0 支持字段 resolver |
 | `providers/consul` | 原生 blocking query | — | KV 树或文档 |
 | [`appconfig`](providers/appconfig) | 通知 + 定期重载 | SNS → SQS | 已部署文档、会话 token、服务端轮询间隔 |
 | [`s3`](providers/s3) | 通知 + 定期重载 | SNS → SQS | ETag 条件读取，可固定 VersionID |
 | [`parameterstore`](providers/parameterstore) | 通知 + 定期重载 | EventBridge → SNS → SQS | 递归分页树、字符串值、可选 SecureString 解密 |
-| [`azappconfig`](providers/azappconfig) | 通知 + 定期重载 | Event Grid → Service Bus | 单 prefix/label、冒号分层、字符串值 |
+| [`azappconfig`](providers/azappconfig) | 通知 + 定期重载 | Event Grid → Service Bus | 单 prefix/label、冒号分层；v1.6.0 的 `WithJSONValues()` 解码 JSON 设置 |
 | [`azblob`](providers/azblob) | 通知 + 定期重载 | Event Grid → Service Bus | Blob 文档、ETag 条件读取 |
 | [`secretmanager`](providers/secretmanager) | 通知 + 定期重载 | Pub/Sub | 版本或 alias 文档、CRC32C 校验 |
 | [`gcs`](providers/gcs) | 通知 + 定期重载 | Pub/Sub | 当前对象文档、generation 缓存，单次读取与 generation 一致 |
 
 “—” 表示没有自动变更检测。共享文件监听需启用 `WithWatch`；原生 Provider 监听
-由 `New` 独立启动。云 Provider 在 `Reload` 调用 `Load` 时刷新，应用负责启动通知
-消费循环和定期校准；AppConfig 还需遵守服务端允许的下一次轮询时间。
+由 `New` 独立启动。云 Provider 在 `Reload` 调用 `Load` 时刷新；v1.6.0 可用
+`WithNotifier` 注册消费者、`WithResync` 设置周期对账，由 Manager 托管这些任务。
+AppConfig 还需遵守服务端允许的下一次轮询时间。
 
 | Notifier 模块 | 确认与失败处理 |
 |---|---|
@@ -231,8 +252,24 @@ map 递归合并，标量和列表默认替换。`mergeKeys` 使用非空字符�
 | [`integrations/notify/azservicebus`](integrations/notify/azservicebus) | 通过 Service Bus PeekLock 接收 Event Grid schema；刷新成功后 Complete，失败时 Abandon |
 | [`integrations/notify/pubsub`](integrations/notify/pubsub) | 接收 GCS / Secret Manager 事件；刷新成功后 Ack，失败时 Nack |
 
-三个模块均在有界 context 内同步执行刷新回调。应用提供 SDK 客户端、监督消费循环，
-并为每个需要收到所有变更的独立副本配置单独的 queue/subscription。
+三个模块均在有界 context 内同步执行刷新回调。v1.6.0 由 Manager 对提前退出的消费者
+执行带抖动的退避重启，退出时停止任务，并通过周期重载恢复漏通知：
+
+```go
+mgr, err := fastconf.New[Config](ctx,
+    fastconf.WithProvider(remote),
+    fastconf.WithNotifier(consumer),
+    fastconf.WithResync(time.Minute),
+)
+if err != nil {
+    return err
+}
+defer mgr.Close()
+```
+
+`remote`、`consumer` 是应用创建的 Provider 和消费者，时间间隔需导入 `time`。
+`Load` 不启动后台任务，会忽略这些选项。SDK 客户端仍由应用持有，每个需要收到所有
+变更的独立副本应配置单独的 queue/subscription。
 接线、重试、死信与定期校准见[云通知配方](docs/cookbook/sources/cloud-notifications.md)。
 `s3events` 在 v1.3.0 中弃用，请迁移至
 [`integrations/notify/sns`](integrations/notify/sns)。原 Watch 是 EventBridge → SQS 的尽力通知，在 Manager 重载完成前确认
@@ -253,29 +290,69 @@ Provider，应在注册前配置完毕。Provider 层内，高优先级后覆盖
 
 ### 类型、校验与密钥
 
+以下结构体片段使用 v1.6.0 默认值标签，并需导入 `time`。
+
 文档格式与结构体解码独立：默认 JSON 桥使用 `json` 标签；
 `WithDecodeFormat(fastconf.YAML)` 改用 YAML 标签。默认类型钩子转换 duration
-字符串和来自 env/INI 的基本类型字符串。
+字符串和来自 env/INI 的基本类型字符串。v1.6.0 还支持 KV 字符串到标量列表与命名
+数字/布尔类型：`"a, b"` 或 `'["a","b"]'` 可填充 `[]string`，`"3"` 可填充
+`type Level int`；`{"0":"a","1":"b"}` 这样的连续下标 map 也能转换为列表。
+字节切片保留 base64 语义，自定义反序列化器保留自身输入格式。
 
 ```go
 type Database struct {
-    DSN     string        `json:"dsn" fc:"required,secret"`
-    Pool    int           `json:"pool" fc:"min=1,max=100"`
-    Timeout time.Duration `json:"timeout"`
+    DSN     string        `json:"dsn" fc:"required,secret" desc:"Database connection"`
+    Pool    int           `json:"pool" default:"10" fc:"min=1,max=100"`
+    Timeout time.Duration `json:"timeout" default:"5s"`
+    Hosts   []string      `json:"hosts" default:"primary,replica"`
+    Enabled bool          `json:"enabled" default:"true"`
 }
 ```
 
-解码后先用 `fc` 默认值填充 Go 零值，再调用 `Defaulter.Defaults`。需要保留显式
-false、0 或空字符串时，将默认值放入 base 层。字段约束先于 `WithValidate` 和
-`WithPolicy` 执行；策略警告允许发布，错误级发现阻止发布。标签约束不遍历集合元素，
+v1.6.0 的 `default:"…"` 在类型解码前只填充缺失键：`5s` 转为 `time.Duration`，
+`primary,replica` 转为列表；显式 false、0 和空字符串保留，null 视为键已存在而不注入默认值。
+`Explain` 以 `LayerDefault` 记录注入值的来源。旧 `fc:"default=…"` 仍填充解码后的 Go 零值，
+`Defaulter.Defaults` 可提供计算型默认值。字段约束先于 `WithValidate` 和 `WithPolicy`
+执行；策略警告允许发布，错误级发现阻止发布。标签约束不遍历集合元素，
 此类检查使用自定义 validator。
 对指针字段，`required` 检查是否为 nil；`min`、`max` 和 `oneof` 检查指向的值，
 并跳过 nil 指针。
 
-`SecretResolver` 在类型解码前解析引用；SOPS/age/KMS 等格式需要应用实现适配。
-`fc:"secret"` 和 `WithSecretPaths` 独立控制诊断脱敏。`Get()`、`Value()` 仍向
-业务代码提供明文。片段中的 `time.Duration` 需导入标准库 `time`。见[字段元数据](docs/cookbook/processing/field-meta.md)、
-[策略](docs/cookbook/processing/policy.md)与[密钥](docs/cookbook/processing/secrets.md)。
+v1.6.0 的插值通过以下选项加入 `Load` 或 `New`，需导入
+`github.com/fastabc/fastconf/transform`：
+
+```go
+fastconf.WithTransform(transform.Interpolate(transform.InterpolateOptions{Refs: true}))
+```
+
+```yaml
+server:
+  base_url: "https://${HOST:example.com}"
+oauth:
+  callback_url: "${server.base_url}/oauth/callback"
+dsn: "postgres://${DB_USER:app}@${DB_HOST:localhost}/app"
+```
+
+`${VAR:default}` 提供环境变量兜底，`${VAR:?message}` 要求非空值；字段引用递归解析，
+带有环与深度检查。环境变量的值不二次展开。被引用的默认值应放在 base 层，
+字面量 `default` 标签在插值与 secret 解析之后注入。
+
+v1.6.0 的 `WithSecretResolvers` 按注册顺序串联 resolver，由第一个识别者处理引用；
+`PrefixSecretResolver` 可将应用函数包装为 `kms://` 等前缀 resolver。
+`vault.NewResolver` 提供 KV v2 字段引用，可选 `secrets/age` 模块提供 age 解密。
+解析结果自动在诊断视图中脱敏，`fc:"secret"` 与 `WithSecretPaths` 也可标记未经 resolver
+处理的敏感输入。`Get()`、`Value()` 和显式 `Unredacted()` 仍提供明文。
+见[字段元数据](docs/cookbook/processing/field-meta.md)、[类型钩子](docs/cookbook/processing/typed-hooks.md)、
+[插值](docs/cookbook/processing/interpolation.md)、[策略](docs/cookbook/processing/policy.md)与
+[密钥](docs/cookbook/processing/secrets.md)。
+
+### 从配置类型生成文档（v1.6.0）
+
+通过 `schema.JSONSchema`、`schema.ExampleYAML`、`schema.ExampleEnv`，从配置结构体生成
+Draft 2020-12 Schema、带注释的 YAML 与 env 示例。`desc`、`default`、`fc` 元数据
+提供描述、默认值、必需字段、约束与密钥标记；接入 `go generate`，让应用配置类型
+与版本库中的示例文件使用同一份定义。反向的 YAML → Go 结构体仍可使用 `fastconfgen`。
+见[生成指南](docs/cookbook/processing/schema.md)与[可运行示例](examples/schema/README.md)。
 
 ### 订阅、预览与恢复
 
@@ -293,13 +370,15 @@ if err := mgr.Reload(ctx, fastconf.WithReason("admin"),
 }
 ```
 
-订阅在发布后比较提取的值，`WithEqual` 自定义相等规则。回调运行于单写者，须快速
+订阅在发布后比较提取的标量或整个子树。例如分别订阅 Database 与 Log，日志级别改变
+时不会触发数据库重连；`WithEqual` 还可将比较范围缩小为 DSN。回调运行于单写者，须快速
 返回，不能同步等待当前 Manager 的重载、Plan、回滚或关闭。耗时资源更新应通知
 有界 worker。Override 仅作用于当次重载，不修改来源。
 
 `Plan(ctx)` 返回 `Proposed`、`Diff`、`Validators` 和 `Policies`，不发布状态。
 即使 Plan 的 err 为 nil，也要检查验证错误和策略级别；Reload 会重新读取来源。
 `Pause` 抑制监听触发；`Resume` 不重放忽略的事件，暂停批次完成后需显式 Reload。
+v1.6.0 中暂停也会跳过通知刷新与周期对账。
 
 `Snapshot().Map/Dump/Diff/Explain` 提供脱敏诊断，来源追溯需启用 `WithProvenance`。
 明文诊断使用 `Unredacted().Map/Dump`。`History().List()` 按从旧到新返回历史快照；
@@ -343,7 +422,8 @@ fastconfgen -in conf.d/base/00-app.yaml -pkg config -type Config
 ```
 
 `fastconfctl validate` 加载通用 map，不校验应用结构体标签或业务策略。
-v1.2.0 起，CLI 诊断默认遮蔽常见密钥名；库中的结构体需使用 `fc:"secret"` 或 `WithSecretPaths`。
+v1.2.0 起，CLI 诊断默认遮蔽常见密钥名。应用结构体可用 `fc:"secret"` 或 `WithSecretPaths`
+标记敏感输入，v1.6.0 还会自动脱敏 resolver 的解析结果。
 见[诊断配方](docs/cookbook/runtime/introspect.md)。
 
 v1.3.0 中，diff 的空 `-from` 仅选择 base，忽略 `APP_PROFILE` 和

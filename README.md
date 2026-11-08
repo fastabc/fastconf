@@ -2,20 +2,38 @@
 
 [English](README.md) · [中文](README.zh.md)
 
-FastConf loads layered configuration into typed Go values. It supports YAML,
-JSON, TOML and INI, environment variables, flags and remote providers, including
-AWS, Azure and GCP cloud configuration sources through optional modules.
-A manager serializes reloads and publishes snapshots atomically; `Get()` is a lock-free,
-zero-allocation read. Failed loads or validation keep the previous snapshot.
+FastConf brings files, environment variables and cloud configuration into one typed
+Go configuration. Load once for a CLI or keep a service current with validated hot
+reloads, atomic snapshots and a lock-free, zero-allocation `Get()`.
+Failed reloads keep the application on its last valid configuration.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/fastabc/fastconf.svg)](https://pkg.go.dev/github.com/fastabc/fastconf)
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-Documentation and installation examples target v1.5.0. Use the documentation at
-your installed tag for release-specific behavior. For v0.20.0 upgrades, see the
+This README presents the current v1.6.0 feature set; additions marked v1.6.0
+refer to this checkout. Version-pinned installation examples below use v1.5.0.
+Read the documentation at your installed tag for release-specific behavior.
+For v0.20.0 upgrades, see the
 [migration guide](docs/cookbook/migration-v1.md); for v1.4.0, see the
 [v1.5.0 upgrade notes](docs/cookbook/migration-v1.md#upgrading-from-v140-to-v150).
+
+## Why FastConf
+
+- **One struct, many sources.** Combine YAML, JSON, TOML, INI, env, flags and remote
+  providers; use profiles, region/host layers, patches and keyed-list merging for deployment differences.
+- **Configuration that is easy to write.** In v1.6.0, readable `default` tags preserve
+  explicit zero values, KV strings become typed lists, and interpolation connects env values and config fields.
+- **Controlled runtime changes.** Preview with `Plan`, validate before publication,
+  subscribe to a selected subtree, and restore a retained snapshot with history rollback.
+- **Cloud refresh with less application code.** In v1.6.0, Manager supervises notification
+  consumers and periodically reconciles sources through `WithNotifier` and `WithResync`.
+- **Secrets masked in diagnostics.** In v1.6.0, chain Vault, age and application resolvers;
+  resolved values are automatically redacted in `Map`, `Dump`, `Diff` and `Explain`.
+- **Documentation from the config type.** In v1.6.0, generate JSON Schema, annotated
+  YAML and env examples from the same struct, defaults and field descriptions.
+- **Visibility and deployment options.** Trace value origins, audit changes, export metrics
+  and traces, or expose snapshots through the CLI/sidecar. Cloud SDKs and telemetry backends are optional modules.
 
 ## Installation
 
@@ -111,15 +129,19 @@ manager to close. See the [single-file guide](docs/getting-started/load.md).
 
 ## Features
 
-| Area | Capabilities and recipes |
-|---|---|
-| Sources | [Files and profiles](docs/cookbook/sources/layers.md), [INI](docs/cookbook/sources/ini.md), [env and dotenv](docs/cookbook/sources/env-replacer.md), [labels](docs/cookbook/sources/labels.md), [HTTP](docs/cookbook/sources/http.md), [Vault](docs/cookbook/sources/vault.md), [Consul](docs/cookbook/sources/consul.md), [AWS / Azure / GCP](docs/cookbook/sources/cloud.md) |
-| Merge and conversion | Base/overlay layers, RFC 6902 patches, [keyed lists](docs/cookbook/processing/strategic-merge.md), [generators](docs/cookbook/processing/generators.md), [typed hooks](docs/cookbook/processing/typed-hooks.md) |
-| Validation and secrets | [`fc` tags and defaults](docs/cookbook/processing/field-meta.md), [Go/OPA/CUE policies](docs/cookbook/processing/policy.md), [resolution and redaction](docs/cookbook/processing/secrets.md) |
-| Runtime updates | [Subscriptions](docs/cookbook/runtime/subscribe.md), [failure handling and overrides](docs/cookbook/runtime/reload-policy.md), [Plan](docs/cookbook/runtime/plan.md), [history and rollback](docs/cookbook/runtime/introspect.md) |
-| Operations | [Observers](docs/cookbook/observability/observer.md), [metrics and tracing](docs/cookbook/observability/observability.md), [logging](docs/cookbook/observability/log.md), [timeouts](docs/cookbook/runtime/provider-timeouts.md) |
-| Deployment | [Kubernetes](docs/cookbook/deployment/k8s.md), [sidecar](docs/cookbook/deployment/sidecar.md), [tenants](docs/cookbook/deployment/tenant.md), [transport reference implementations](docs/cookbook/sources/cross-process.md) |
-| Application features | [Feature targeting and percentage rollouts](docs/cookbook/features/features.md) |
+| Capability | What you can build | Guide |
+|---|---|---|
+| Layered, typed loading | Files, env/dotenv, flags, labels, HTTP, Vault, Consul and AWS/Azure/GCP sources behind one config type | [Sources](docs/cookbook/README.md#sources-and-layering) |
+| Deployment-specific overrides | Base/overlay profiles, region/host axes, RFC 6902 patches, keyed lists and generated layers | [Layers](docs/cookbook/sources/layers.md), [keyed lists](docs/cookbook/processing/strategic-merge.md), [generators](docs/cookbook/processing/generators.md) |
+| Readable defaults and conversion (v1.6.0) | `default:"5s"`, `default:"a,b"`, named primitives, comma-separated/JSON/indexed-map scalar lists; Azure JSON values are opt-in | [Field metadata](docs/cookbook/processing/field-meta.md), [typed hooks](docs/cookbook/processing/typed-hooks.md) |
+| Env and field interpolation (v1.6.0) | `${VAR:default}`, required values and `${server.base_url}` references with cycle detection | [Interpolation](docs/cookbook/processing/interpolation.md) |
+| Validation before publication | Field constraints, Go validators and policies, with optional OPA/CUE adapters | [Validation](docs/cookbook/processing/field-meta.md), [policies](docs/cookbook/processing/policy.md) |
+| Live updates and recovery | File/provider watchers, subtree subscriptions, one-shot overrides, Plan previews, history and rollback | [Subscriptions](docs/cookbook/runtime/subscribe.md), [Plan](docs/cookbook/runtime/plan.md), [history](docs/cookbook/runtime/introspect.md) |
+| Managed cloud notifications (v1.6.0) | SNS/SQS, Service Bus or Pub/Sub consumers with Manager-owned restart, shutdown and periodic reconciliation | [Cloud notifications](docs/cookbook/sources/cloud-notifications.md) |
+| Secret resolution and masking (v1.6.0) | Ordered resolvers, Vault KV v2 references, optional age decryption and automatic diagnostic redaction | [Secrets](docs/cookbook/processing/secrets.md) |
+| Schema and examples (v1.6.0) | Draft 2020-12 JSON Schema, annotated YAML and env examples from struct tags | [Generation guide](docs/cookbook/processing/schema.md), [runnable example](examples/schema/README.md) |
+| Operations and deployment | Explain origins, masked diffs, observers, metrics, traces, logging, CLI, Kubernetes sidecar and one Manager per tenant | [Observability](docs/cookbook/observability/observability.md), [sidecar](docs/cookbook/deployment/sidecar.md), [tenants](docs/cookbook/deployment/tenant.md) |
+| Feature rules | Configuration-backed targeting and deterministic percentage rollouts | [Feature flags](docs/cookbook/features/features.md) |
 
 Layer precedence is files → generators → providers → one-shot overrides.
 Provider priorities only order providers. FastConf borrows base/overlay and
@@ -183,7 +205,7 @@ _ = cfg
 ```
 
 ```text
-assemble -> merge -> transform -> secret -> typed-hooks -> decode
+assemble -> merge -> transform -> secret -> defaults -> typed-hooks -> decode
          -> field-meta -> validate -> policy -> hash -> publish
 ```
 
@@ -226,21 +248,21 @@ expressions. See [files, profiles and patches](docs/cookbook/sources/layers.md).
 | `labels.New` | — | — | Dotted configuration labels with configurable mapping |
 | `k8s.NewDefault` | Shared file watcher | — | Raw namespaced Downward API metadata |
 | `providers/http` | Native polling | — | Remote document, ETag/content hash |
-| `providers/vault` | Native metadata polling | — | KV v2, optional authentication maintenance |
+| `providers/vault` | Native metadata polling | — | KV v2, optional authentication maintenance; field resolver in v1.6.0 |
 | `providers/consul` | Native blocking query | — | KV tree or document |
 | [`appconfig`](providers/appconfig) | Via notifier + periodic reload | SNS → SQS | Deployed document, session tokens, service-directed poll intervals |
 | [`s3`](providers/s3) | Via notifier + periodic reload | SNS → SQS | ETag conditional reads, optional fixed VersionID |
 | [`parameterstore`](providers/parameterstore) | Via notifier + periodic reload | EventBridge → SNS → SQS | Recursive paginated tree, string values, optional SecureString decryption |
-| [`azappconfig`](providers/azappconfig) | Via notifier + periodic reload | Event Grid → Service Bus | One prefix/label, colon-separated keys, string values |
+| [`azappconfig`](providers/azappconfig) | Via notifier + periodic reload | Event Grid → Service Bus | One prefix/label, colon-separated keys; `WithJSONValues()` decodes JSON settings in v1.6.0 |
 | [`azblob`](providers/azblob) | Via notifier + periodic reload | Event Grid → Service Bus | Blob document, ETag conditional reads |
 | [`secretmanager`](providers/secretmanager) | Via notifier + periodic reload | Pub/Sub | Version/alias document, CRC32C verification |
 | [`gcs`](providers/gcs) | Via notifier + periodic reload | Pub/Sub | Current object document, generation cache, generation-consistent reads |
 
 “—” means no automatic change detection. Shared file watching requires
 `WithWatch`; native provider watchers start with `New` independently of it.
-Cloud providers refresh when `Reload` calls `Load`; applications own the notifier
-loop and periodic reconciliation. AppConfig reloads also respect the service's
-next allowed poll time.
+Cloud providers refresh when `Reload` calls `Load`. In v1.6.0, register a consumer
+with `WithNotifier` and schedule reconciliation with `WithResync`; Manager owns their
+workers. AppConfig reloads also respect the service's next allowed poll time.
 
 | Notifier module | Acknowledgment and failure behavior |
 |---|---|
@@ -248,9 +270,26 @@ next allowed poll time.
 | [`integrations/notify/azservicebus`](integrations/notify/azservicebus) | Event Grid schema through Service Bus PeekLock; Complete after successful refresh, Abandon on failure |
 | [`integrations/notify/pubsub`](integrations/notify/pubsub) | GCS / Secret Manager events; Ack after successful refresh, Nack on failure |
 
-All three run a synchronous refresh callback with a bounded context. The
-application supplies SDK clients, supervises consumers, and provisions a separate
-queue/subscription for each independent replica that must receive every change.
+All three run a synchronous refresh callback with a bounded context. With v1.6.0,
+Manager restarts a stopped consumer with backoff and jitter, stops it on shutdown,
+and periodically reloads to recover missed notifications:
+
+```go
+mgr, err := fastconf.New[Config](ctx,
+    fastconf.WithProvider(remote),
+    fastconf.WithNotifier(consumer),
+    fastconf.WithResync(time.Minute),
+)
+if err != nil {
+    return err
+}
+defer mgr.Close()
+```
+
+Here `remote` and `consumer` are application-created provider and consumer values;
+import `time` for the interval. `Load` starts no workers and ignores these options.
+The application owns SDK clients and provisions a separate queue/subscription for
+each independent replica that must receive every change.
 See [cloud notifications](docs/cookbook/sources/cloud-notifications.md) for routing,
 retries, dead letters and periodic reconciliation. `s3events` is deprecated in v1.3.0; use
 [`integrations/notify/sns`](integrations/notify/sns). Its existing Watch
@@ -278,31 +317,75 @@ See [generators](docs/cookbook/processing/generators.md) and [extensions](docs/g
 Document format is independent of struct decoding: the default JSON bridge uses
 `json` tags; `WithDecodeFormat(fastconf.YAML)` selects YAML tags. Default typed
 hooks convert duration strings and primitive string values from env/INI.
+In v1.6.0, KV strings also become scalar lists and named numeric/boolean types:
+`"a, b"` or `'["a","b"]'` can fill `[]string`, and `"3"` can fill `type Level int`.
+Contiguous index maps such as `{"0":"a","1":"b"}` also become lists.
+`[]byte` retains base64 semantics and custom unmarshalers retain their wire forms.
 
-The type fragment below imports `time`.
+The v1.6.0 type fragment below imports `time`.
 
 ```go
 type Database struct {
-    DSN     string        `json:"dsn" fc:"required,secret"`
-    Pool    int           `json:"pool" fc:"min=1,max=100"`
-    Timeout time.Duration `json:"timeout"`
+    DSN     string        `json:"dsn" fc:"required,secret" desc:"Database connection"`
+    Pool    int           `json:"pool" default:"10" fc:"min=1,max=100"`
+    Timeout time.Duration `json:"timeout" default:"5s"`
+    Hosts   []string      `json:"hosts" default:"primary,replica"`
+    Enabled bool          `json:"enabled" default:"true"`
 }
 ```
 
-`fc` defaults fill Go zero values after decoding, followed by `Defaulter.Defaults`.
-Use base-layer defaults when explicit false, 0 or empty strings must survive.
-Field constraints run before `WithValidate` and `WithPolicy`; policy warnings
-allow publication and error-severity findings reject it. Tags do not validate
+In v1.6.0, `default:"…"` fills absent keys before typed decoding: `5s` becomes a
+`time.Duration`, `primary,replica` becomes a list, and explicit false, 0, empty
+strings are retained, while null counts as present. `Explain` records injected
+defaults as `LayerDefault`.
+Legacy `fc:"default=…"` still fills decoded Go zero values; `Defaulter.Defaults`
+provides computed defaults. Field constraints run before `WithValidate` and
+`WithPolicy`; policy warnings allow publication and error-severity findings reject it. Tags do not validate
 collection elements; use a validator for those checks.
 For pointers, `required` checks for nil; `min`, `max` and `oneof` check the
 pointed-to value and skip nil pointers.
 
-`SecretResolver` resolves references before typed decoding; it does not decrypt
-SOPS/age/KMS formats without an application adapter. `fc:"secret"` and
-`WithSecretPaths` mask diagnostic output independently of resolution. `Get()`
-and `Value()` still expose plaintext to application code. See
-[field metadata](docs/cookbook/processing/field-meta.md), [policies](docs/cookbook/processing/policy.md)
+For interpolation in v1.6.0, add this option to `Load` or `New` (import
+`github.com/fastabc/fastconf/transform`):
+
+```go
+fastconf.WithTransform(transform.Interpolate(transform.InterpolateOptions{Refs: true}))
+```
+
+```yaml
+server:
+  base_url: "https://${HOST:example.com}"
+oauth:
+  callback_url: "${server.base_url}/oauth/callback"
+dsn: "postgres://${DB_USER:app}@${DB_HOST:localhost}/app"
+```
+
+`${VAR:default}` supplies an env fallback; `${VAR:?message}` requires a non-empty
+value. Field references resolve recursively with cycle/depth checks. Env values
+are not expanded twice. Put defaults needed by references in a base layer;
+literal `default` tags are injected after interpolation and secret resolution.
+
+In v1.6.0, `WithSecretResolvers` chains resolvers in registration order; the first
+recognizer handles a reference. `PrefixSecretResolver` wraps an application
+function for prefixes such as `kms://`. Use `vault.NewResolver` for KV v2 field
+references or the optional `secrets/age` adapter for age decryption. Resolved
+values are automatically masked in diagnostic views. `fc:"secret"` and
+`WithSecretPaths` also mask sensitive inputs that do not use a resolver.
+`Get()`, `Value()` and explicit `Unredacted()` views retain plaintext access.
+See [field metadata](docs/cookbook/processing/field-meta.md), [typed hooks](docs/cookbook/processing/typed-hooks.md),
+[interpolation](docs/cookbook/processing/interpolation.md), [policies](docs/cookbook/processing/policy.md)
 and [secrets](docs/cookbook/processing/secrets.md).
+
+### Generate configuration documentation (v1.6.0)
+
+Use `schema.JSONSchema`, `schema.ExampleYAML` and `schema.ExampleEnv` to generate a
+Draft 2020-12 schema, annotated YAML and env examples from a config struct.
+`desc`, `default` and `fc` metadata supply descriptions, defaults, required fields,
+constraints and secret markers. Run generation through `go generate` so application
+config types and checked-in examples share one source. The reverse direction,
+YAML to Go structs, remains available through `fastconfgen`.
+See the [generation guide](docs/cookbook/processing/schema.md) and
+[runnable schema example](examples/schema/README.md).
 
 ### Subscriptions, preview and recovery
 
@@ -320,8 +403,10 @@ if err := mgr.Reload(ctx, fastconf.WithReason("admin"),
 }
 ```
 
-Subscriptions compare selected values after publication; `WithEqual` customizes
-equality. Callbacks run on the writer, must return quickly and must not wait on
+Subscriptions compare a selected scalar or entire subtree after publication.
+For example, subscribe to Database and Log separately so a log-level change does
+not reconnect the database; `WithEqual` can narrow equality to the DSN.
+Callbacks run on the writer, must return quickly and must not wait on
 that manager's reload/Plan/rollback/shutdown. Signal a bounded worker for costly
 resource updates. An override applies to one reload and does not edit sources.
 
@@ -329,6 +414,7 @@ resource updates. An override applies to one reload and does not edit sources.
 publishing. Inspect validator errors and policy severity even when Plan returns
 nil error. Reload reads inputs again. `Pause` suppresses watcher triggers;
 `Resume` does not replay ignored events, so reload explicitly after a paused batch.
+In v1.6.0, pause also skips notifier-triggered refresh and periodic resync.
 
 `Snapshot().Map/Dump/Diff/Explain` provide masked diagnostics; enable
 `WithProvenance` for origins. `Unredacted().Map/Dump` exposes plaintext explicitly.
@@ -376,7 +462,9 @@ fastconfgen -in conf.d/base/00-app.yaml -pkg config -type Config
 
 `fastconfctl validate` loads a generic map; it does not validate your application's
 struct tags or business policies. Starting in v1.2.0, CLI diagnostic
-output masks common credential keys by default; library structs need `fc:"secret"` or `WithSecretPaths`.
+output masks common credential keys by default. For application structs, use
+`fc:"secret"` or `WithSecretPaths` for sensitive inputs; v1.6.0 also masks
+resolver-produced values automatically.
 See [diagnostics](docs/cookbook/runtime/introspect.md).
 
 In v1.3.0, an empty diff `-from` selects base only, ignoring
