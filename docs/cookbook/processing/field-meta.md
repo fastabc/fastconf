@@ -1,4 +1,4 @@
-# Struct tag `fc`: defaults, validation and secrets
+# Struct tags: defaults, validation and secrets
 
 `fc:"…"` adds FastConf metadata to exported struct fields. `json` / `yaml`
 tags name input keys; `fc` describes defaults, constraints and diagnostic
@@ -71,14 +71,14 @@ Printing or JSON-marshaling the config yourself does not apply FastConf redactio
 
 ## Duration and other default types
 
-Tag defaults support primitive kinds, not arbitrary parsed types, pointers or
+Legacy `fc` defaults support primitive kinds, not arbitrary parsed types, pointers or
 collections. `time.Duration` has underlying kind `int64`: a tag default must be
 an integer number of nanoseconds (`default=30000000000` for 30 seconds).
 `fc:"default=30s"` fails when the default is applied. The typed hook that accepts
 `timeout: 30s` in configuration runs before decoding and does not parse tag defaults.
 
-For readable duration defaults or computed values, implement `Defaulter`
-(import `time`):
+For readable duration literals use `default:"30s"` (v1.6.0; see below).
+For computed defaults, implement `Defaulter` (import `time`):
 
 ```go
 type TimedConfig struct {
@@ -97,15 +97,16 @@ zero must remain meaningful. Numeric `min` / `max` on a duration also use nanose
 
 ## Missing, zero and null
 
-`default` means **fill a Go zero value after decoding**. It does not mean “fill
-only an absent input key”. For ordinary bool/int/string fields tagged with
+Legacy `fc:"default=…"` means **fill a Go zero value after decoding**. The new
+`default:"…"` tag instead fills only absent input keys. For bool/int/string fields
+using the legacy directives
 `default=true`, `default=3` and `default=default` respectively:
 
-| Input | Tag default | Base layer without default tags |
-|---|---|---|
-| Missing overlay key | Default value | Inherit base value |
-| Explicit false / 0 / empty string | Replaced by default | Preserved |
-| Explicit null | Decodes to zero, then default | Replaces base; scalar becomes zero |
+| Input | `fc:"default=…"` | `default:"…"` | Base layer without default tags |
+|---|---|---|---|
+| Missing key in all inputs | Default value | Default value | Inherit base value if supplied |
+| Explicit false / 0 / empty string | Replaced by default | Preserved | Preserved |
+| Explicit null | Decodes to zero, then default | Preserved; decodes to zero | Replaces base; scalar becomes zero |
 
 The table assumes non-strict merge, a fresh scalar struct and no custom decoder
 or hook. Strict merge may reject a null type conflict earlier. `required` also
@@ -113,7 +114,7 @@ checks zero values, so it rejects a legitimate false or 0. A pointer can preserv
 an explicit false, but nil alone cannot distinguish absent input from null.
 `Defaulter.Defaults()` runs after tag defaults and may also replace zero values.
 
-For switches and limits, put defaults in `conf.d/base/00-defaults.yaml`:
+For switches and limits, use the absent-key tag below, or put defaults in `conf.d/base/00-defaults.yaml`:
 
 ```yaml
 enabled: true
