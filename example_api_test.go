@@ -276,3 +276,32 @@ func ExampleLoad_tagDefaults() {
 	// Output:
 	// port=8080 timeout=5s enabled=false hosts=[a b]
 }
+
+func ExampleSubscribe_subtree() {
+	type LogConfig struct {
+		Level string `json:"level"`
+	}
+	type DBConfig struct {
+		DSN  string `json:"dsn"`
+		Pool int    `json:"pool"`
+	}
+	type Config struct {
+		Log      LogConfig `json:"log"`
+		Database DBConfig  `json:"database"`
+	}
+	m, err := fastconf.New[Config](context.Background(), fastconf.WithFS(fstest.MapFS{
+		"conf.d/base/app.yaml": {Data: []byte("log: {level: info}\ndatabase: {dsn: 'pg://a', pool: 5}\n")},
+	}))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer func() { _ = m.Close() }()
+	defer fastconf.Subscribe(m, func(c *Config) *LogConfig { return &c.Log }, func(old, next *LogConfig) { fmt.Printf("log: %s -> %s\n", old.Level, next.Level) })()
+	defer fastconf.Subscribe(m, func(c *Config) *DBConfig { return &c.Database }, func(old, next *DBConfig) { fmt.Printf("db: %s -> %s\n", old.DSN, next.DSN) })()
+	if err := m.Reload(context.Background(), fastconf.WithOverride(map[string]any{"log": map[string]any{"level": "debug"}})); err != nil {
+		fmt.Println(err)
+	}
+	// Output:
+	// log: info -> debug
+}
