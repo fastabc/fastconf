@@ -13,8 +13,9 @@ import (
 // Plan contains immutable type metadata and path rules. It is safe to share
 // between snapshots and concurrent readers; no configuration values are cached.
 type Plan struct {
-	root     *typePlan
-	patterns patternPlan
+	root       *typePlan
+	patterns   patternPlan
+	exactPaths [][]string
 }
 
 type planField struct {
@@ -121,6 +122,9 @@ func (p *Plan) Apply(tree map[string]any, redactor Redactor) map[string]any {
 		out = map[string]any{"$redacted": value}
 	}
 	redactPatterns(out, nil, p.patterns.tree, redactor)
+	for _, path := range p.exactPaths {
+		redactExact(out, path, "", redactor)
+	}
 	return out
 }
 
@@ -138,6 +142,12 @@ func opaqueJSONType(t reflect.Type) bool {
 // PatternsMatch reports whether a WithSecretPaths pattern covers path or any
 // path inside value, treating dots in flattened provenance paths conservatively.
 func (p *Plan) PatternsMatch(path string, value any) bool {
+	for _, segs := range p.exactPaths {
+		full := strings.Join(segs, ".")
+		if full == path || path == "" || strings.HasPrefix(full, path+".") || strings.HasPrefix(path, full+".") {
+			return true
+		}
+	}
 	return p.patterns.matchesValue(value, path)
 }
 
@@ -255,4 +265,42 @@ func hasSecrets(t reflect.Type) bool {
 		}
 		return false
 	})
+}
+
+// WithExactPaths extends a plan without mutating metadata shared by snapshots.
+func (p *Plan) WithExactPaths(paths [][]string) *Plan {
+	next := *p
+	next.exactPaths = make([][]string, 0, len(p.exactPaths)+len(paths))
+	for _, path := range append(append([][]string(nil), p.exactPaths...), paths...) {
+		next.exactPaths = append(next.exactPaths, append([]string(nil), path...))
+	}
+	return &next
+}
+func redactExact(node any, segs []string, prefix string, r Redactor) {
+	if len(segs) == 0 {
+		return
+	}
+	path := joinPath(prefix, segs[0])
+	switch n := node.(type) {
+	case map[string]any:
+		v, ok := n[segs[0]]
+		if !ok {
+			return
+		}
+		if len(segs) == 1 {
+			n[segs[0]] = r(path, v)
+		} else {
+			redactExact(v, segs[1:], path, r)
+		}
+	case []any:
+		i, err := strconv.Atoi(segs[0])
+		if err != nil || i < 0 || i >= len(n) {
+			return
+		}
+		if len(segs) == 1 {
+			n[i] = r(path, n[i])
+		} else {
+			redactExact(n[i], segs[1:], path, r)
+		}
+	}
 }

@@ -12,15 +12,16 @@ import (
 // pipelineState holds assembly inputs and incremental stage outputs.
 // Only commit may publish them; Plan leaves manager state and history unchanged.
 type pipelineState[T any] struct {
-	reason       string
-	staged       []stagedLayer
-	sources      []SourceRef
-	merged       map[string]any
-	origins      *provenance.Index
-	target       *T
-	strict       bool
-	appendSlices bool
-	mergeKeys    map[string]string
+	reason          string
+	staged          []stagedLayer
+	sources         []SourceRef
+	merged          map[string]any
+	origins         *provenance.Index
+	target          *T
+	strict          bool
+	appendSlices    bool
+	mergeKeys       map[string]string
+	resolvedSecrets [][]string
 
 	// dryRun = true skips the terminal swap/audit/history fan-out and
 	// instructs validate to collect every report instead of bailing on

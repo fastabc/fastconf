@@ -42,7 +42,7 @@ func (m *Manager[T]) inputFingerprint(staged []stagedLayer, metaSum [32]byte, ge
 	if generation != codec.Generation() {
 		return [32]byte{}
 	}
-	if len(o.Transforms) > 0 || o.SecretResolver != nil || len(o.TypedHooks) > 0 ||
+	if len(o.Transforms) > 0 || len(o.SecretResolvers) > 0 || len(o.TypedHooks) > 0 ||
 		len(o.Validators) > 0 || len(o.Policies) > 0 || len(o.Observers) > 0 {
 		return [32]byte{}
 	}

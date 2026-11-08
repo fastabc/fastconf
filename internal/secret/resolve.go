@@ -86,3 +86,39 @@ func walkLeavesDepth(node any, prefix string, fn func(path, v string) (string, b
 		}
 	}
 }
+
+// WalkLeafSegments rewrites string leaves while preserving literal map keys.
+// fn must copy segs if it retains the path after returning.
+func WalkLeafSegments(node any, fn func(segs []string, v string) (string, bool)) {
+	var walk func(any, []string, int)
+	walk = func(node any, path []string, depth int) {
+		if depth > maxTreeDepth {
+			return
+		}
+		switch n := node.(type) {
+		case map[string]any:
+			for k, v := range n {
+				segs := append(path, k)
+				if s, ok := v.(string); ok {
+					if next, changed := fn(segs, s); changed {
+						n[k] = next
+					}
+				} else {
+					walk(v, segs, depth+1)
+				}
+			}
+		case []any:
+			for i, v := range n {
+				segs := append(path, strconv.Itoa(i))
+				if s, ok := v.(string); ok {
+					if next, changed := fn(segs, s); changed {
+						n[i] = next
+					}
+				} else {
+					walk(v, segs, depth+1)
+				}
+			}
+		}
+	}
+	walk(node, nil, 0)
+}

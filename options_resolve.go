@@ -53,12 +53,12 @@ type options struct {
 	SecretRedactor        secret.Redactor
 	SecretPaths           []string
 	// YAMLBridge decodes *T through yaml instead of the default json bridge.
-	YAMLBridge     bool
-	UnknownFields  UnknownFields
-	Tracer         obs.Tracer
-	Policies       []anyPolicy
-	OptionErrs     []error
-	SecretResolver secret.Resolver
+	YAMLBridge      bool
+	UnknownFields   UnknownFields
+	Tracer          obs.Tracer
+	Policies        []anyPolicy
+	OptionErrs      []error
+	SecretResolvers []secret.Resolver
 
 	Generators []contracts.Generator
 

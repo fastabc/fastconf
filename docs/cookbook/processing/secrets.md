@@ -1,12 +1,14 @@
 # Secret resolution and redaction
 
-`fc:"secret"` masks diagnostic values; it does not decrypt input. For encrypted
-values, implement a `SecretResolver` around the application's chosen decryption
-client. FastConf has no built-in SOPS, age, KMS or Vault transit decrypter. The resolver
-runs after `transform` and before typed hooks and decode. Transformers run before resolution;
-diagnostic views and audit diffs mask plaintext only when fields are tagged
-`fc:"secret"` or matched by `WithSecretPaths`. A resolver does not mark paths
-secret automatically.
+`fc:"secret"` masks diagnostic values; it does not decrypt input. Resolvers run
+in registration order after transforms and before defaults/typed hooks/decode.
+The first recognizer owns each leaf. Resolved paths are automatically masked in
+`Map`, `Dump`, `Diff` and `Explain`; `Value`, `Get` and `Unredacted` expose plaintext.
+Existing secret tags and `WithSecretPaths` remain useful for unencrypted inputs.
+
+`WithSecretResolvers` appends (ignoring nil); `WithSecretResolver` replaces the list.
+`PrefixSecretResolver` strips the prefix before calling an application decrypter;
+empty scheme/prefix and nil functions panic as programming errors.
 
 ## Path patterns
 
@@ -92,5 +94,20 @@ database:
 `Plan(ctx)` also invokes the resolver; missing keys can fail a preview.
 With provenance enabled, resolved leaves add an origin with
 `SourceRef.Kind = LayerSecret` and path `secret://<scheme>`. Existing layer
-origins remain in the chain. Resolution does not mark the path sensitive: tag
-the destination or configure `WithSecretPaths` before exposing diagnostics.
+origins remain in the chain. Resolved paths are automatically sensitive, including literal map keys containing dots.
+
+## Application-owned KMS client
+
+```go
+resolver := fastconf.PrefixSecretResolver("kms", "kms://", func(ctx context.Context, body string) (string, error) {
+    blob, err := base64.StdEncoding.DecodeString(body)
+    if err != nil { return "", err }
+    out, err := kmsClient.Decrypt(ctx, &kms.DecryptInput{CiphertextBlob: blob})
+    if err != nil { return "", err }
+    return string(out.Plaintext), nil
+})
+mgr, err := fastconf.New[Config](ctx, fastconf.WithSecretResolvers(resolver))
+```
+
+The application owns credentials, clients and safe error messages. Resolver
+errors should never include ciphertext, plaintext or authentication material.

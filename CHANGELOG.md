@@ -8,6 +8,8 @@ v1.4.0 to v1.5.0. Older entries below describe their historical releases.
 
 ### Added
 
+- `WithSecretResolvers` and `PrefixSecretResolver` for ordered decrypter chains.
+
 - `contracts.Notifier`, `WithNotifier` and `WithResync` for manager-owned
   consumer supervision and periodic reconciliation.
 
@@ -21,6 +23,9 @@ v1.4.0 to v1.5.0. Older entries below describe their historical releases.
   fallback after application hooks; `azappconfig.WithJSONValues` for JSON settings.
 
 ### Changed
+
+- Resolver-produced plaintext is automatically masked in diagnostic `Map`, `Dump`,
+  `Diff` and `Explain` views; `Get` and `Unredacted` retain plaintext access.
 
 - The reload pipeline and stage metrics now include `defaults` after `secret`.
 

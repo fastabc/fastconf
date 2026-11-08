@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/internal/fcerr"
@@ -70,32 +71,33 @@ func runTransform[T any](_ context.Context, m *Manager[T], pipeline *pipelineSta
 // --- secret ---
 
 func runSecretResolve[T any](ctx context.Context, m *Manager[T], pipeline *pipelineState[T]) error {
-	r := m.opts.SecretResolver
-	if r == nil {
+
+	if len(m.opts.SecretResolvers) == 0 {
 		return nil
 	}
 	var firstErr error
-	secret.WalkLeaves(pipeline.merged, "", func(path string, v string) (string, bool) {
+	secret.WalkLeafSegments(pipeline.merged, func(segs []string, v string) (string, bool) {
 		if firstErr != nil {
 			return v, false
 		}
-		ref, ok := r.Recognize(v)
-		if !ok {
-			return v, false
+		for _, r := range m.opts.SecretResolvers {
+			ref, ok := r.Recognize(v)
+			if !ok {
+				continue
+			}
+			path := strings.Join(segs, ".")
+			plain, err := r.Resolve(ctx, ref)
+			if err != nil {
+				firstErr = fmt.Errorf("%w: secret %s@%s: %w", fcerr.ErrTransform, ref.Scheme, path, err)
+				return v, false
+			}
+			pipeline.resolvedSecrets = append(pipeline.resolvedSecrets, append([]string(nil), segs...))
+			if pipeline.origins != nil {
+				pipeline.origins.Record(path, SourceRef{Kind: LayerSecret, Path: "secret://" + ref.Scheme, Priority: rankSecretResolved})
+			}
+			return plain, true
 		}
-		plain, err := r.Resolve(ctx, ref)
-		if err != nil {
-			firstErr = fmt.Errorf("%w: secret %s@%s: %w", fcerr.ErrTransform, ref.Scheme, path, err)
-			return v, false
-		}
-		if pipeline.origins != nil {
-			pipeline.origins.Record(path, SourceRef{
-				Kind:     LayerSecret,
-				Path:     "secret://" + ref.Scheme,
-				Priority: rankSecretResolved,
-			})
-		}
-		return plain, true
+		return v, false
 	})
 	return firstErr
 }

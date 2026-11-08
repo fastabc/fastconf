@@ -91,8 +91,12 @@ func (s *State[T]) Cause() ReloadCause {
 
 // newState builds an immutable snapshot from the completed pipeline.
 func (m *Manager[T]) newState(p *pipelineState[T], hash [32]byte, generation uint64, cause ReloadCause) *State[T] {
+	redactionPlan := m.redactionPlan
+	if len(p.resolvedSecrets) > 0 {
+		redactionPlan = redactionPlan.WithExactPaths(p.resolvedSecrets)
+	}
 	return &State[T]{value: p.target, hash: hash, sources: p.sources, generation: generation,
-		origins: p.origins, cause: cause, redactor: m.opts.SecretRedactor, secretPatterns: m.opts.SecretPaths, redactionPlan: m.redactionPlan}
+		origins: p.origins, cause: cause, redactor: m.opts.SecretRedactor, secretPatterns: m.opts.SecretPaths, redactionPlan: redactionPlan}
 }
 
 // restampState returns a snapshot with the same immutable payload as s but a new
