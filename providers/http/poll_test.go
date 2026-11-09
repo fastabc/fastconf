@@ -45,16 +45,21 @@ func TestWatch_ReportsPolledRevision(t *testing.T) {
 }
 
 type pollClient struct {
-	status     int
-	body, etag string
-	err        error
+	status      int
+	body, etag  string
+	err         error
+	contentType string
 }
 
 func (c *pollClient) Do(*nethttp.Request) (*nethttp.Response, error) {
 	if c.err != nil {
 		return nil, c.err
 	}
-	return &nethttp.Response{StatusCode: c.status, Body: io.NopCloser(strings.NewReader(c.body)), Header: nethttp.Header{"Content-Type": []string{"application/json"}, "Etag": []string{c.etag}}}, nil
+	contentType := c.contentType
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	return &nethttp.Response{StatusCode: c.status, Body: io.NopCloser(strings.NewReader(c.body)), Header: nethttp.Header{"Content-Type": []string{contentType}, "Etag": []string{c.etag}}}, nil
 }
 
 func TestPoll_PreservesAcceptedResponse(t *testing.T) {
@@ -68,6 +73,7 @@ func TestPoll_PreservesAcceptedResponse(t *testing.T) {
 		{"not modified", pollClient{status: 304}, false, false},
 		{"changed body", pollClient{status: 200, body: `{"value":2}`, etag: "v1"}, true, false},
 		{"changed etag", pollClient{status: 200, body: `{"value":1}`, etag: "v2"}, true, false},
+		{"changed content type", pollClient{status: 200, body: `{"value":1}`, etag: "v1", contentType: "application/yaml"}, true, false},
 		{"server error", pollClient{status: 500}, false, true},
 		{"transport error", pollClient{err: transportErr}, false, true},
 	} {

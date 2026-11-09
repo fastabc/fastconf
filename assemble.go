@@ -48,7 +48,8 @@ func compareLayers(a, b stagedLayer) int {
 // Assemble: build []stagedLayer from File / Generator / Provider layers.
 
 // stagedLayer is the unit produced by assemble() and consumed by commit().
-// Exactly one of data (owned), cachedLayer (borrowed file data) or patch is set.
+// File bytes are decoded only when the pipeline runs. Afterwards exactly one of
+// data (owned), cachedLayer (borrowed file data) or canonical patch bytes is set.
 // Layers sort by class, then classPriority, then declaration order; src.Priority is
 // the diagnostic rank (source offset plus local priority).
 type stagedLayer struct {
@@ -57,7 +58,7 @@ type stagedLayer struct {
 	classPriority int
 	data          map[string]any
 	cachedLayer   *decodedLayer
-	patch         []byte
+	bytes         []byte // discovered source bytes; canonical JSON for decoded patch layers
 	// fileSum is the sha256 of a file layer's bytes; zero for layers that do
 	// not come from a file (providers, generators, overrides).
 	fileSum [32]byte
@@ -71,10 +72,8 @@ type assemblyResult struct {
 	// fingerprint identifies the inputs when every layer is a file and
 	// nothing else can change the result (see inputFingerprint); zero
 	// otherwise.
-	fingerprint [32]byte
-	// scannedDirs lists the scanned file directories, including empty or
-	// missing ones; it is filled even when assembly fails part-way.
-	scannedDirs []string
+	fingerprint     [32]byte
+	codecGeneration uint64
 }
 
 type rootMetaSettings struct {
@@ -87,6 +86,13 @@ type rootMetaSettings struct {
 // hostnameOverride pins hostname-derived axes for Plan; empty uses the OS hostname.
 // Extra override layers sort by class/priority with declaration order breaking ties.
 func (m *Manager[T]) assemble(ctx context.Context, hostnameOverride string, extra ...stagedLayer) (assemblyResult, error) {
+	return m.assembleSources(ctx, hostnameOverride, nil, [32]byte{}, extra...)
+}
+
+// onDir is provided only for live reloads; previews must not subscribe to
+// directories chosen by their hypothetical hostname/profile inputs. unchanged
+// permits the live-input shortcut; a zero fingerprint forces decoding for Plan.
+func (m *Manager[T]) assembleSources(ctx context.Context, hostnameOverride string, onDir func(string), unchanged [32]byte, extra ...stagedLayer) (assemblyResult, error) {
 	if err := ctx.Err(); err != nil {
 		return assemblyResult{}, err
 	}
@@ -94,7 +100,6 @@ func (m *Manager[T]) assemble(ctx context.Context, hostnameOverride string, extr
 
 	var meta rootMetaSettings
 	var staged []stagedLayer
-	var scannedDirs []string
 	strict := m.opts.Strict
 	if !m.opts.SkipDiscovery {
 		scanOpt, discovered, err := m.resolveDiscovery(hostnameOverride)
@@ -103,35 +108,44 @@ func (m *Manager[T]) assemble(ctx context.Context, hostnameOverride string, extr
 		}
 		meta = discovered
 		strict = scanOpt.Strict
-		scanOpt.OnDir = func(dir string) { scannedDirs = append(scannedDirs, dir) }
+		scanOpt.OnDir = onDir
 		staged, err = m.assembleFileLayers(scanOpt)
 		if err != nil {
-			return assemblyResult{scannedDirs: scannedDirs}, discoveryError(err)
+			return assemblyResult{}, discoveryError(err)
 		}
 	}
 	generatorLayers, err := m.assembleGeneratorLayers(ctx)
 	if err != nil {
-		return assemblyResult{scannedDirs: scannedDirs}, err
+		return assemblyResult{}, err
 	}
 	staged = append(staged, generatorLayers...)
 	providerLayers, err := m.assembleProviderLayers(ctx)
 	if err != nil {
-		return assemblyResult{scannedDirs: scannedDirs}, err
+		return assemblyResult{}, err
 	}
 	staged = append(staged, providerLayers...)
 	staged = append(staged, extra...)
 	if len(staged) == 0 {
-		return assemblyResult{scannedDirs: scannedDirs}, fcerr.ErrNoSources
+		return assemblyResult{}, fcerr.ErrNoSources
 	}
 	slices.SortStableFunc(staged, compareLayers)
-	return assemblyResult{
-		staged:       staged,
-		strict:       strict,
-		appendSlices: meta.appendSlices,
-		mergeKeys:    meta.mergeKeys,
-		fingerprint:  m.inputFingerprint(staged, meta.metaSum, generation),
-		scannedDirs:  scannedDirs,
-	}, nil
+	result := assemblyResult{
+		staged:          staged,
+		strict:          strict,
+		appendSlices:    meta.appendSlices,
+		mergeKeys:       meta.mergeKeys,
+		fingerprint:     m.inputFingerprint(staged, meta.metaSum, generation),
+		codecGeneration: generation,
+	}
+	if result.fingerprint == ([32]byte{}) || result.fingerprint != unchanged {
+		if err := m.decodeFileLayers(ctx, staged); err != nil {
+			return result, err
+		}
+		if generation != codec.Generation() {
+			result.fingerprint = [32]byte{}
+		}
+	}
+	return result, nil
 }
 
 func (m *Manager[T]) resolveDiscovery(hostnameOverride string) (scan.Options, rootMetaSettings, error) {
@@ -199,31 +213,49 @@ func (m *Manager[T]) assembleFileLayers(scanOpt scan.Options) ([]stagedLayer, er
 			Priority: layer.Priority,
 			Codec:    layer.Codec,
 		}
-		if layer.Kind == scan.KindPatch {
-			raw, derr := codec.DecodeAny(layer.Codec, layer.Bytes)
-			if derr != nil {
-				return nil, fmt.Errorf("%w: %s: %w", fcerr.ErrDecode, layer.Path, derr)
-			}
-			patchBytes, perr := confmap.PatchBytesFromAny(raw)
-			if perr != nil {
-				return nil, fmt.Errorf("%w: %s: %w", fcerr.ErrMerge, layer.Path, perr)
-			}
-			staged = append(staged, stagedLayer{src: src, classPriority: src.Priority, patch: patchBytes, fileSum: sha256.Sum256(layer.Bytes)})
-			continue
-		}
-		generation := codec.Generation()
-		dec, derr := codec.For(layer.Codec)
-		if derr != nil {
-			return nil, fmt.Errorf("%w: %w", fcerr.ErrDecode, derr)
-		}
-		sum := sha256.Sum256(layer.Bytes)
-		raw, derr := m.layerCache.getOrDecode(layer, sum, dec, generation)
-		if derr != nil {
-			return nil, fmt.Errorf("%w: %s: %w", fcerr.ErrDecode, layer.Path, derr)
-		}
-		staged = append(staged, stagedLayer{src: src, classPriority: src.Priority, cachedLayer: raw, fileSum: sum})
+		staged = append(staged, stagedLayer{src: src, classPriority: src.Priority, bytes: layer.Bytes, fileSum: sha256.Sum256(layer.Bytes)})
 	}
 	return staged, nil
+}
+
+// decodeFileLayers materializes discovered bytes after the input shortcut. Plans
+// also call it, even when their inputs match the published snapshot.
+func (m *Manager[T]) decodeFileLayers(ctx context.Context, staged []stagedLayer) error {
+	m.layerCache.retain(staged)
+	for i := range staged {
+		l := &staged[i]
+		if l.fileSum == ([32]byte{}) {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if l.src.Kind == LayerPatch {
+			raw, err := codec.DecodeAny(l.src.Codec, l.bytes)
+			if err != nil {
+				return fmt.Errorf("%w: %s: %w", fcerr.ErrDecode, l.src.Path, err)
+			}
+			patch, err := confmap.PatchBytesFromAny(raw)
+			if err != nil {
+				return fmt.Errorf("%w: %s: %w", fcerr.ErrMerge, l.src.Path, err)
+			}
+			l.bytes = patch
+		} else {
+			generation := codec.Generation()
+			dec, err := codec.For(l.src.Codec)
+			if err != nil {
+				return fmt.Errorf("%w: %w", fcerr.ErrDecode, err)
+			}
+			layer := scan.Layer{Path: l.src.Path, Codec: l.src.Codec, Bytes: l.bytes}
+			raw, err := m.layerCache.getOrDecode(layer, l.fileSum, dec, generation)
+			if err != nil {
+				return fmt.Errorf("%w: %s: %w", fcerr.ErrDecode, l.src.Path, err)
+			}
+			l.cachedLayer = raw
+			l.bytes = nil
+		}
+	}
+	return nil
 }
 
 func (m *Manager[T]) assembleGeneratorLayers(ctx context.Context) ([]stagedLayer, error) {

@@ -85,14 +85,27 @@ func TestNotifier_RefreshReloadsAndReturnsResult(t *testing.T) {
 		n.trigger <- struct{}{}
 		select {
 		case err := <-n.results:
-			if err != nil {
-				t.Fatal(err)
+			if !errors.Is(err, fastconf.ErrPaused) || !errors.Is(err, fastconf.ErrFastConf) {
+				t.Fatalf("paused refresh = %v; want ErrPaused", err)
 			}
 		case <-time.After(time.Second):
 			t.Fatal("pause timed out")
 		}
 		if m.Snapshot().Generation() != g {
 			t.Fatal("reloaded while paused")
+		}
+		m.Resume()
+		n.trigger <- struct{}{} // Redelivery after the failed acknowledgement.
+		select {
+		case err := <-n.results:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("redelivery timed out")
+		}
+		if m.Get().Value != 3 {
+			t.Fatal("redelivery did not refresh")
 		}
 		if err := m.Close(); err != nil {
 			t.Fatal(err)

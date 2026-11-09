@@ -313,6 +313,9 @@ func TestFileLayerCacheInvalidation(t *testing.T) {
 		if err != nil || len(layers) != 1 {
 			t.Fatalf("layers=%v err=%v", layers, err)
 		}
+		if err := m.decodeFileLayers(context.Background(), layers); err != nil {
+			t.Fatal(err)
+		}
 		raw := layers[0].cachedLayer.cloneTree()
 		if got := raw["nested"].(map[string]any)["value"]; got != want {
 			t.Fatalf("value=%v want=%v", got, want)
@@ -342,7 +345,7 @@ func TestFileLayerCacheInvalidation(t *testing.T) {
 	check("new:two", 3)
 }
 
-func TestLayerCacheBoundAndEviction(t *testing.T) {
+func TestLayerCacheBoundAndAdmission(t *testing.T) {
 	var calls atomic.Int64
 	dec := countingLayerCodec{&calls, ""}
 	var cache layerCache
@@ -352,30 +355,30 @@ func TestLayerCacheBoundAndEviction(t *testing.T) {
 		if err != nil || raw == nil || raw.tree["nested"].(map[string]any)["value"] != "original" {
 			t.Fatalf("decode %d: %v %v", i, raw, err)
 		}
-		if len(cache.entries) > maxCachedLayers || len(cache.keys) > maxCachedLayers {
+		if len(cache.entries) > maxCachedLayers {
 			t.Fatal("cache exceeded bound")
 		}
 	}
 	before := calls.Load()
-	layer := scan.Layer{Path: "0", Codec: "test", Bytes: []byte("original")}
+	layer := scan.Layer{Path: "overflow", Codec: "test", Bytes: []byte("original")}
 	if _, err := cache.getOrDecode(layer, sha256.Sum256(layer.Bytes), dec, 0); err != nil {
 		t.Fatal(err)
 	}
 	if calls.Load() != before+1 {
-		t.Fatal("oldest layer was not evicted")
+		t.Fatal("overflow layer was not decoded")
 	}
 	if _, err := cache.getOrDecode(layer, sha256.Sum256(layer.Bytes), dec, 0); err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != before+1 {
-		t.Fatal("reinserted layer missed cache")
+	if calls.Load() != before+2 {
+		t.Fatal("overflow layer unexpectedly entered cache")
 	}
 	// The codec name is independently part of the key.
 	layer.Codec = "other"
 	if _, err := cache.getOrDecode(layer, sha256.Sum256(layer.Bytes), dec, 0); err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != before+2 {
+	if calls.Load() != before+3 {
 		t.Fatal("codec name was omitted from key")
 	}
 }
@@ -491,8 +494,8 @@ func TestLayerCacheKeepsLatestVersion(t *testing.T) {
 		if got := entry.tree["nested"].(map[string]any)["value"]; got != version {
 			t.Fatalf("value=%v, want %s", got, version)
 		}
-		if len(cache.entries) != 1 || len(cache.keys) != 1 {
-			t.Fatalf("retained history: %d entries, %d keys", len(cache.entries), len(cache.keys))
+		if len(cache.entries) != 1 {
+			t.Fatalf("retained history: %d entries", len(cache.entries))
 		}
 	}
 	if calls.Load() != 3 {

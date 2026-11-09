@@ -1,0 +1,13 @@
+# Explicit false and zero survive absent-key defaults.
+enabled: false
+retries: 0
+level: "3"
+feature: "yes"
+hosts: "api-a, api-b"
+ports: '[8080, "9090"]'
+regions: {"0": eu, "1": us}
+server:
+  url: "https://${HOST:example.test}"
+callback: "${server.url}/callback"
+owner: "${OWNER:?OWNER must be set}"
+literal: "$${NOT_EXPANDED}"

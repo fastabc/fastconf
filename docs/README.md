@@ -1,8 +1,9 @@
 # Documentation
 
-These pages and installation examples target v1.5.0. For another release,
-read the same path at its installed tag. Commands run from the repository root
-unless stated otherwise.
+These pages follow the current checkout, including post-v1.5.0 features listed
+under `Unreleased` in the [changelog](../CHANGELOG.md). Version-pinned installation
+examples use v1.5.0; read the same path at your installed tag for release-specific
+behavior. Commands run from the repository root unless stated otherwise.
 
 ## Start here
 
@@ -13,6 +14,7 @@ unless stated otherwise.
 | Manage runtime updates | [Dynamic guide](getting-started/dynamic.md) with `New` |
 | Add a source, validator or policy | [Extensions and optional modules](getting-started/extensions.md) |
 | Run complete programs | [Examples](../examples/README.md) |
+| Generate JSON Schema, YAML and env examples | [Schema and examples](cookbook/processing/schema.md); added after v1.5.0 |
 | Find a task-specific recipe | [Cookbook by function](cookbook/README.md) |
 | Upgrade from v0.20.0 | [Migration to v1.1.0](cookbook/migration-v1.md) |
 | Upgrade from v1.4.0 | [v1.5.0 upgrade notes](cookbook/migration-v1.md#upgrading-from-v140-to-v150) |
@@ -52,5 +54,3 @@ claims that every extension is built in. Discover modules through
 `bash tools/modules.sh matrix`; keep dated measurements with their environment.
 Local `archive/`, `plans/` and review directories are ignored by Git and are
 not published API contracts. This index does not depend on those local records.
-
-- [结构体生成 Schema 与示例](cookbook/processing/schema.md) (v1.6.0)

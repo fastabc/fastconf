@@ -151,7 +151,8 @@ func (m *Manager[T]) runReloadRequest(req reloadRequest) {
 	}
 }
 
-// Errors reports failed reloads and plans, including errors returned synchronously.
+// Errors reports failed reloads, plans and queued rollbacks, including errors
+// returned synchronously. Argument errors rejected before enqueueing are excluded.
 // The bounded channel evicts the oldest error on overflow and closes during Close.
 // A nil Manager returns a closed channel.
 func (m *Manager[T]) Errors() <-chan ReloadError {

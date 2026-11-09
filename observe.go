@@ -39,7 +39,7 @@ type ReloadFinished struct {
 }
 
 // StageFinished reports one pipeline stage: assemble, merge, transform,
-// secret, typed-hooks, decode, field-meta, validate, policy or commit.
+// secret, defaults, typed-hooks, decode, field-meta, validate, policy or commit.
 // Plan dry-runs report their pipeline stages too.
 type StageFinished struct {
 	Stage string
@@ -47,7 +47,8 @@ type StageFinished struct {
 	Err   error
 }
 
-// ProviderError reports a provider Watch failure or a resume gap.
+// ProviderError reports a provider Watch failure, a resume gap or a managed
+// notifier that stops before manager shutdown.
 type ProviderError struct {
 	Provider string
 	Err      error

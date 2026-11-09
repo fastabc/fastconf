@@ -46,7 +46,7 @@ func run(out io.Writer) error {
 	mgr, err := fastconf.New[Config](ctx,
 		fastconf.WithDir(dir),
 		fastconf.WithProvider(source.NewFile(path)),
-		fastconf.WithHistory(4),
+		fastconf.WithHistory(2),
 		fastconf.WithUnknownFields(fastconf.UnknownError),
 		fastconf.WithPolicy(policy.Func[Config]{N: "port-policy", Fn: func(_ context.Context, in policy.Input[Config]) ([]policy.Violation, error) {
 			if in.Config.Port == 7070 {
@@ -70,7 +70,7 @@ func run(out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := checkPlan(preview); err == nil {
+	if err := preview.Err(); err == nil {
 		return fmt.Errorf("invalid preview was accepted")
 	}
 	violations := 0
@@ -95,7 +95,7 @@ func run(out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := checkPlan(preview); err == nil {
+	if err := preview.Err(); err == nil {
 		return fmt.Errorf("policy preview was accepted")
 	}
 	if _, err := fmt.Fprintf(out, "policy preview: rejected=true live=%d\n", mgr.Get().Port); err != nil {
@@ -108,7 +108,7 @@ func run(out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := checkPlan(preview); err != nil {
+	if err := preview.Err(); err != nil {
 		return err
 	}
 	if err := printChange(out, mgr.Snapshot(), preview); err != nil {
@@ -144,29 +144,22 @@ func run(out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := checkPlan(preview); err != nil {
+	if err := preview.Err(); err != nil {
 		return err
 	}
 	if err := mgr.Reload(ctx); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(out, "source repaired: port=%d generation=%d\n", mgr.Get().Port, mgr.Snapshot().Generation())
+	if _, err := fmt.Fprintf(out, "source repaired: port=%d generation=%d\n", mgr.Get().Port, mgr.Snapshot().Generation()); err != nil {
+		return err
+	}
+	// A stored pointer does not pin a snapshot in the bounded history.
+	before := mgr.Snapshot()
+	if err := mgr.History().Rollback(initial); !errors.Is(err, fastconf.ErrUnknownGeneration) {
+		return fmt.Errorf("expected expired history target, got %v", err)
+	}
+	_, err = fmt.Fprintf(out, "expired rollback: rejected=true preserved=%t\n", mgr.Snapshot() == before)
 	return err
-}
-
-// A nil Plan error only means a preview was produced. Inspect both report sets.
-func checkPlan[T any](p *fastconf.PlanResult[T]) error {
-	for _, r := range p.Validators {
-		if r.Err != nil {
-			return fmt.Errorf("validator %s: %w", r.Name, r.Err)
-		}
-	}
-	for _, v := range p.Policies {
-		if v.Severity == policy.SeverityError {
-			return fmt.Errorf("policy %s rejected %s", v.Rule, v.Path)
-		}
-	}
-	return nil
 }
 
 func printChange[T any](out io.Writer, before *fastconf.State[T], p *fastconf.PlanResult[T]) error {

@@ -2,6 +2,8 @@ package fastconf
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/fastabc/fastconf/policy"
@@ -16,6 +18,33 @@ type PlanResult[T any] struct {
 	// during the dry-run. Findings with SeverityError would have aborted a real
 	// reload; here they are captured for inspection instead.
 	Policies []policy.Violation
+}
+
+// Err aggregates failed validators and error-level policy findings. Warnings do
+// not reject a plan. A nil or incomplete result returns ErrInvalid. The result
+// supports errors.Is(ErrInvalid), errors.Is for validator causes and errors.As
+// for *PolicyError; the original reports remain available for inspection.
+// A successful preview does not reserve its inputs: Reload reads them again.
+func (p *PlanResult[T]) Err() error {
+	if p == nil || p.Proposed == nil {
+		return fmt.Errorf("%w: no proposed snapshot", ErrInvalid)
+	}
+	var errs []error
+	for _, report := range p.Validators {
+		if report.Err != nil {
+			errs = append(errs, fmt.Errorf("%w: %s: %w", ErrInvalid, report.Name, report.Err))
+		}
+	}
+	var violations []policy.Violation
+	for _, violation := range p.Policies {
+		if violation.Severity == policy.SeverityError {
+			violations = append(violations, violation)
+		}
+	}
+	if len(violations) > 0 {
+		errs = append(errs, &PolicyError{Violations: violations})
+	}
+	return errors.Join(errs...)
 }
 
 // ValidatorReport is one row in PlanResult.Validators.
@@ -41,7 +70,8 @@ func WithPlanHostname(host string) PlanOption {
 
 // Plan previews the pipeline without publication. It queues on the same writer as
 // Reload, so user hooks remain serialized. Hooks may still have external effects;
-// a failed preview also reaches Errors. Inspect both Validators and Policies.
+// a failed preview also reaches Errors. A nil error means a preview was produced;
+// call PlanResult.Err to check whether validation or policy findings reject it.
 func (m *Manager[T]) Plan(ctx context.Context, opts ...PlanOption) (*PlanResult[T], error) {
 	if m == nil {
 		return nil, ErrClosed

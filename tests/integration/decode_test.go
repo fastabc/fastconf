@@ -23,6 +23,71 @@ type typedCfg struct {
 	} `json:"server"`
 }
 
+func TestTypedHooks_JSONCaseInsensitiveFields(t *testing.T) {
+	type cfg struct {
+		Timeout time.Duration `json:"timeout"`
+		Server  struct {
+			URL   *url.URL `json:"url"`
+			Ports []int    `json:"ports"`
+		} `json:"server"`
+	}
+	for _, tc := range []struct{ name, input, host string }{
+		{"folded", `{"TIMEOUT":"5s","SERVER":{"URL":"https://example.com","PORTS":"80,443"}}`, "example.com"},
+		{"multiple aliases", `{"TIMEOUT":"1s","timeout":"5s","SERVER":{"URL":"https://first.test","url":"https://example.com","PORTS":"1","ports":"80,443"}}`, "example.com"},
+		{"null alias", `{"TIMEOUT":"5s","SERVER":{"URL":"https://first.test","url":null,"PORTS":"80,443"}}`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			files := fstest.MapFS{"conf.d/base/app.json": {Data: []byte(tc.input)}}
+			st, err := fastconf.Load[cfg](context.Background(), fastconf.WithFS(files),
+				fastconf.WithTypedHook(codec.URLHook{}), fastconf.WithUnknownFields(fastconf.UnknownError))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := st.Value()
+			if got.Timeout != 5*time.Second || !reflect.DeepEqual(got.Server.Ports, []int{80, 443}) {
+				t.Fatalf("decoded: %+v", got)
+			}
+			if tc.host == "" {
+				if got.Server.URL != nil {
+					t.Fatalf("null alias did not clear URL: %v", got.Server.URL)
+				}
+			} else if got.Server.URL == nil || got.Server.URL.Host != tc.host {
+				t.Fatalf("URL = %v, want host %s", got.Server.URL, tc.host)
+			}
+		})
+	}
+}
+
+func TestTypedHooks_ExactFieldShieldsCaseInsensitiveMatch(t *testing.T) {
+	type cfg struct {
+		Timeout time.Duration `json:"timeout"`
+		Text    string        `json:"TIMEOUT"`
+	}
+	files := fstest.MapFS{"conf.d/base/app.json": {Data: []byte(`{"TIMEOUT":"plain text","timeout":"5s"}`)}}
+	st, err := fastconf.Load[cfg](context.Background(), fastconf.WithFS(files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Value(); got.Timeout != 5*time.Second || got.Text != "plain text" {
+		t.Fatalf("decoded: %+v", got)
+	}
+}
+
+func TestTypedHooks_YAMLNamesRemainCaseSensitive(t *testing.T) {
+	type cfg struct {
+		Timeout time.Duration `json:"timeout" yaml:"timeout"`
+	}
+	files := fstest.MapFS{"conf.d/base/app.yaml": {Data: []byte("TIMEOUT: not-a-duration\n")}}
+	st, err := fastconf.Load[cfg](context.Background(), fastconf.WithFS(files),
+		fastconf.WithDecodeFormat(fastconf.YAML), fastconf.WithUnknownFields(fastconf.UnknownIgnore))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Value().Timeout != 0 {
+		t.Fatalf("unexpected YAML alias: %v", st.Value())
+	}
+}
+
 func TestYAMLBridge_DetectsJSONHiddenFieldChange(t *testing.T) {
 	type cfg struct {
 		Name     string `yaml:"name" json:"name"`
@@ -609,5 +674,28 @@ func TestKVStringLeaves_DisabledWithoutDefaultTypedHooks(t *testing.T) {
 	_, err := fastconf.Load[C](context.Background(), fastconf.WithProvider(&snapshotProvider{name: "kv", data: map[string]any{"hosts": "a,b"}}), fastconf.WithoutDefaultTypedHooks())
 	if !errors.Is(err, fastconf.ErrDecode) {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestTypedHooks_YAMLUsesOnlyYAMLNames(t *testing.T) {
+	type C struct {
+		Port    int           `json:"json_port" yaml:"port"`
+		Ignored time.Duration `json:"ignored" yaml:"-"`
+	}
+	got := loadYAML[C](t, "json_port: invalid\nport: '9090'\nignored: invalid\n",
+		fastconf.WithDecodeFormat(fastconf.YAML), fastconf.WithUnknownFields(fastconf.UnknownIgnore))
+	if got.Port != 9090 || got.Ignored != 0 {
+		t.Fatalf("YAML fields not respected: %+v", got)
+	}
+}
+
+func TestTypedHooks_JSONIgnoresYAMLOnlyAliases(t *testing.T) {
+	type C struct {
+		Port int `json:"port" yaml:"listen_port" default:"8080"`
+	}
+	got := loadYAML[C](t, "listen_port: invalid\n",
+		fastconf.WithUnknownFields(fastconf.UnknownIgnore))
+	if got.Port != 8080 {
+		t.Fatalf("JSON default suppressed by unknown YAML alias: %+v", got)
 	}
 }

@@ -15,6 +15,7 @@ import (
 
 // WithNotifier appends a notification consumer owned by the Manager lifetime.
 // Load ignores it. Consumers should use refresh's result before acknowledging.
+// A refresh requested while paused returns ErrPaused; consumers must retry it.
 func WithNotifier(n contracts.Notifier) Option {
 	return func(o *options) {
 		if n == nil {
@@ -58,7 +59,7 @@ func (m *Manager[T]) runNotifier(ctx context.Context, n contracts.Notifier, name
 	backoff := providerutil.Backoff{Min: 250 * time.Millisecond, Max: 30 * time.Second}
 	refresh := func(work context.Context) error {
 		if m.Paused() {
-			return nil
+			return ErrPaused
 		}
 		return m.requestReload(work, name, "")
 	}

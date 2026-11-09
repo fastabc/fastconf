@@ -131,7 +131,10 @@ func (p *Provider) Describe() contracts.ProviderInfo {
 // Load implements contracts.Provider.
 func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 	m, err := p.loadMap(ctx)
-	return contracts.Snapshot{Map: m}, err
+	if err != nil {
+		return contracts.Snapshot{}, contracts.SafeError("consul: load failed", err)
+	}
+	return contracts.Snapshot{Map: m}, nil
 }
 
 // A single recursive GET against the prefix (with a trailing slash in ModeKV)

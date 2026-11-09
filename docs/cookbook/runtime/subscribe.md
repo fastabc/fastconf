@@ -31,8 +31,10 @@ A panic in the extractor, comparator or callback is recovered and reported on
 `Errors()` with reason `subscriber-panic`; the snapshot has already published
 and is not rolled back.
 
-Equal typed hashes skip publication before subscribers run. Even a comparator
-that always returns false cannot observe those no-op reloads.
+Equal typed hashes skip subscribers on reload. A change to resolver-sensitive
+paths still publishes a metadata commit for diagnostics/history/audit, but does
+not invoke value subscribers. Even a comparator that always returns false cannot
+observe equal-value reloads; use an observer for their lifecycle events.
 
 ## Updating connections or other resources
 

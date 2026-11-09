@@ -125,7 +125,8 @@ mgr, err := fastconf.New[Config](ctx, fastconf.WithSecretResolvers(
 ))
 ```
 
-`vault` is `providers/vault`; `age` is the independent `secrets/age` module.
+`vault` is `providers/vault`; `age` is the independent `secrets/age` module
+(Go 1.26+, released under `secrets/age/vX.Y.Z`).
 Vault bodies are `app/db#password`, resolved from `/v1/<mount>/data/app/db`.
 Static tokens or existing `WithAuth` are supported; a dynamic token retries login once on 403.
 Only string, numeric and boolean values are supported.

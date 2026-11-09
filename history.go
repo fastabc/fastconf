@@ -41,7 +41,9 @@ func (r *History[T]) List() []*State[T] {
 }
 
 // Rollback republishes target as a new generation. target must be one of
-// the snapshots List returns.
+// the snapshots List returns and still be retained when the writer executes the
+// request. Concurrent commits can evict it; in that case ErrUnknownGeneration
+// is returned without publication. Rollback restores memory, not source files.
 func (r *History[T]) Rollback(target *State[T]) error {
 	if r == nil {
 		return ErrHistoryDisabled
@@ -50,13 +52,6 @@ func (r *History[T]) Rollback(target *State[T]) error {
 	if target == nil {
 		return fmt.Errorf("%w: nil target", ErrUnknownGeneration)
 	}
-	m.historyMu.Lock()
-	found := m.history.Find(func(s *State[T]) bool { return s.Generation() == target.Generation() })
-	m.historyMu.Unlock()
-	if found != target {
-		return fmt.Errorf("%w: generation %d not in history", ErrUnknownGeneration, target.Generation())
-	}
-
 	return m.submitAndWait(context.Background(), reloadRequest{
 		reason: "rollback",
 		run: func(_ context.Context) error {
@@ -66,6 +61,14 @@ func (r *History[T]) Rollback(target *State[T]) error {
 }
 
 func (m *Manager[T]) applyRollback(target *State[T]) error {
+	// Check membership on the writer, not before enqueueing: a preceding commit
+	// may have evicted the target while this request waited in the queue.
+	m.historyMu.Lock()
+	found := m.history.Find(func(s *State[T]) bool { return s == target })
+	m.historyMu.Unlock()
+	if target == nil || found == nil {
+		return fmt.Errorf("%w: generation %d not in history", ErrUnknownGeneration, target.Generation())
+	}
 	prev := m.state.Load()
 	cause := ReloadCause{
 		Reason: "rollback",
@@ -76,6 +79,7 @@ func (m *Manager[T]) applyRollback(target *State[T]) error {
 	// The live state no longer reflects the last reload's inputs.
 	m.publishedFingerprint = [32]byte{}
 	m.publishSnapshot(prev, next, "rollback")
+	m.notifySubscribers(prev, next)
 	if prev != nil {
 		m.opts.Logger.LogAttrs(context.Background(), slog.LevelInfo, "fastconf rollback", slog.Uint64("from", prev.Generation()), slog.Uint64("to", next.Generation()))
 	}

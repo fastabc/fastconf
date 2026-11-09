@@ -77,6 +77,7 @@ not apply to every adapter.
 | go-playground validation | [`validate/playground`](../../validate/playground/go.mod) |
 | CUE validation and policies | [`cue`](../../cue/go.mod); includes `cuelang` and `policy` packages |
 | OPA/Rego policies | [`policy/opa`](../../policy/opa/go.mod) |
+| age field decryption | [`secrets/age`](../../secrets/age/go.mod); new after v1.5.0, requires Go 1.26+ |
 | Prometheus metrics | [`observability/metrics/prometheus`](../../observability/metrics/prometheus/go.mod) |
 | OpenTelemetry tracing | [`observability/otel`](../../observability/otel/go.mod) |
 | zerolog logging | [`integrations/log/zerolog`](../../integrations/log/zerolog/go.mod) |

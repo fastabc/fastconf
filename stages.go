@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/fastabc/fastconf/confmap"
@@ -23,8 +24,8 @@ func runMerge[T any](_ context.Context, m *Manager[T], pipeline *pipelineState[T
 	pipeline.origins = provenance.NewIndex(m.opts.Provenance)
 	mergeOpt := confmap.Options{Strict: pipeline.strict, AppendSlices: pipeline.appendSlices, MergeKeys: pipeline.mergeKeys}
 	for _, l := range pipeline.staged {
-		if l.patch != nil {
-			next, err := confmap.ApplyPatch(pipeline.merged, l.patch)
+		if l.src.Kind == LayerPatch && l.bytes != nil {
+			next, err := confmap.ApplyPatch(pipeline.merged, l.bytes)
 			if err != nil {
 				return fmt.Errorf("%w: %s: %w", fcerr.ErrMerge, l.src.Path, err)
 			}
@@ -34,7 +35,7 @@ func runMerge[T any](_ context.Context, m *Manager[T], pipeline *pipelineState[T
 			// patch-written, corrupting Explain for untouched
 			// keys. Guard on origins to keep Off-level reloads walk-free.
 			if pipeline.origins != nil {
-				if paths, perr := confmap.PatchPaths(l.patch); perr == nil {
+				if paths, perr := confmap.PatchPaths(l.bytes); perr == nil {
 					for _, p := range paths {
 						if p != "" {
 							pipeline.origins.Record(p, l.src)
@@ -99,6 +100,8 @@ func runSecretResolve[T any](ctx context.Context, m *Manager[T], pipeline *pipel
 		}
 		return v, false
 	})
+	// Map iteration order is unstable; publication compares path sets, not visit order.
+	slices.SortFunc(pipeline.resolvedSecrets, func(a, b []string) int { return slices.Compare(a, b) })
 	return firstErr
 }
 

@@ -38,12 +38,18 @@ Use `WithAuth` to supply an authentication implementation, such as
 renew. `WithInterval(0)` disables metadata polling; auth renewal is controlled
 separately by `WithRenewBefore`.
 
+`AppRoleAuth` accepts complete responses of at most 64 KiB. Read, size and decode
+failures reject the login; displayed errors omit response values while
+`errors.Is` / `errors.As` preserve the underlying cause.
+
 The Vault provider polls the KV-v2 metadata endpoint and emits a reload
 event whenever `current_version` changes. It does not currently expose a
 resumable revision cursor; if you need disconnect resume semantics, wrap
 Vault in a custom provider whose `Watch(ctx, from)` honors the revision.
 Reading a KV secret does not mark its paths sensitive; configure `fc:"secret"`
 or `WithSecretPaths` for diagnostic redaction. See [secrets](../processing/secrets.md).
+Numeric values remain `json.Number` in provider snapshots and retain their exact
+JSON literal when resolved as fields, including integers beyond float64 precision.
 
 ## 字段引用 (v1.6.0)
 

@@ -20,7 +20,7 @@ func TestTagDefaultsFor_Paths(t *testing.T) {
 		t.Fatalf("%+v", defs)
 	}
 }
-func TestInjectTagDefaults_AliasPresence(t *testing.T) {
+func TestInjectTagDefaults_IgnoresOtherBridgeAlias(t *testing.T) {
 	type C struct {
 		MaxConns int `json:"maxConns" yaml:"max_conns" default:"5"`
 	}
@@ -30,7 +30,7 @@ func TestInjectTagDefaults_AliasPresence(t *testing.T) {
 	}
 	m := map[string]any{"max_conns": 7}
 	InjectTagDefaults(m, defs, false, nil)
-	if len(m) != 1 || m["max_conns"] != 7 {
+	if len(m) != 2 || m["max_conns"] != 7 || m["maxConns"] != "5" {
 		t.Fatalf("%v", m)
 	}
 }

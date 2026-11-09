@@ -44,9 +44,6 @@ type Manager[T any] struct {
 	bgWG           sync.WaitGroup
 	fileWatcher    *watcher.Watcher
 	dirReloadSlots sync.Map // directory key → *dirReloadSlot
-	// scannedDirs holds the directories the last reload scanned (writer-owned).
-	scannedDirs []string
-
 	// Serialized external reload trigger; watcher → reloadCh → reload goroutine.
 	reloadCh chan reloadRequest
 	// A single pending refresh survives provider notification overflow.
@@ -78,22 +75,25 @@ type Manager[T any] struct {
 	customEncoding bool
 }
 
-// New loads synchronously, then starts the writer and configured watchers.
+// New registers file watches before loading synchronously, then starts the writer.
 // ctx bounds initialization only; background work retains its values until Close
-// or Shutdown. A failed initial load starts no workers.
+// or Shutdown. A failed initial load releases its file watcher and starts no writer.
 func New[T any](ctx context.Context, opts ...Option) (*Manager[T], error) {
 	m, err := newManager[T](ctx, opts)
 	if err != nil {
 		return nil, err
 	}
-	if err := m.reload(ctx, "initial", ""); err != nil {
-		m.lifetimeCancel()
-		return nil, err
+	if m.opts.FileWatch {
+		if err := m.startFileWatcher(m.lifetime); err != nil {
+			_ = m.Close()
+			return nil, err
+		}
 	}
-	if err := m.startBackground(); err != nil {
+	if err := m.reload(ctx, "initial", ""); err != nil {
 		_ = m.Close()
 		return nil, err
 	}
+	m.startBackground()
 	return m, nil
 }
 
@@ -168,19 +168,13 @@ func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) 
 	}, nil
 }
 
-func (m *Manager[T]) startBackground() error {
+func (m *Manager[T]) startBackground() {
 	m.bgWG.Add(1)
 	go m.reloadLoop()
-	if m.opts.FileWatch {
-		if err := m.startFileWatcher(m.lifetime); err != nil {
-			return err
-		}
-	}
 	// Provider Watch is its own opt-in (a nil channel means "no watch"),
 	// so it does not depend on the file-watcher switch.
 	m.startProviderWatchers(m.lifetime)
 	m.startNotifiers(m.lifetime)
-	return nil
 }
 
 // Get returns a pointer to the current snapshot's value. Zero

@@ -85,6 +85,8 @@ dependencies as needed and verify their checksums normally.
   checksum record, and v1.4.0 because option fields reached through `Option` were
   renamed. Current checks default to `BASE=v1.4.0`.
 - `make vulnerabilities`: scan declared dependencies with pinned govulncheck.
+- `python3 tools/release-notes.py vX.Y.Z`: preview the exact changelog section
+  used as the GitHub Release Note; missing, empty or duplicate versions fail.
 - `bash tools/check-candidate.sh make vulnerabilities`: scan candidate dependencies.
 - `bash tools/tag-release.sh vX.Y.Z --dry-run`: validate and list coordinated tags.
 - `bash tools/tag-release.sh vX.Y.Z [--push]`: create immutable annotated tags;

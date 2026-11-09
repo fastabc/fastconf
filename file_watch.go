@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"path/filepath"
-	"slices"
 	"sync"
 
 	"github.com/fastabc/fastconf/internal/coalesce"
@@ -26,14 +25,6 @@ func (m *Manager[T]) startFileWatcher(ctx context.Context) error {
 		return nil
 	}
 	paths := staticWatchPaths(&m.opts)
-	// Also watch every directory the initial reload scanned: profile- and
-	// axis-specific overlays that the static list above misses. The reload
-	// loop has not served a request yet, so scannedDirs is stable here.
-	for _, p := range m.scannedDirs {
-		if p = normalizeWatchPath(p); !slices.Contains(paths, p) {
-			paths = append(paths, p)
-		}
-	}
 	if len(paths) == 0 {
 		return nil
 	}
@@ -88,11 +79,9 @@ func (m *Manager[T]) startFileWatcher(ctx context.Context) error {
 	return nil
 }
 
-// refreshWatchPaths subscribes to every directory a reload scanned. The
-// watcher deduplicates, and re-resolves the paths when directories are
-// removed and recreated.
-func (m *Manager[T]) refreshWatchPaths(dirs []string) {
-	m.scannedDirs = dirs
+// watchSourceDir runs before discovery reads a directory or its metadata.
+// The watcher deduplicates paths and tracks directory replacement.
+func (m *Manager[T]) watchSourceDir(dir string) {
 	if m.fileWatcher == nil {
 		return
 	}
@@ -101,13 +90,11 @@ func (m *Manager[T]) refreshWatchPaths(dirs []string) {
 		return
 	default:
 	}
-	for _, p := range dirs {
-		if p = normalizeWatchPath(p); p == "" {
-			continue
-		}
-		if err := m.fileWatcher.AddPath(p); err != nil {
-			m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "watch: add source dir failed", slog.String("path", p), slog.Any("err", err))
-		}
+	if dir = normalizeWatchPath(dir); dir == "" {
+		return
+	}
+	if err := m.fileWatcher.AddPath(dir); err != nil {
+		m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "watch: add source dir failed", slog.String("path", dir), slog.Any("err", err))
 	}
 }
 
@@ -158,6 +145,8 @@ func normalizeWatchPath(p string) string {
 // until Resume. It discards a pending overflow refresh but does not cancel
 // queued or in-flight requests. Explicit Reload, Plan and History().Rollback
 // still run. After Resume, explicitly Reload to catch changes made while paused.
+// Notifier refreshes return ErrPaused so consumers retain unacknowledged events;
+// periodic resync skips paused intervals.
 func (m *Manager[T]) Pause() {
 	if m != nil {
 		m.eventsPaused.Store(true)

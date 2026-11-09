@@ -33,9 +33,11 @@ map view. Keep race-detector timings separate from performance samples.
 
 After assembly, file-only inputs are fingerprinted using file contents,
 paths, priority, profile, codec, root metadata and codec registry generation.
-An equal fingerprint skips merge through hashing and avoids cloning cached
-file trees. Assembly borrows immutable decoded layers; merge clones them
-before any mutable pipeline stage. Files are still read on each reload:
+An equal fingerprint skips file decoding as well as merge through hashing.
+Assembly fingerprints discovered bytes before obtaining decoded layers from the
+cache; equal eligible inputs bypass decoding. Source decode failures remain
+assembly failures for logging and stage observation. Merge clones cached trees before any mutable
+pipeline stage. Files are still read on each reload:
 neither size nor mtime determines freshness.
 
 The shortcut is disabled by providers, generators, overrides, transforms,
@@ -47,10 +49,15 @@ failed reloads do not update it. Plans always execute their pipeline.
 ## Retained memory
 
 Each manager caches the latest successfully decoded version for at most 512
-file path/codec pairs. Content hash and codec registry generation validate a
-hit. Reverting a changed file decodes it again; failed decodes do not replace
-the last successful entry. New paths use FIFO eviction, bounded by entry
-count rather than bytes, so retained memory depends on document sizes.
+file path/codec pairs, with a 16 MiB budget on the sum of their original source
+document sizes. This is an admission weight, not a decoded-heap or RSS limit:
+codecs can expand input, and maps add overhead. Content hash and codec registry
+generation validate a hit. Reverting a changed file decodes it again; failed
+decodes do not replace the last successful entry. Before decoding a scan, entries
+for absent paths are released. Active entries are retained; excess paths are
+decoded without admission, avoiding sequential-scan thrashing above capacity.
+An oversized successful replacement releases its obsolete entry but is not
+cached. Source bytes themselves are not retained by the cache.
 
 Snapshots lazily cache one immutable JSON tree for diagnostics. Each returned
 view is detached, including custom redactor inputs. `Get` does not create
@@ -67,7 +74,11 @@ encoded bridge bytes. Both JSON and YAML retain the strict/loose decode
 order; retries never reuse a partially decoded target.
 
 The final typed value is hashed after decode/defaults whenever the pipeline
-runs. Subscriber equality avoids unnecessary callbacks. RFC 6902 patching
+runs. Equal values still publish when resolver-sensitive paths change; these
+metadata commits advance history/generation and emit Committed with an empty
+value diff, without invoking subscribers. Other source/provenance-only changes
+retain the previous committed snapshot when the value and sensitive paths match.
+Subscriber equality avoids unnecessary value callbacks. RFC 6902 patching
 works on a copy of the merged map, retaining untouched leaf types.
 
 ## Resource soak
@@ -250,17 +261,17 @@ Go 1.26.10，固定 GOMAXPROCS=4、GOGC=100，GOEXPERIMENT 默认为空，不使
 
 | Benchmark | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: |
-| `BenchmarkGetWarmState` | 0.2347 | 0 | 0 |
-| `BenchmarkReloadNoop` | 2,647 | 2,968 | 31 |
+| `BenchmarkGetWarmState` | 0.2432 | 0.2535 | 0 | 0 | 0 / 0 |
+| `BenchmarkReloadNoop` | 2,799 | 2,869 | 2,968 | 2,976 | 31 / 31 |
 | `BenchmarkReloadCommitSmall` | 7,683 | 8,276 | 111 |
 | `BenchmarkReloadCommitYAML` | 11,026.5 | 27,321 | 165 |
 | `BenchmarkReloadDocument/4KiB` | 4,315.5 | 7,784 | 31 |
 | `BenchmarkReloadDocument/64KiB` | 30,282 | 76,648 | 31 |
 | `BenchmarkReloadDocument/1024KiB` | 368,753 | 1,059,688 | 31 |
-| `BenchmarkSubscribeContention` | 13,040 | 10,158.5 | 115 |
-| `BenchmarkReloadManySubscribers/1` | 7,526 | 8,276 | 111 |
-| `BenchmarkReloadManySubscribers/10` | 8,097.5 | 8,437.5 | 112 |
-| `BenchmarkReloadManySubscribers/50` | 9,284 | 9,173.5 | 112 |
+| `BenchmarkSubscribeContention` | 13,843 | 13,576 | 10,159 | 10,199 | 115 / 115 |
+| `BenchmarkReloadManySubscribers/1` | 8,396 | 8,544 | 8,276 | 8,316 | 111 / 111 |
+| `BenchmarkReloadManySubscribers/10` | 8,540 | 8,867 | 8,438 | 8,477 | 112 / 112 |
+| `BenchmarkReloadManySubscribers/50` | 10,049 | 10,240 | 9,175 | 9,214 | 112 / 112 |
 | `BenchmarkTypedHooksWide` | 2,629 | 3,080 | 31 |
 | `BenchmarkStateMapCold` | 1,394.5 | 2,880 | 30 |
 | `BenchmarkReloadCommitObserver` | 14,035 | 16,505 | 222 |
@@ -271,14 +282,14 @@ Go 1.26.10，固定 GOMAXPROCS=4、GOGC=100，GOEXPERIMENT 默认为空，不使
 | `BenchmarkDiffDeep/equal` | 30,560 | 4,264 | 5 |
 | `BenchmarkDiffDeep/sparse` | 30,824.5 | 4,552 | 8 |
 | `BenchmarkDiffDeep/dense` | 34,612.5 | 16,664 | 75 |
-| `BenchmarkSubscriberChurn` | 58.12 | 88 | 3 |
+| `BenchmarkSubscriberChurn` | 61.16 | 60.51 | 88 | 88 | 3 / 3 |
 | `BenchmarkLayerCacheVersions` | 55,807,823 | 84,918,082 | 1,098 |
 | `BenchmarkLayerCacheAlternating` | 708,295 | 1,309,522 | 24 |
 | `BenchmarkGet` | 0.3203 | 0 | 0 |
 | `BenchmarkGetParallel` | 0.1116 | 0 | 0 |
 | `BenchmarkReloadLarge` | 135,626 | 209,064 | 1,320 |
-| `BenchmarkReloadLargeIncremental` | 293,396.5 | 462,492 | 3,995 |
-| `BenchmarkReloadWide` | 4,128,289.5 | 3,624,536 | 62,428 |
+| `BenchmarkReloadLargeIncremental` | 318,721 | 329,970 | 462,471 | 462,493 | 3,994 / 3,994 |
+| `BenchmarkReloadWide` | 4,351,902 | 4,462,527 | 3,613,232 | 3,638,156 | 62,427 / 62,429 |
 | `BenchmarkFeatureEval` | 34.78 | 0 | 0 |
 | `BenchmarkExplainDeep` | 285.3 | 2,048 | 1 |
 
@@ -325,3 +336,35 @@ bash tools/bench-guard.sh
 `root-raw.txt`、`root-summary.txt`、JSON 实验原始数据及摘要、只读路径 guard 结果。
 原始数据不进入发布模块。跨库比较的基准、独立延迟和 RSS 见
 [v1.6.0 比较报告](../../benchmarks/compare/REPORT.zh.md)。
+
+## 2026-11-09 Reload 一致性与缓存边界优化
+
+Apple M5 Pro，Go 1.26.10，darwin/arm64，GOMAXPROCS=4，GOGC=100；
+基线 `48b700e` 与本次工作区，使用同一夹具，各三个 300ms 样本取中位数，串行非 race。
+
+| Benchmark | 基线 ns/op | 最终 ns/op | 基线 B/op | 最终 B/op | 基线/最终 allocs |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `BenchmarkGetWarmState` | 0.2432 | 0.2535 | 0 | 0 | 0 / 0 |
+| `BenchmarkReloadNoop` | 2,799 | 2,869 | 2,968 | 2,976 | 31 / 31 |
+| `BenchmarkSubscribeContention` | 13,843 | 13,576 | 10,159 | 10,199 | 115 / 115 |
+| `BenchmarkReloadManySubscribers/1` | 8,396 | 8,544 | 8,276 | 8,316 | 111 / 111 |
+| `BenchmarkReloadManySubscribers/10` | 8,540 | 8,867 | 8,438 | 8,477 | 112 / 112 |
+| `BenchmarkReloadManySubscribers/50` | 10,049 | 10,240 | 9,175 | 9,214 | 112 / 112 |
+| `BenchmarkReloadCacheBoundary/layers=512/full=false` | 296,881 | 291,795 | 421,929 | 421,937 | 2,602 / 2,602 |
+| `BenchmarkReloadCacheBoundary/layers=512/full=true` | 669,239 | 687,324 | 870,418 | 869,993 | 7,792 / 7,792 |
+| `BenchmarkReloadCacheBoundary/layers=513/full=false` | 1,717,814 | 295,385 | 4,184,705 | 422,089 | 25,170 / 2,607 |
+| `BenchmarkReloadCacheBoundary/layers=513/full=true` | 2,116,903 | 749,917 | 4,655,990 | 878,413 | 30,388 / 7,853 |
+| `BenchmarkSubscriberChurn` | 61.16 | 60.51 | 88 | 88 | 3 / 3 |
+| `BenchmarkReloadLargeIncremental` | 318,721 | 329,970 | 462,471 | 462,493 | 3,994 / 3,994 |
+| `BenchmarkReloadWide` | 4,351,902 | 4,462,527 | 3,613,232 | 3,638,156 | 62,427 / 62,429 |
+
+这些是本机短基准的中位数，不能把几个百分点的波动认定为稳定提升。Get 的亚纳秒值是紧循环吞吐，不是业务调用延迟；最终保持零分配。主要收益来自超过缓存容量时避免全量解码，宽配置 JSON 桥没有改写。
+
+复现（两个工作区使用相同的 `cache_boundary_bench_test.go`）：
+
+```bash
+export GOPROXY=direct GOWORK=off GOMAXPROCS=4 GOGC=100
+go test -mod=readonly -run '^$' \
+  -bench '^(BenchmarkReloadCacheBoundary|BenchmarkGetWarmState|BenchmarkReloadNoop|BenchmarkReloadLargeIncremental|BenchmarkReloadWide|BenchmarkReloadManySubscribers|BenchmarkSubscriberChurn|BenchmarkSubscribeContention)$' \
+  -benchmem -benchtime=300ms -count=3 .
+```

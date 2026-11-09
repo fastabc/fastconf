@@ -8,6 +8,11 @@ v1.4.0 to v1.5.0. Older entries below describe their historical releases.
 
 ### Added
 
+- `PlanResult.Err()` aggregates validator failures and policy denials while
+  preserving error classification; warnings remain non-blocking.
+- Runnable examples cover the post-v1.5.0 APIs: defaults, interpolation, typed KV
+  values, resolver chains, Vault/age, JSON Azure settings and supervised notifications.
+
 - `schema` package for Draft 2020-12 JSON Schema and annotated YAML/env examples,
   using `desc`, `default` and existing `fc` field metadata.
 
@@ -29,6 +34,18 @@ v1.4.0 to v1.5.0. Older entries below describe their historical releases.
 
 ### Changed
 
+- The new optional `secrets/age` module requires Go 1.26 and uses the fixed
+  `golang.org/x/crypto` v0.58.1-0.20261009181718-2f1f834330b2 and `x/sys` v0.49.0,
+  clearing its three module-only vulnerability findings. The root stays at Go 1.25.
+
+- Secret resolver options share one ordered chain; the legacy single-resolver
+  fallback was removed. Its unused option field remains for v1 API compatibility.
+
+- File-only unchanged reloads skip source decoding before the pipeline. The
+  decoded-layer cache retains active entries without sequential-scan thrashing,
+  releases removed paths and limits admission to 512 entries / 16 MiB of source
+  document sizes (not a decoded-heap limit).
+
 - Resolver-produced plaintext is automatically masked in diagnostic `Map`, `Dump`,
   `Diff` and `Explain` views; `Get` and `Unredacted` retain plaintext access.
 
@@ -37,6 +54,51 @@ v1.4.0 to v1.5.0. Older entries below describe their historical releases.
 - Default typed hooks now accept comma-separated lists, JSON array strings,
   contiguous index maps and named numeric/boolean string inputs that previously
   failed decoding. Byte lists and custom unmarshalers keep their wire semantics.
+
+### Fixed
+
+- Absent-key defaults follow the selected decoder's field names, JSON exact-name
+  precedence and YAML case sensitivity; merged JSON aliases preserve explicit children.
+- Manager typed hooks follow the selected bridge's input names, ignoring
+  other-bridge aliases and fields tagged `yaml:"-"`; standalone plans can opt
+  into strict JSON field selection with `codec.WithJSONFields()`.
+- HTTP automatic codec selection rechecks changed Content-Type values even when
+  the response bytes are unchanged, including polling without ETags.
+- AppRole login rejects failed or oversized response reads instead of accepting
+  truncated responses, and hides decoder response values while preserving error causes.
+- Documentation distinguishes absent-key defaults from legacy zero-value defaults
+  in the single-file guide and aligns cloud dependency/refresh/JSON settings guidance.
+
+- Invalid `WithUnknownFields` and `WithProvenance` enum values now fail
+  construction before reading sources instead of selecting undefined behavior.
+
+- HTTP, Consul, Vault and AppRole errors hide credential-bearing URLs, response
+  bodies and transport/decoder details while preserving `errors.Is`/`errors.As`.
+- Vault document numbers and field references retain exact JSON numeric literals
+  instead of rounding through float64.
+- Typed hooks follow JSON's exact/case-insensitive field selection, convert every
+  matching input key and apply direct values in decoder order; YAML stays case-sensitive.
+- Generated env examples retain commas, whitespace and empty list elements via
+  JSON arrays when comma-separated values would change the defaults.
+- Duration schemas accept signed/fractional/zero literals, and legacy `fc`
+  nanosecond defaults produce readable duration defaults in generated artifacts.
+- Release notes come from the exact non-empty changelog version section;
+  resource-soak CI now tests the supported Go 1.25 minimum.
+
+- Interface-root configurations retain resolved-secret masking in Map, Dump,
+  Diff and Explain; diagnostic views share the snapshot's compiled plan.
+- Rollback rechecks history membership on the writer, rejecting targets evicted
+  while the request was queued without changing the current snapshot.
+- Notifier refreshes requested while paused return `ErrPaused`, preventing
+  consumers from acknowledging updates that have not been loaded.
+
+- Equal-value reloads publish updated resolved-secret paths so diagnostic output
+  is masked after switching a plaintext value to an equivalent secret reference.
+  These metadata commits advance generation/history and emit `Committed` without
+  invoking value subscribers.
+
+- File watches are registered before initial/dynamic directory reads, including
+  inactive overlay matching metadata. Failed construction releases its watcher.
 
 ## [v1.5.0]
 

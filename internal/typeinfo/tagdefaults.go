@@ -4,7 +4,9 @@ import (
 	"encoding"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -13,12 +15,12 @@ const DefaultTagKey = "default"
 
 // TagDefault is an immutable path plan for one absent-key default.
 type TagDefault struct {
-	Path      string
-	Keys      []string
-	Aliases   [][]string
-	Optional  []bool
-	Raw       string
-	foldNames bool
+	Path       string
+	Keys       []string
+	Optional   []bool
+	Raw        string
+	foldNames  bool
+	jsonFields [][]JSONField
 }
 
 // TagDefaultsFor validates declarations and selects paths using the decode bridge's fields.
@@ -44,30 +46,26 @@ func TagDefaultsFor(t reflect.Type, yamlBridge bool) ([]TagDefault, error) {
 		case reflect.Slice, reflect.Array, reflect.Map:
 			return visit(t.Elem(), parent, true)
 		case reflect.Struct:
-			var fields []reflect.StructField
+			var fields []JSONField
 			if yamlBridge {
 				StructFields(t, EmbedYAML, func(f reflect.StructField, index []int) {
 					if f.Tag.Get("yaml") != "-" {
 						f.Index = append([]int(nil), index...)
-						fields = append(fields, f)
+						name := stripTag(f.Tag.Get("yaml"))
+						if name == "" {
+							name = strings.ToLower(f.Name)
+						}
+						fields = append(fields, JSONField{Name: name, Field: f})
 					}
 				})
 			} else {
-				for _, f := range JSONFields(t) {
-					fields = append(fields, f.Field)
-				}
+				fields = JSONFields(t)
 			}
-			for _, f := range fields {
-				names := FieldNamesOf(f)
-				name := names.Primary
-				if yamlBridge {
-					name = stripTag(f.Tag.Get("yaml"))
-					if name == "" {
-						name = strings.ToLower(f.Name)
-					}
-				}
+			for _, field := range fields {
+				f, name := field.Field, field.Name
 				optional := f.Type.Kind() == reflect.Pointer
-				path := TagDefault{Keys: append(append([]string(nil), parent.Keys...), name), Aliases: append(append([][]string(nil), parent.Aliases...), names.InputAliases), Optional: append(append([]bool(nil), parent.Optional...), optional)}
+				path := TagDefault{Keys: append(append([]string(nil), parent.Keys...), name), Optional: append(append([]bool(nil), parent.Optional...), optional)}
+				path.jsonFields = append(append([][]JSONField(nil), parent.jsonFields...), fields)
 				path.Path = strings.Join(path.Keys, ".")
 				path.foldNames = !yamlBridge
 				raw, has := f.Tag.Lookup(DefaultTagKey)
@@ -120,33 +118,22 @@ func defaultUnmarshaler(t reflect.Type) bool {
 // only during forced construction-time validation. Explicit nulls remain present.
 func InjectTagDefaults(root map[string]any, defs []TagDefault, force bool, record func(path, raw string)) {
 	for _, d := range defs {
-		node := root
+		nodes := []map[string]any{root}
 		for i, key := range d.Keys {
-			present := false
-			for _, alias := range d.Aliases[i] {
-				if _, ok := node[alias]; ok {
-					key = alias
-					present = true
-					break
-				}
-			}
-			if !present && d.foldNames {
-				for actual := range node {
-					for _, alias := range d.Aliases[i] {
-						if strings.EqualFold(actual, alias) {
-							key = actual
-							present = true
-							break
-						}
-					}
-					if present {
-						break
+			var values []any
+			for _, node := range nodes {
+				// JSON decodes these maps in lexical key order. Several aliases
+				// may contribute to the same object; inspect them all before
+				// adding a default that could overwrite an explicit child.
+				for _, actual := range slices.Sorted(maps.Keys(node)) {
+					if actual == key || (d.foldNames && defaultJSONName(d.jsonFields[i], actual) == key) {
+						values = append(values, node[actual])
 					}
 				}
 			}
-
+			node := nodes[len(nodes)-1]
 			if i == len(d.Keys)-1 {
-				if !present {
+				if len(values) == 0 {
 					node[key] = d.Raw
 					if record != nil {
 						record(d.Path, d.Raw)
@@ -154,17 +141,45 @@ func InjectTagDefaults(root map[string]any, defs []TagDefault, force bool, recor
 				}
 				break
 			}
-			if !present {
+			if len(values) == 0 {
 				if d.Optional[i] && !force {
 					break
 				}
-				node[key] = map[string]any{}
+				child := map[string]any{}
+				node[key] = child
+				values = append(values, child)
 			}
-			next, ok := node[key].(map[string]any)
-			if !ok {
+			nodes = nil
+			for _, value := range values {
+				if value == nil && d.Optional[i] {
+					// A later null resets a pointer; prior objects no longer
+					// contribute to the decoded field.
+					nodes = nil
+				} else if child, ok := value.(map[string]any); ok {
+					nodes = append(nodes, child)
+				}
+			}
+			if len(nodes) == 0 {
 				break
 			}
-			node = next
 		}
 	}
+}
+
+// JSON prefers an exact field name, then the first declared folded match.
+func defaultJSONName(fields []JSONField, key string) string {
+	var matched *JSONField
+	for i := range fields {
+		f := &fields[i]
+		if f.Name == key {
+			return f.Name
+		}
+		if strings.EqualFold(f.Name, key) && (matched == nil || slices.Compare(f.Field.Index, matched.Field.Index) < 0) {
+			matched = f
+		}
+	}
+	if matched != nil {
+		return matched.Name
+	}
+	return ""
 }

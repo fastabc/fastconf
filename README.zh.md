@@ -10,7 +10,8 @@ FastConf 将文件、环境变量与云端配置统一为强类型 Go 配置。�
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-本 README 介绍当前 v1.6.0 功能；标注 v1.6.0 的新增能力对应本次源码。
+本 README 介绍当前源码中计划用于 v1.6.0 的功能，见 [CHANGELOG.md](CHANGELOG.md)
+的 `Unreleased`；标注 v1.6.0 的新增能力对应本次源码。
 以下固定版本的安装示例使用 v1.5.0，版本行为请以所安装 tag 的文档为准。
 从 v0.20.0 升级见[迁移指南](docs/cookbook/migration-v1.md)；从 v1.4.0 升级见
 [v1.5.0 升级说明](docs/cookbook/migration-v1.md#upgrading-from-v140-to-v150)。
@@ -194,7 +195,8 @@ assemble -> merge -> transform -> secret -> defaults -> typed-hooks -> decode
          -> field-meta -> validate -> policy -> hash -> publish
 ```
 
-候选配置被拒绝时，当前快照和 generation 不变。类型值的哈希相同则跳过发布。
+候选配置被拒绝时，当前快照和 generation 不变。类型值的哈希与解析得到的敏感路径均相同则跳过发布。
+仅敏感路径变化时仍提交新快照，更新诊断、generation 和历史，但不调用业务值订阅回调。
 `Errors()` 有界，满时淘汰最旧的待消费错误，应持续读取以处理运行期失败。
 `WithUnknownFields` 控制未知结构体键；默认 `UnknownWarn` 需要 `WithLogger`
 才能看到警告。`WithStrictMerge` 则控制原始合并类型冲突和文件发现行为。
@@ -376,9 +378,12 @@ if err := mgr.Reload(ctx, fastconf.WithReason("admin"),
 有界 worker。Override 仅作用于当次重载，不修改来源。
 
 `Plan(ctx)` 返回 `Proposed`、`Diff`、`Validators` 和 `Policies`，不发布状态。
-即使 Plan 的 err 为 nil，也要检查验证错误和策略级别；Reload 会重新读取来源。
+即使 Plan 的 err 为 nil，也要调用 `result.Err()` 检查验证失败与策略拒绝，详细报告仍保留；Reload 会重新读取来源。
 `Pause` 抑制监听触发；`Resume` 不重放忽略的事件，暂停批次完成后需显式 Reload。
-v1.6.0 中暂停也会跳过通知刷新与周期对账。
+v1.6.0 中暂停也会跳过周期对账，并向通知 refresh 返回 `ErrPaused`；消费者应保留消息或 NACK，不能按成功 ACK。
+
+v1.5.0 之后新增特性的 API、可运行示例与验证命令，统一列在
+[examples 特性索引](examples/README.md#features-added-after-v150)。
 
 `Snapshot().Map/Dump/Diff/Explain` 提供脱敏诊断，来源追溯需启用 `WithProvenance`。
 明文诊断使用 `Unredacted().Map/Dump`。`History().List()` 按从旧到新返回历史快照；

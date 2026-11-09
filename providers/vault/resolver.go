@@ -2,6 +2,7 @@ package vault
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -66,7 +67,7 @@ func (r *Resolver) Resolve(ctx context.Context, body string) (string, error) {
 	switch v := value.(type) {
 	case string:
 		return v, nil
-	case bool, float64:
+	case bool, json.Number:
 		return fmt.Sprint(v), nil
 	default:
 		return "", errors.New("vault resolver: value is not a scalar")

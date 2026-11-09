@@ -23,11 +23,12 @@ type State[T any] struct {
 	generation uint64
 	cause      ReloadCause
 
-	origins        *provenance.Index
-	redactor       secret.Redactor
-	secretPatterns []string
-	redactionPlan  *secret.Plan
-	jsonTree       atomic.Pointer[jsonTreeBox]
+	origins         *provenance.Index
+	redactor        secret.Redactor
+	secretPatterns  []string
+	redactionPlan   *secret.Plan
+	resolvedSecrets [][]string // sorted immutable input paths resolved by this snapshot
+	jsonTree        atomic.Pointer[jsonTreeBox]
 }
 
 type jsonTreeBox struct{ value map[string]any }
@@ -70,7 +71,8 @@ func (s *State[T]) sourceCount() int {
 }
 
 // Generation returns a monotonically increasing counter incremented on
-// every published change or rollback. Identical reloads keep the generation.
+// every published value/security-metadata change or rollback. Reloads with
+// identical values and resolved-secret paths keep the generation.
 func (s *State[T]) Generation() uint64 {
 	if s == nil {
 		return 0
@@ -92,11 +94,18 @@ func (s *State[T]) Cause() ReloadCause {
 // newState builds an immutable snapshot from the completed pipeline.
 func (m *Manager[T]) newState(p *pipelineState[T], hash [32]byte, generation uint64, cause ReloadCause) *State[T] {
 	redactionPlan := m.redactionPlan
+	// Interfaces may decode to a concrete map or an application-defined type.
+	// Resolve the type once per snapshot, before adding per-load secret paths.
+	if p.target != nil {
+		if typ := reflect.TypeOf(*p.target); typ != reflect.TypeFor[T]() {
+			redactionPlan = secret.Compile(typ, m.opts.SecretPaths)
+		}
+	}
 	if len(p.resolvedSecrets) > 0 {
 		redactionPlan = redactionPlan.WithExactPaths(p.resolvedSecrets)
 	}
 	return &State[T]{value: p.target, hash: hash, sources: p.sources, generation: generation,
-		origins: p.origins, cause: cause, redactor: m.opts.SecretRedactor, secretPatterns: m.opts.SecretPaths, redactionPlan: redactionPlan}
+		origins: p.origins, cause: cause, redactor: m.opts.SecretRedactor, secretPatterns: m.opts.SecretPaths, redactionPlan: redactionPlan, resolvedSecrets: p.resolvedSecrets}
 }
 
 // restampState returns a snapshot with the same immutable payload as s but a new
@@ -107,15 +116,16 @@ func restampState[T any](s *State[T], generation uint64, cause ReloadCause) *Sta
 		return nil
 	}
 	next := &State[T]{
-		value:          s.value,
-		hash:           s.hash,
-		sources:        slices.Clone(s.sources),
-		generation:     generation,
-		origins:        s.origins,
-		cause:          cause,
-		redactor:       s.redactor,
-		secretPatterns: s.secretPatterns,
-		redactionPlan:  s.redactionPlan,
+		value:           s.value,
+		hash:            s.hash,
+		sources:         slices.Clone(s.sources),
+		generation:      generation,
+		origins:         s.origins,
+		cause:           cause,
+		redactor:        s.redactor,
+		secretPatterns:  s.secretPatterns,
+		redactionPlan:   s.redactionPlan,
+		resolvedSecrets: s.resolvedSecrets,
 	}
 	next.jsonTree.Store(s.jsonTree.Load())
 	return next
@@ -123,8 +133,8 @@ func restampState[T any](s *State[T], generation uint64, cause ReloadCause) *Sta
 
 // Map returns the snapshot as a JSON-shaped tree (json struct tags govern
 // field names) with secrets masked: fields tagged fc:"secret" and paths
-// matched by WithSecretPaths, displayed through WithRedactor. The tree is a
-// fresh copy the caller may modify. Use Unredacted for plaintext.
+// matched by WithSecretPaths, and resolver-produced paths, displayed through
+// WithRedactor. The tree is a fresh copy the caller may modify. Use Unredacted for plaintext.
 func (s *State[T]) Map() map[string]any {
 	tree, _ := s.viewTree(s.displayRedactor())
 	return tree
@@ -201,12 +211,7 @@ func (s *State[T]) viewTree(redactor secret.Redactor) (map[string]any, error) {
 	if redactor == nil || s == nil || s.value == nil {
 		return raw, nil
 	}
-	plan := s.secretPlan()
-	// Interface configurations may carry a more specific runtime type.
-	if t := reflect.TypeOf(*s.value); t != reflect.TypeFor[T]() {
-		plan = secret.Compile(t, s.secretPatterns)
-	}
-	return plan.Apply(raw, redactor), nil
+	return s.secretPlan().Apply(raw, redactor), nil
 }
 
 // Hand-built internal snapshots also use the same rules; published snapshots
@@ -215,7 +220,11 @@ func (s *State[T]) secretPlan() *secret.Plan {
 	if s.redactionPlan != nil {
 		return s.redactionPlan
 	}
-	return secret.Compile(reflect.TypeFor[T](), s.secretPatterns)
+	typ := reflect.TypeFor[T]()
+	if s.value != nil {
+		typ = reflect.TypeOf(*s.value)
+	}
+	return secret.Compile(typ, s.secretPatterns).WithExactPaths(s.resolvedSecrets)
 }
 
 // cachedJSONTree returns a shared read-only JSON view of this immutable value.

@@ -3,13 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
-	"errors"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/fastabc/fastconf"
-	"github.com/fastabc/fastconf/policy"
 )
 
 func TestPreviewReloadRollback(t *testing.T) {
@@ -25,28 +23,10 @@ func TestPreviewReloadRollback(t *testing.T) {
 		"committed: port=9090 generation=2\n" +
 		"rollback: port=8080 generation=3\n" +
 		"unchanged source: port=9090 generation=4\n" +
-		"source repaired: port=8080 generation=5\n"
+		"source repaired: port=8080 generation=5\n" +
+		"expired rollback: rejected=true preserved=true\n"
 	if out.String() != want {
 		t.Fatalf("got:\n%swant:\n%s", &out, want)
-	}
-}
-
-func TestCheckPlanReports(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		p        fastconf.PlanResult[Config]
-		rejected bool
-	}{
-		{"valid", fastconf.PlanResult[Config]{}, false},
-		{"validator", fastconf.PlanResult[Config]{Validators: []fastconf.ValidatorReport{{Err: errors.New("bad")}}}, true},
-		{"policy-error", fastconf.PlanResult[Config]{Policies: []policy.Violation{{Severity: policy.SeverityError}}}, true},
-		{"policy-warning", fastconf.PlanResult[Config]{Policies: []policy.Violation{{Severity: policy.SeverityWarning}}}, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if (checkPlan(&tc.p) != nil) != tc.rejected {
-				t.Fatal("incorrect approval")
-			}
-		})
 	}
 }
 

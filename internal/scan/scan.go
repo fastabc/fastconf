@@ -60,9 +60,9 @@ type Options struct {
 	Strict        bool          // require base; reject unknown extensions and non-regular layer entries
 	FS            fs.FS         // optional virtual filesystem for tests
 	AxisOverlays  []AxisOverlay // Additional axis directories (multi-axis overlay feature).
-	// OnDir, when non-nil, is called with every contributing directory (base, matched overlays,
-	// extra overlays) before it is read, even when it is empty or missing, so a watcher can
-	// subscribe before the contents are observed.
+	// OnDir, when non-nil, is called before reading a contributing directory or
+	// candidate overlay's matching metadata, including empty/missing directories,
+	// so a watcher can subscribe before the inputs are observed.
 	OnDir func(dir string)
 }
 
@@ -177,6 +177,10 @@ func collectProfileOverlays(fsys fs.FS, root string, opt Options) ([]Layer, erro
 			continue
 		}
 		sub := path.Join(opt.OverlayDir, e.Name())
+		// Matching metadata is an input even when the overlay is inactive.
+		if opt.OnDir != nil {
+			opt.OnDir(path.Join(root, sub))
+		}
 		matched, err := overlayMatches(fsys, root, sub, e.Name(), active)
 		if err != nil {
 			return nil, err

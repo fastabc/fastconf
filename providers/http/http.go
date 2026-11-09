@@ -33,11 +33,12 @@ type Provider struct {
 	headers      map[string]string
 	maxBodyBytes int64
 
-	mu       sync.Mutex
-	etag     string
-	bodyHash [32]byte
-	loaded   bool
-	lastBody map[string]any
+	mu          sync.Mutex
+	etag        string
+	bodyHash    [32]byte
+	loaded      bool
+	lastBody    map[string]any
+	contentType string
 }
 
 // Option mutates a Provider during construction. Use the With* helpers below to compose
@@ -119,7 +120,7 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 		return contracts.Snapshot{Map: maps.Clone(p.lastBody), Revision: p.etag}, nil
 	}
 	hash := sha256.Sum256(body)
-	if p.loaded && hash == p.bodyHash {
+	if p.loaded && hash == p.bodyHash && (p.codec != nil || contentType == p.contentType) {
 		p.etag = etag
 		return contracts.Snapshot{Map: maps.Clone(p.lastBody), Revision: p.etag}, nil
 	}
@@ -128,16 +129,17 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 		var ok bool
 		decoder, ok = registry.ByContentType(contentType)
 		if !ok {
-			return contracts.Snapshot{}, fmt.Errorf("fastconf/http: %w: content-type %q", registry.ErrUnknownCodec, contentType)
+			return contracts.Snapshot{}, fmt.Errorf("fastconf/http: %w: unsupported content-type", registry.ErrUnknownCodec)
 		}
 	}
 	out, derr := decoder.Decode(body)
 	if derr != nil {
-		return contracts.Snapshot{}, fmt.Errorf("fastconf/http: decode %s: %w", p.url, derr)
+		return contracts.Snapshot{}, contracts.SafeError("fastconf/http: decode failed", derr)
 	}
 	p.etag = etag
 	p.bodyHash = hash
 	p.lastBody = out
+	p.contentType = contentType
 	p.loaded = true
 	return contracts.Snapshot{Map: maps.Clone(out), Revision: p.etag}, nil
 }
@@ -175,7 +177,7 @@ func (p *Provider) Watch(ctx context.Context, _ string) (<-chan contracts.Event,
 // poll probes without accepting decoded state. It returns whether the response
 // changed and that response's ETag, so Watch need not read the mutable cache.
 func (p *Provider) poll(ctx context.Context) (bool, string, error) {
-	body, etag, _, notModified, err := p.fetch(ctx)
+	body, etag, contentType, notModified, err := p.fetch(ctx)
 	if err != nil {
 		return false, "", err
 	}
@@ -185,7 +187,7 @@ func (p *Provider) poll(ctx context.Context) (bool, string, error) {
 	hash := sha256.Sum256(body)
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.loaded && hash == p.bodyHash && etag == p.etag {
+	if p.loaded && hash == p.bodyHash && etag == p.etag && (p.codec != nil || contentType == p.contentType) {
 		return false, "", nil
 	}
 	// Only a successful Load may advance the accepted body/hash/ETag.
@@ -196,7 +198,7 @@ func (p *Provider) poll(ctx context.Context) (bool, string, error) {
 func (p *Provider) fetch(ctx context.Context) (body []byte, etag, contentType string, notModified bool, err error) {
 	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, p.url, nil)
 	if err != nil {
-		return nil, "", "", false, err
+		return nil, "", "", false, contracts.SafeError("fastconf/http: request failed", err)
 	}
 	for k, v := range p.headers {
 		req.Header.Set(k, v)
@@ -208,7 +210,7 @@ func (p *Provider) fetch(ctx context.Context) (body []byte, etag, contentType st
 	p.mu.Unlock()
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return nil, "", "", false, err
+		return nil, "", "", false, contracts.SafeError("fastconf/http: request failed", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	switch {
@@ -217,10 +219,10 @@ func (p *Provider) fetch(ctx context.Context) (body []byte, etag, contentType st
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		b, rerr := contracts.ReadAllMax(resp.Body, p.maxBodyBytes)
 		if rerr != nil {
-			return nil, "", "", false, rerr
+			return nil, "", "", false, contracts.SafeError("fastconf/http: read failed", rerr)
 		}
 		return b, resp.Header.Get("ETag"), resp.Header.Get("Content-Type"), false, nil
 	default:
-		return nil, "", "", false, fmt.Errorf("fastconf/http: unexpected status %d for %s", resp.StatusCode, p.url)
+		return nil, "", "", false, fmt.Errorf("fastconf/http: unexpected status %d", resp.StatusCode)
 	}
 }

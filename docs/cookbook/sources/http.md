@@ -40,7 +40,9 @@ polling while preserving initial and manual loads. `Load` performs one fetch
 without starting watchers.
 
 Accepted ETags enable conditional requests; a 304 reuses the accepted document.
-Body hashes also detect changes. A changed response triggers a full reload;
+Body hashes also detect changes. With automatic codec selection, a changed
+`Content-Type` also triggers a reload and redecoding even if the bytes are unchanged;
+an explicit decoder ignores content-type changes. A changed response triggers a full reload;
 only a successful typed candidate publishes a new manager snapshot. Polling
 transport errors are currently retried at the next interval without emitting a
 `ProviderError`; errors from an actual reload reach `Errors()`.
@@ -51,6 +53,10 @@ The default client has a 10-second timeout and rejects redirects. Documents
 are limited to 4 MiB; `WithMaxBodyBytes` changes the limit. A custom `WithClient`
 must enforce its own timeout and credential/redirect policy. See
 [provider timeouts](../runtime/provider-timeouts.md).
+
+Load errors omit request URLs and decoder/transport details that may contain
+credentials or configuration values. `errors.Is` / `errors.As` still expose the
+underlying cause for programmatic classification.
 
 Run the local HTTP provider tests, which use test servers and clients:
 

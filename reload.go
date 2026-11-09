@@ -132,17 +132,17 @@ func (m *Manager[T]) reload(ctx context.Context, reason, key string, extra ...st
 	defer root.End()
 
 	var assembly assemblyResult
+	var onDir func(string)
+	if m.fileWatcher != nil {
+		onDir = m.watchSourceDir
+	}
 	_, err := m.runTimedStage(ctx, "fastconf.assemble", func(ctx context.Context, sp Span) (err error) {
-		assembly, err = m.assemble(ctx, "", extra...)
+		assembly, err = m.assembleSources(ctx, "", onDir, m.publishedFingerprint, extra...)
 		if err == nil {
 			sp.SetAttribute("layers", int64(len(assembly.staged)))
 		}
 		return err
 	})
-	// Watch every scanned directory whether or not this reload publishes:
-	// a new source with an unchanged value, or a broken file in a new
-	// overlay, must still be observed on its next edit.
-	m.refreshWatchPaths(assembly.scannedDirs)
 	if err != nil {
 		root.RecordError(err)
 		m.emitReload(reason, time.Since(start), err)

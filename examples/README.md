@@ -5,6 +5,31 @@ These programs need no external services or credentials and follow the current
 checkout. `single-file` and `fs` use APIs added in v1.2.0. The linked READMEs
 provide source/fixture links, expected output and verification commands.
 
+## Features added after v1.5.0
+
+These features are currently listed under `Unreleased` in the
+[changelog](../CHANGELOG.md). The examples follow this checkout; use the temporary
+workspace commands for optional modules until the matching release is available.
+
+| Feature / API | Runnable example |
+| --- | --- |
+| Absent-key `default` tags, `LayerDefault`, explicit false/zero preservation | [config-processing](config-processing/README.md) |
+| Comma lists, JSON array strings, contiguous index maps, named scalar conversion | [config-processing](config-processing/README.md) |
+| `transform.Interpolate`: environment fallback/required/escape and scalar references | [config-processing](config-processing/README.md) |
+| `WithSecretResolvers`, `PrefixSecretResolver`, automatic diagnostic redaction and rotation | [secrets](secrets/README.md) |
+| Vault KV v2 `NewResolver`, application-owned client | [secrets](secrets/README.md) |
+| `age.NewDecrypter`, real age round trip and masked output | [age](age/README.md) (optional module) |
+| `contracts.Notifier`, `WithNotifier`, restart, refresh-before-ACK, `ErrPaused` | [cloud-reload](cloud-reload/README.md) |
+| `WithResync`, missed-notification recovery and worker shutdown | [cloud-reload](cloud-reload/README.md) |
+| `schema.JSONSchema`, `ExampleYAML`, `ExampleEnv`, `desc` metadata | [schema](schema/README.md) |
+| `azappconfig.WithJSONValues` and typed object loading | [azappconfig](azappconfig/README.md) (optional module) |
+| `PlanResult.Err`, validation/policy rejection and expired rollback targets | [reload](reload/README.md) |
+
+The decoded-file cache and pre-read watch registration are internal optimizations;
+their boundary and concurrency regressions are covered by root tests rather than
+new application APIs. The existing [dynamic](dynamic/README.md) example exercises
+file-watch usage.
+
 ## Loading and source conversion
 
 | Example | Demonstrates | Command |
@@ -14,6 +39,7 @@ provide source/fixture links, expected output and verification commands.
 | [dynamic](dynamic/README.md) | File watching, rejection and shutdown | `go run ./examples/dynamic` |
 | [basic](basic/README.md) | Typed base/prod layering, duration decoding, env override and field validation | `go run ./examples/basic` |
 | [schema](schema/README.md) | JSON Schema, annotated YAML and env from a struct (v1.6.0) | `go run ./examples/schema` |
+| [config-processing](config-processing/README.md) | Defaults, provenance, interpolation and typed KV values | `go run ./examples/config-processing` |
 | [ini](ini/README.md) | INI base/prod layering, typed scalars and preservation of leading zeros | `go run ./examples/ini` |
 
 ## Runtime changes and application behavior
@@ -23,6 +49,7 @@ provide source/fixture links, expected output and verification commands.
 | [tenant](tenant/README.md) | Editable local files, shared defaults, isolated tenant files/env, redaction and failed reload isolation | `go run ./examples/tenant` |
 | [resource-update](resource-update/README.md) | Bounded updates, failed connection retention and draining | `go run ./examples/resource-update` |
 | [reload](reload/README.md) | Local file changes, Plan findings, rejection, commit and history rollback | `go run ./examples/reload` |
+| [secrets](secrets/README.md) | Resolver chains, Vault KV v2, safe diagnostics and failed rotation retention | `go run ./examples/secrets` |
 | [features](features/README.md) | Ordered targeting, deterministic 30% rollout and fallbacks | `go run ./examples/features` |
 | [cloud-reload](cloud-reload/README.md) | Missed-notification recovery, periodic reload and consumer supervision | `go run ./examples/cloud-reload` |
 
@@ -68,7 +95,8 @@ Run the commands from the repository root:
 | [gcs](gcs/README.md) | Load YAML and reuse a decoded generation | `go -C providers/gcs run ../../examples/gcs/main.go` |
 | [azblob](azblob/README.md) | Load YAML and reuse cached data on HTTP 304 | `go -C providers/azblob run ../../examples/azblob/main.go` |
 | [appconfig](appconfig/README.md) | Data API session and poll-interval cache | `go -C providers/appconfig run ../../examples/appconfig/main.go` |
-| [azappconfig](azappconfig/README.md) | Prefix/label selection and nested string values | `go -C providers/azappconfig run ../../examples/azappconfig/main.go` |
+| [azappconfig](azappconfig/README.md) | Prefix/label selection, JSON settings and typed loading | `go -C providers/azappconfig run ../../examples/azappconfig/main.go` |
+| [age](age/README.md) | Local age field decryption with an ephemeral identity | `bash tools/modules.sh exec go -C secrets/age run ../../examples/age/main.go` |
 | [secretmanager](secretmanager/README.md) | Resolve a version and verify CRC32C without printing secrets | `go -C providers/secretmanager run ../../examples/secretmanager/main.go` |
 | [sns](sns/README.md) | SNS/S3 notification and Manager reload before SQS ACK | `go -C integrations/notify/sns run ../../../examples/sns/main.go` |
 | [azservicebus](azservicebus/README.md) | Event Grid filtering and refresh before Complete | `go -C integrations/notify/azservicebus run ../../../examples/azservicebus/main.go` |

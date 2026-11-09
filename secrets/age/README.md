@@ -1,6 +1,12 @@
 # age secret resolver
 
-Independent optional module; Go 1.25 or newer. The root module has no age dependency.
+Independent optional module; Go 1.26 or newer. The root module has no age dependency.
+
+This module is new after v1.5.0 and is not included in the root module archive.
+Its release tag is `secrets/age/vX.Y.Z`, coordinated with the root `vX.Y.Z` tag.
+After publication, install it with `go get github.com/fastabc/fastconf/secrets/age@vX.Y.Z`.
+Before publication, run the [local example](../../examples/age/README.md) through
+the repository's temporary workspace.
 
 ```go
 dec, err := age.NewDecrypter(bytes.NewReader(identityFile))
@@ -8,6 +14,9 @@ if err != nil { return err }
 mgr, err := fastconf.New[Config](ctx, fastconf.WithSecretResolvers(
     fastconf.PrefixSecretResolver("age", age.Prefix, dec),
 ))
+if err != nil { return err }
+defer mgr.Close()
+// Keep the manager alive while the application uses its configuration.
 ```
 
 Import this adapter as `github.com/fastabc/fastconf/secrets/age`. Identities use

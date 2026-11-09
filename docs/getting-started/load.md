@@ -45,12 +45,13 @@ go run ./examples/single-file
 
 - 只读取指定文件，不扫描 `conf.d`，不合并 profile 或环境变量。
 - 扩展名选择 YAML / JSON / TOML / INI 解析器；结构体统一使用 `json` 标签。
-- 默认拒绝未知字段，自动执行 typed hooks、`fc` 默认值、`Defaults()` 和 `fc` 校验。
+- 默认拒绝未知字段，自动执行缺失键 `default`、typed hooks、`fc` 零值默认值、`Defaults()` 和 `fc` 校验。
 - 不启动后台任务；返回值由调用方拥有，不涉及共享快照或关闭操作。
 
 例如 `fc:"default=8080,min=1,max=65535"` 会在字段为零时先填充 8080，
 再执行范围校验，因此显式输入 0 也会变成 8080。需要保留 false、0 或空字符串时，
-不要在对应字段使用 `default` 标签；把默认值写入配置文件。
+不要在对应字段使用旧 `fc:"default=…"` 指令；可用 `default:"8080"`
+仅填充缺失键（当前源码的 v1.6.0 新增能力），或把默认值写入配置文件。
 详见 [`fc` 标签说明](../cookbook/processing/field-meta.md)。
 
 ## 需要更多控制时

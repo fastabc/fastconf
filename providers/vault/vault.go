@@ -5,6 +5,7 @@
 package vault
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -125,7 +126,10 @@ func (p *Provider) Describe() contracts.ProviderInfo {
 // Load implements contracts.Provider.
 func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 	m, err := p.loadMap(ctx)
-	return contracts.Snapshot{Map: m}, err
+	if err != nil {
+		return contracts.Snapshot{}, contracts.SafeError("vault: load failed", err)
+	}
+	return contracts.Snapshot{Map: m}, nil
 }
 
 // A single GET against the KV v2 data endpoint returns the
@@ -262,8 +266,15 @@ func (p *Provider) readDataAt(ctx context.Context, path string) (map[string]any,
 		return nil, 0, fmt.Errorf("vault: read body: %w", err)
 	}
 	var out kvData
-	if err := json.Unmarshal(body, &out); err != nil {
+	// Preserve integers and decimal literals before either typed decoding or
+	// field resolution; float64 would silently round large secret values.
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	if err := dec.Decode(&out); err != nil {
 		return nil, 0, fmt.Errorf("vault: decode: %w", err)
+	}
+	if err := dec.Decode(new(any)); err != io.EOF {
+		return nil, 0, errors.New("vault: expected one JSON response")
 	}
 	return out.Data.Data, out.Data.Metadata.Version, nil
 }

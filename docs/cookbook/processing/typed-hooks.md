@@ -6,8 +6,10 @@
 
 `codec.DefaultTypedHooks()` installs `DurationHook` and `StringPrimitiveHook`.
 Duration strings become `time.Duration`; strings for built-in bool/integer/float
-fields convert to their destination types. Named scalar types need a matching
-hook. For example:
+fields convert to their destination types. Since the post-v1.5.0 additions,
+Manager also coerces scalar lists and installs `NamedPrimitiveHook` after
+application hooks for named numeric/boolean types without custom unmarshalers.
+For example:
 
 ```yaml
 server:
@@ -78,6 +80,13 @@ defer mgr.Close()
 ## Where hooks apply
 
 The plan follows the fields the selected decoder actually fills: embedded structs (untagged anonymous structs for the JSON decoder, `yaml:",inline"` for `WithDecodeFormat(YAML)`), pointers, slice/array elements and map values. Recursive types (`type Node struct{ Next *Node }`) are supported; the walk follows the finite input tree.
+
+The JSON bridge accepts case-insensitive field names during hook conversion and
+direct assignment as well as decoding; YAML-only aliases do not trigger conversion.
+The YAML bridge uses only its case-sensitive
+YAML field names; JSON aliases and fields tagged `yaml:"-"` are not converted.
+Standalone `codec.BuildTypedHookPlan` retains its legacy exact input aliases;
+pass `codec.WithJSONFields()` to select only JSON decoder fields, as Manager does.
 
 ## URL / IP / Regex
 

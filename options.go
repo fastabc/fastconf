@@ -68,8 +68,16 @@ const (
 
 // WithUnknownFields sets the unknown-key policy; see [UnknownFields]. It
 // only applies to struct targets; map-typed configurations accept any key.
+// Values outside the UnknownFields constants fail construction.
 func WithUnknownFields(mode UnknownFields) Option {
-	return func(o *options) { o.UnknownFields = mode }
+	return func(o *options) {
+		switch mode {
+		case UnknownWarn, UnknownError, UnknownIgnore:
+			o.UnknownFields = mode
+		default:
+			o.OptionErrs = append(o.OptionErrs, fmt.Errorf("%w: WithUnknownFields: invalid mode %d", fcerr.ErrFastConf, mode))
+		}
+	}
 }
 
 // DefaultDir is the configuration root directory used when WithDir is
@@ -201,8 +209,16 @@ func WithSecretPaths(patterns ...string) Option {
 }
 
 // WithProvenance sets the amount of source attribution retained in snapshots.
+// Values outside the ProvenanceLevel constants fail construction.
 func WithProvenance(level ProvenanceLevel) Option {
-	return func(o *options) { o.Provenance = level }
+	return func(o *options) {
+		switch level {
+		case ProvenanceOff, ProvenanceTopLevel, ProvenanceFull:
+			o.Provenance = level
+		default:
+			o.OptionErrs = append(o.OptionErrs, fmt.Errorf("%w: WithProvenance: invalid level %d", fcerr.ErrFastConf, level))
+		}
+	}
 }
 
 // WithHistory retains up to n committed snapshots; zero disables history.
@@ -341,10 +357,10 @@ func WithPolicy[T any](ps ...policy.Policy[T]) Option {
 	}
 }
 
-// WithSecretResolver sets the resolver for secret references before decoding.
+// WithSecretResolver replaces the resolver chain; nil clears it.
+// WithSecretResolvers appends instead. Both run before decoding.
 func WithSecretResolver(r SecretResolver) Option {
 	return func(o *options) {
-		o.SecretResolver = r
 		o.SecretResolvers = nil
 		if r != nil {
 			o.SecretResolvers = []secret.Resolver{r}

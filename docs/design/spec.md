@@ -173,7 +173,15 @@ assemble → merge → transform → secret → defaults → typed-hooks → dec
          → field-meta → validate → policy → commit
 ```
 
-Assembly discovers files, invokes generators and loads providers. Merge
+File watches are registered before the initial read. Discovery registers dynamic
+directories before reading them, including inactive overlay directories whose
+matching metadata can change. Failed construction closes the temporary watcher;
+the reload writer starts only after a successful initial pipeline. Plan discovers
+its hypothetical inputs without adding watches.
+
+Assembly discovers files, invokes generators and loads providers. Its file decoding
+is deferred until after the eligible unchanged-input shortcut; source parsing
+errors still report as assembly failures. Merge
 applies deep/strategic merge and RFC 6902 patches in layer order. Transforms
 include optional schema migration functions. Provenance records layer writes,
 resolved secret leaves and absent-key `default` tags. It is not a complete trace
@@ -186,6 +194,13 @@ legacy `fc` defaults replace decoded zero values. Field metadata, validators and
 policies run before publication; see [field semantics](../cookbook/processing/field-meta.md).
 UnknownWarn uses the configured logger, whose default discards output. Production
 struct examples select UnknownError; permissive callers must supply WithLogger.
+
+Resolver-sensitive path changes publish a new immutable snapshot even when the
+typed hash is unchanged. Such commits refresh source/provenance metadata, advance
+generation/history and emit Committed with an empty value diff. Value subscribers
+are skipped, including custom equality functions. Existing snapshots keep their
+original redaction rules; rollback restores the retained snapshot's rules. If both
+the value and sensitive paths match, the previous snapshot and metadata remain.
 
 Any pipeline failure preserves the current snapshot and generation. Later
 reload and plan failures also go to `Errors()` (capacity 16, oldest error
@@ -203,8 +218,8 @@ Both encoders sort map keys. Custom `MarshalJSON` / `MarshalYAML` implementation
 must produce deterministic output and include every relevant configuration
 field; returning a YAML node preserves its supplied order. Marshaling errors
 abort publication and preserve the previous snapshot.
-Equal hashes do not publish or notify
-subscribers. File-only inputs may skip the pipeline under the constraints in
+Equal hashes and resolved-secret paths do not publish; equal-value security
+metadata commits do not notify subscribers. File-only inputs may skip the pipeline under the constraints in
 [Performance Notes](perf.md). A published change increments generation, stores
 the previous snapshot in enabled history, then emits `Committed` and calls
 subscribers. `Subscribe` compares extracted values before invoking a callback. Subscriber
@@ -214,9 +229,12 @@ operations to the owner or another goroutine.
 
 `Plan` runs the pipeline without publication and collects validator and policy
 findings, preserving policy severity. `History().Rollback` republishes a
-retained snapshot as a new generation without rerunning validation.
+retained snapshot as a new generation without rerunning validation. Membership
+is checked on the writer immediately before publication; a target evicted while
+queued returns `ErrUnknownGeneration` without modifying state.
 Plan can return nil error with failing validator reports or error-severity policy
-findings; inspect both collections before treating a preview as acceptable.
+findings; call `PlanResult.Err()` to aggregate rejections, and inspect the reports
+for details. Warning-only findings do not reject a preview.
 Reload loads sources again, so a preview does not reserve its exact candidate.
 Plan still invokes providers, generators and user hooks, whose external effects
 are not rolled back. A proposed state retains the current generation; it does
@@ -243,7 +261,8 @@ I/O deadlines; the manager callback timeout does not bound async delivery.
 Tracing exposes the reload, assemble, pipeline-stage and commit spans.
 
 Manager-owned `contracts.Notifier` workers synchronously enqueue reload requests;
-paused managers skip their refreshes. Early return and panic produce ProviderError
+paused managers return `ErrPaused` to notifier refreshes so consumers must retain
+or negatively acknowledge the event rather than ACK an unapplied update. Early return and panic produce ProviderError
 and restart with 250ms–30s backoff. WithResync adds periodic jittered reconciliation.
 Both belong to the manager lifetime and are ignored by Load.
 

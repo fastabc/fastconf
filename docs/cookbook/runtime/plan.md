@@ -20,19 +20,13 @@ if err != nil {
 for _, line := range fastconf.FormatDiff(result.Diff) {
     fmt.Println(line)
 }
-acceptable := true
+acceptable := result.Err() == nil
 for _, report := range result.Validators {
     fmt.Printf("validator=%s err=%v\n", report.Name, report.Err)
-    if report.Err != nil {
-        acceptable = false
-    }
 }
 for _, finding := range result.Policies {
     fmt.Printf("policy=%s severity=%v path=%s\n",
         finding.Rule, finding.Severity, finding.Path)
-    if finding.Severity == policy.SeverityError {
-        acceptable = false
-    }
 }
 
 changed := before.Hash() != result.Proposed.Hash()
@@ -59,7 +53,9 @@ Unlike a real reload, `Plan` records `SeverityError` policy findings instead of
 publishing a new state. That makes it useful as a deployment gate: inspect the
 candidate, then call `Reload` only after approval.
 
-A nil Plan error does not imply valid findings. Policy evaluation errors become
+A nil Plan error does not imply valid findings. `result.Err()` aggregates all
+validator failures and policy denials, supports `errors.Is(err, fastconf.ErrInvalid)`
+and `errors.As` for `*fastconf.PolicyError`, and returns nil for warnings alone. Policy evaluation errors become
 error-severity findings in `Policies`. Assembly, transform, secret resolution,
 typed conversion and decode failures still abort the preview. `Reload` loads inputs again;
 the preview does not freeze files or remote values, and an active watcher can
@@ -80,7 +76,9 @@ the live state independently. Pause does not drain queued work or freeze inputs.
 
 Stop external publishers, choose a retained known-good snapshot, roll back, then
 repair the source and Plan/Reload it before resuming updates. History excludes
-the current snapshot and is oldest-first. Rollback does not revalidate, restore
+the current snapshot and is oldest-first. A target must still be retained when
+the writer executes rollback; concurrent commits may evict it and cause
+`ErrUnknownGeneration`. The failed rollback leaves the live snapshot unchanged. Rollback does not revalidate, restore
 expired credentials, repair a source, or undo a connection-pool change. If old
 credentials or policies no longer apply, repair the source and use the normal
 validated reload path. The runnable example demonstrates why an unchanged source

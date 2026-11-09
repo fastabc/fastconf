@@ -144,3 +144,62 @@ func TestTagDefaults_CaseInsensitiveJSONPresence(t *testing.T) {
 		t.Fatal(st.Value())
 	}
 }
+
+func TestTagDefaults_FieldSelectionMatchesBridge(t *testing.T) {
+	type C struct {
+		Port  int `json:"port" yaml:"listen_port" default:"8080"`
+		Upper int `json:"PORT" yaml:"PORT"`
+	}
+	for _, tc := range []struct {
+		name   string
+		format fastconf.Format
+		data   map[string]any
+		want   C
+	}{
+		{"json exact shields folded", fastconf.JSON, map[string]any{"PORT": 0}, C{Port: 8080}},
+		{"json ignores yaml alias", fastconf.JSON, map[string]any{"listen_port": 0}, C{Port: 8080}},
+		{"yaml ignores json alias", fastconf.YAML, map[string]any{"port": 0}, C{Port: 8080}},
+		{"yaml is case sensitive", fastconf.YAML, map[string]any{"LISTEN_PORT": 0}, C{Port: 8080}},
+		{"json explicit zero", fastconf.JSON, map[string]any{"port": 0}, C{}},
+		{"yaml explicit zero", fastconf.YAML, map[string]any{"listen_port": 0}, C{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st, err := fastconf.Load[C](context.Background(), fastconf.WithFS(fstest.MapFS{}),
+				fastconf.WithProvider(&snapshotProvider{name: "p", data: tc.data}),
+				fastconf.WithDecodeFormat(tc.format), fastconf.WithUnknownFields(fastconf.UnknownIgnore))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := *st.Value(); got != tc.want {
+				t.Fatalf("got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTagDefaults_MergedJSONAliasesPreserveExplicitChildren(t *testing.T) {
+	type DB struct {
+		Port int `json:"port" default:"8080"`
+		Pool int `json:"pool" default:"10"`
+	}
+	type C struct {
+		DB *DB `json:"db"`
+	}
+	for _, tc := range []struct {
+		data map[string]any
+		want *DB
+	}{
+		{map[string]any{"DB": map[string]any{"port": 0}, "db": map[string]any{}}, &DB{0, 10}},
+		{map[string]any{"DB": map[string]any{"port": 0}, "db": nil}, nil},
+		{map[string]any{"DB": nil, "db": map[string]any{}}, &DB{8080, 10}},
+	} {
+		st, err := fastconf.Load[C](context.Background(), fastconf.WithFS(fstest.MapFS{}),
+			fastconf.WithProvider(&snapshotProvider{name: "p", data: tc.data}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(st.Value().DB, tc.want) {
+			t.Fatalf("input=%v: got %+v, want %+v", tc.data, st.Value().DB, tc.want)
+		}
+	}
+}

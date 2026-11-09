@@ -3,11 +3,14 @@ package fastconf
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"time"
+
+	"github.com/fastabc/fastconf/codec"
 )
 
-// commit publishes a changed typed value. key identifies the watched directory
-// for file-triggered reloads and is empty for other callers.
+// commit publishes a changed typed value or resolved-secret path set. key is the
+// watched directory for file-triggered reloads and is empty for other callers.
 func (m *Manager[T]) commit(ctx context.Context, assembly assemblyResult, reason, key string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -25,7 +28,13 @@ func (m *Manager[T]) commit(ctx context.Context, assembly assemblyResult, reason
 		return err
 	}
 	prev := m.state.Load()
-	if prev != nil && prev.Hash() == hash {
+	// File decoders may register replacements while the deferred decode runs.
+	// Never associate such a mixed result with the earlier input generation.
+	if assembly.codecGeneration != codec.Generation() {
+		assembly.fingerprint = [32]byte{}
+	}
+	valueChanged := prev == nil || prev.Hash() != hash
+	if !valueChanged && slices.EqualFunc(prev.resolvedSecrets, pipeline.resolvedSecrets, slices.Equal[[]string]) {
 		m.publishedFingerprint = assembly.fingerprint
 		m.opts.Logger.LogAttrs(context.Background(), slog.LevelDebug, "fastconf reload skipped: identical hash", slog.String("reason", reason))
 		return nil
@@ -33,6 +42,9 @@ func (m *Manager[T]) commit(ctx context.Context, assembly assemblyResult, reason
 	m.publishedFingerprint = assembly.fingerprint
 	next := m.newCommittedState(pipeline, hash, reason, key)
 	m.publishSnapshot(prev, next, reason)
+	if valueChanged {
+		m.notifySubscribers(prev, next)
+	}
 	return nil
 }
 
@@ -73,7 +85,6 @@ func (m *Manager[T]) publishSnapshot(prev, next *State[T], reason string) {
 			Diff:   lazyDiff(prev, next),
 		})
 	}
-	m.notifySubscribers(prev, next)
 }
 
 // ReloadCause is the audit-friendly explanation of a successful commit.

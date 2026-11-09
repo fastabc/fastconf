@@ -143,3 +143,7 @@ consumer, err := notify.New(notify.Config{
 `appconfig`、`azappconfig`、`azblob`、`secretmanager`、`s3`、`gcs` 加载错误及三个通知模块的默认错误文本隐藏 token、SAS 和文档正文，保留 `errors.Is`/`errors.As`；主动解包并打印原始 SDK 错误仍可能泄密。使用错误类型/状态码分类告警，不记录完整消息和秘密内容。Secret Manager 加载不会自动标记所有字段为 secret，应用仍应配置敏感字段规则，覆盖 dump/diff。
 
 [示例索引](../../../examples/README.md)中的程序均不需要真实凭据。本地 SDK 协议、过滤、失败重投、确认顺序和 Manager 集成测试不等于云端验收；实际 IAM、Event Grid schema、AppConfig extension、Pub/Sub attributes 及多实例广播仍应在隔离资源中验收。
+
+暂停 Manager 时，通知 refresh 返回 `fastconf.ErrPaused`，消费者必须保留消息或 NACK，
+不能按成功 ACK。`Resume` 后重投消息；对于没有保留的文件/provider 事件，应显式 Reload
+或依靠 WithResync 补偿。参见可运行的 [cloud-reload 示例](../../../examples/cloud-reload/README.md)。

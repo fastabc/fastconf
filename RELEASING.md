@@ -15,13 +15,23 @@ Root tags use `vX.Y.Z`; satellite tags use `<directory>/vX.Y.Z`.
 `providers/s3/s3events` shares the S3 module's version. Logging adapters,
 Prometheus and OpenTelemetry retain separate leaf modules.
 
+`secrets/age` is a new independent module after v1.5.0. It needs its own
+`secrets/age/vX.Y.Z` tag at the same commit as the root release, even though it
+does not import the root module. For example, a v1.6.0 release includes both
+`v1.6.0` and `secrets/age/v1.6.0`. The discovery, tagging and release-validation
+scripts already include it; no manual module list or separate GitHub Release
+is needed. Its minimum Go version is 1.26; the root module remains at Go 1.25.
+
 ## Prepare and verify
 
 The dependency candidate defaults to `VERSION=v1.5.0`, matching current internal
 pins. API checks compare against `BASE=v1.4.0` and target `API_VERSION=v1.5.0`
 for the v1.5.0 release. Prepare and verify a release as follows:
 
-1. Update the changelog and any relevant migration notes.
+1. Update the changelog and any relevant migration notes. Add a non-empty
+   `## [vX.Y.Z]` section for the exact tag, including any prerelease suffix.
+   The release workflow uses that section as its Release Note and fails if it
+   is missing, empty or duplicated; it never publishes the `Unreleased` section.
 2. Align in-repository module requirements and the Makefile `VERSION` and
    `API_VERSION` defaults to the release version. Do not
    commit local `replace` directives or synthetic checksums in release modules.

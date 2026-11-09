@@ -16,6 +16,7 @@ committed: port=9090 generation=2
 rollback: port=8080 generation=3
 unchanged source: port=9090 generation=4
 source repaired: port=8080 generation=5
+expired rollback: rejected=true preserved=true
 ```
 
 The program copies [initial.yaml](config/initial.yaml) to a temporary local
@@ -25,8 +26,8 @@ file, then tries [invalid.yaml](config/invalid.yaml),
 exit, leaving repository fixtures unchanged.
 
 `Plan` collects field validation findings without publishing. A nil Plan error
-does not mean the candidate passes validation: inspect `Validators[].Err` and
-`Policies[].Severity`. Policy evaluation errors are also collected as findings.
+does not mean the candidate passes validation: call `preview.Err()` to check all validator failures and policy denials.
+`Validators` and `Policies` retain the detailed reports. Policy evaluation errors are also collected as findings.
 Malformed input and failures before validation can still return an error. `Reload` rejects invalid fields and preserves the exact
 previous snapshot. A valid reload publishes generation 2; rollback republishes
 the initial snapshot as generation 3 without rerunning validation.
@@ -39,11 +40,14 @@ so a later reload would load port 9090 again.
 Related: [Plan](../../docs/cookbook/runtime/plan.md),
 [diagnostics and history](../../docs/cookbook/runtime/introspect.md).
 
-The port policy rejects 7070 and warns for 9090. `checkPlan` checks validator
+The port policy rejects 7070 and warns for 9090. `PlanResult.Err()` aggregates validator
 errors and error-severity policies; `printChange` compares hashes as well as
 diagnostic entries, so JSON-hidden YAML changes are not labeled unchanged.
 The final steps first demonstrate the unchanged source reapplying 9090, then
-repair it to 8080 and validate before publication.
+repair it to 8080 and validate before publication. With history capacity 2, the
+original snapshot eventually expires. A rollback then returns
+`ErrUnknownGeneration` and preserves the live state; keeping a pointer does not
+pin the history entry. Membership is checked when the writer executes rollback.
 
 Source: [main.go](main.go).
 

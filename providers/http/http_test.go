@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	nethttp "net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
 	httpprov "github.com/fastabc/fastconf/providers/http"
 )
@@ -36,6 +38,42 @@ func (yamlCodec) Decode(data []byte) (map[string]any, error) {
 		out[strings.TrimSpace(line[:i])] = strings.TrimSpace(line[i+1:])
 	}
 	return out, nil
+}
+
+func TestProvider_LoadRechecksChangedContentType(t *testing.T) {
+	var changed atomic.Bool
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		contentType := "application/yaml"
+		if changed.Load() {
+			contentType = "application/json"
+		}
+		w.Header().Set("Content-Type", contentType)
+		_, _ = io.WriteString(w, `{"value": 01}`) // YAML accepts this; JSON does not.
+	}))
+	defer srv.Close()
+	for _, explicit := range []bool{false, true} {
+		t.Run(fmt.Sprint(explicit), func(t *testing.T) {
+			changed.Store(false)
+			var dec contracts.Decoder
+			if explicit {
+				dec, _ = codec.For("yaml")
+			}
+			p, err := httpprov.New("test", srv.URL, dec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := p.Load(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			changed.Store(true)
+			for range 2 {
+				_, err := p.Load(context.Background())
+				if (err != nil) == explicit {
+					t.Fatalf("explicit=%v: changed content type load = %v", explicit, err)
+				}
+			}
+		})
+	}
 }
 
 func TestNew_Validation(t *testing.T) {

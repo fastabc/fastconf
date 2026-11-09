@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -57,6 +59,12 @@ func WithYAMLFields() PlanOption {
 	return func(b *planBuilder) { b.yaml = true }
 }
 
+// WithJSONFields restricts input names to encoding/json's exact and folded field
+// matches. Without it, standalone plans also accept legacy exact input aliases.
+func WithJSONFields() PlanOption {
+	return func(b *planBuilder) { b.strictJSON = true }
+}
+
 // TypedHookPlan mirrors the destination type: struct fields (with every map-key alias the merged
 // map might use), slice/map elements and hook leaves. Recursive types share one node per type, so
 // the plan is finite while Apply follows the finite input tree.
@@ -73,9 +81,11 @@ type typePlan struct {
 	target reflect.Type
 	// direct marks targets with no scalar wire form: a converted value of
 	// exactly this type is assigned after decoding.
-	direct bool
-	fields []*fieldPlan // struct fields
-	elem   *typePlan    // slice, array or map elements
+	direct       bool
+	fields       []*fieldPlan          // struct fields
+	inputNames   map[string]*fieldPlan // JSON fields, including fields without hooks
+	inputAliases bool
+	elem         *typePlan // slice, array or map elements
 	// live: a hook is reachable. assigns: a direct hook is reachable.
 	live, assigns bool
 	list          bool
@@ -88,11 +98,12 @@ type fieldPlan struct {
 }
 
 type planBuilder struct {
-	hooks []TypedHook
-	yaml  bool
-	lists bool
-	memo  map[reflect.Type]*typePlan
-	all   []*typePlan
+	hooks      []TypedHook
+	yaml       bool
+	lists      bool
+	strictJSON bool
+	memo       map[reflect.Type]*typePlan
+	all        []*typePlan
 }
 
 // BuildTypedHookPlan inspects t and returns a plan that the walker can apply against any merged
@@ -142,7 +153,7 @@ func (b *planBuilder) shapeFor(t reflect.Type) *typePlan {
 	if tp, ok := b.memo[t]; ok {
 		return tp
 	}
-	tp := &typePlan{}
+	tp := &typePlan{inputAliases: !b.strictJSON}
 	b.memo[t] = tp
 	b.all = append(b.all, tp)
 	switch t.Kind() {
@@ -150,13 +161,15 @@ func (b *planBuilder) shapeFor(t reflect.Type) *typePlan {
 		if b.yaml {
 			typeinfo.StructFields(t, typeinfo.EmbedYAML, func(f reflect.StructField, index []int) {
 				// Inline maps are handled by yaml.v3 rather than typed hooks.
-				if !typeinfo.YAMLInline(f.Tag.Get("yaml")) {
+				if f.Tag.Get("yaml") != "-" && !typeinfo.YAMLInline(f.Tag.Get("yaml")) {
 					b.addField(tp, f, append([]int(nil), index...))
 				}
 			})
 		} else {
+			tp.inputNames = make(map[string]*fieldPlan)
 			for _, f := range typeinfo.JSONFields(t) {
-				b.addField(tp, f.Field, f.Field.Index)
+				field := b.addField(tp, f.Field, f.Field.Index)
+				tp.inputNames[f.Name] = field
 			}
 		}
 	case reflect.Slice, reflect.Array, reflect.Map:
@@ -168,12 +181,18 @@ func (b *planBuilder) shapeFor(t reflect.Type) *typePlan {
 	return tp
 }
 
-func (b *planBuilder) addField(tp *typePlan, f reflect.StructField, index []int) {
+func (b *planBuilder) addField(tp *typePlan, f reflect.StructField, index []int) *fieldPlan {
 	aliases := typeinfo.FieldNamesOf(f).InputAliases
-	if len(aliases) == 0 {
-		return
+	if b.yaml {
+		name, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+		if name == "" {
+			name = strings.ToLower(f.Name)
+		}
+		aliases = []string{name}
 	}
-	tp.fields = append(tp.fields, &fieldPlan{aliases: aliases, index: index, plan: b.planFor(f.Type)})
+	field := &fieldPlan{aliases: aliases, index: index, plan: b.planFor(f.Type)}
+	tp.fields = append(tp.fields, field)
+	return field
 }
 
 // propagate computes live/assigns to a fixed point (shapes may form cycles), then drops subtrees
@@ -272,6 +291,16 @@ func (tp *typePlan) apply(v any) (any, error) {
 			}
 			return node, firstErr
 		}
+		if tp.inputNames != nil {
+			for key, child := range node {
+				if f := tp.jsonField(key); f != nil && f.plan.live {
+					converted, err := f.plan.apply(child)
+					keep(err)
+					node[key] = converted
+				}
+			}
+			return node, firstErr
+		}
 		for _, f := range tp.fields {
 			key, present := pickAlias(node, f.aliases)
 			if !present {
@@ -358,7 +387,13 @@ func (p *TypedHookPlan) Assign(merged map[string]any, target any) {
 }
 
 func (tp *typePlan) assign(raw any, dst reflect.Value) {
-	if !tp.assigns || raw == nil {
+	if !tp.assigns {
+		return
+	}
+	if raw == nil {
+		if dst.IsValid() && dst.CanSet() && dst.Kind() == reflect.Pointer {
+			dst.SetZero()
+		}
 		return
 	}
 	if tp.hook != nil {
@@ -394,6 +429,16 @@ func (tp *typePlan) assign(raw any, dst reflect.Value) {
 				dst.SetMapIndex(key, elem)
 			}
 		case dst.Kind() == reflect.Struct:
+			if tp.inputNames != nil {
+				// The JSON bridge encodes map keys in lexical order. Assign all
+				// aliases in that order too, including explicit null transitions.
+				for _, key := range slices.Sorted(maps.Keys(node)) {
+					if f := tp.jsonField(key); f != nil && f.plan.assigns {
+						f.plan.assign(node[key], fieldAt(dst, f.index))
+					}
+				}
+				return
+			}
 			for _, f := range tp.fields {
 				if key, ok := pickAlias(node, f.aliases); ok {
 					f.plan.assign(node[key], fieldAt(dst, f.index))
@@ -448,4 +493,32 @@ func pickAlias(node map[string]any, aliases []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// jsonField follows encoding/json: exact names win, then the first declared
+// case-insensitive match. Retain inactive fields so a string field can shield
+// a similarly named duration field from an unrelated hook conversion.
+func (tp *typePlan) jsonField(key string) *fieldPlan {
+	if f := tp.inputNames[key]; f != nil {
+		return f
+	}
+	var matched *fieldPlan
+	for name, f := range tp.inputNames {
+		if strings.EqualFold(key, name) && (matched == nil || slices.Compare(f.index, matched.index) < 0) {
+			matched = f
+		}
+	}
+	if matched != nil {
+		return matched
+	}
+	if !tp.inputAliases {
+		return nil
+	}
+	// Keep the standalone plan's existing exact input aliases.
+	for _, f := range tp.fields {
+		if slices.Contains(f.aliases, key) {
+			return f
+		}
+	}
+	return nil
 }

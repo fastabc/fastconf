@@ -427,10 +427,10 @@ func TestSecretResolver_ListElementProvenancePath(t *testing.T) {
 	}
 }
 
-func TestSecretResolver_LegacyOptionField(t *testing.T) {
+func TestSecretResolver_SingleResolverOption(t *testing.T) {
 	m, err := New[map[string]string](context.Background(), WithFS(fstest.MapFS{
 		"conf.d/base/app.yaml": {Data: []byte("token: enc:private\n")},
-	}), func(o *options) { o.SecretResolver = &fakeResolver{} })
+	}), WithSecretResolver(&fakeResolver{}))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,7 +12,7 @@ import (
 	"github.com/fastabc/fastconf/internal/testutil"
 )
 
-func TestReload_AssemblyFailureRetainsWatchDirectories(t *testing.T) {
+func TestAssemble_RegistersDirectoriesBeforeFailure(t *testing.T) {
 	failure := errors.New("source unavailable")
 	provider := testutil.NewFakeProvider("failing", 0, nil)
 	provider.LoadErr = failure
@@ -33,14 +33,15 @@ func TestReload_AssemblyFailureRetainsWatchDirectories(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer m.lifetimeCancel()
-			if err := m.reload(context.Background(), "manual", ""); !errors.Is(err, tc.want) {
-				t.Fatalf("reload error = %v; want %v", err, tc.want)
+			var registered []string
+			_, err = m.assembleSources(context.Background(), "", func(dir string) {
+				registered = append(registered, dir)
+			}, [32]byte{})
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("assembly error = %v; want %v", err, tc.want)
 			}
-			if !slices.Contains(m.scannedDirs, "conf.d/base") {
-				t.Fatalf("failed reload discarded scanned directories: %v", m.scannedDirs)
-			}
-			if m.Snapshot() != nil {
-				t.Fatal("failed reload published a snapshot")
+			if !slices.Contains(registered, "conf.d/base") {
+				t.Fatalf("failure skipped directory registration: %v", registered)
 			}
 		})
 	}

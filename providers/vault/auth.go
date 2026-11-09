@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	nethttp "net/http"
 	"time"
 
@@ -51,17 +50,20 @@ func AppRoleAuth(addr, roleID, secretID string, client Doer) Auth {
 		url := fmt.Sprintf("%s/v1/auth/approle/login", addr)
 		req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodPost, url, bytes.NewReader(buf))
 		if err != nil {
-			return "", 0, err
+			return "", 0, contracts.SafeError("approle: request failed", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := client.Do(req)
 		if err != nil {
-			return "", 0, err
+			return "", 0, contracts.SafeError("approle: request failed", err)
 		}
 		defer func() { _ = resp.Body.Close() }()
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		raw, err := contracts.ReadAllMax(resp.Body, 64<<10)
+		if err != nil {
+			return "", 0, contracts.SafeError("approle: read failed", err)
+		}
 		if resp.StatusCode != nethttp.StatusOK {
-			return "", 0, fmt.Errorf("approle: status %d: %s", resp.StatusCode, string(raw))
+			return "", 0, contracts.SafeError(fmt.Sprintf("approle: status %d", resp.StatusCode), errors.New(string(raw)))
 		}
 		var out struct {
 			Auth struct {
@@ -70,7 +72,7 @@ func AppRoleAuth(addr, roleID, secretID string, client Doer) Auth {
 			} `json:"auth"`
 		}
 		if err := json.Unmarshal(raw, &out); err != nil {
-			return "", 0, fmt.Errorf("approle: decode: %w", err)
+			return "", 0, contracts.SafeError("approle: decode failed", err)
 		}
 		if out.Auth.ClientToken == "" {
 			return "", 0, errors.New("approle: empty client_token")
@@ -160,7 +162,7 @@ func (p *Provider) ensureToken(ctx context.Context) error {
 	p.mu.Unlock()
 	tok, ttl, err := p.auth.Login(ctx)
 	if err != nil {
-		return fmt.Errorf("vault: auth login: %w", err)
+		return contracts.SafeError("vault: auth login failed", err)
 	}
 	p.mu.Lock()
 	p.token = tok

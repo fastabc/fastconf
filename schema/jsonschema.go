@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-
-	"github.com/fastabc/fastconf/internal/typeinfo"
 )
 
 type schemaNode struct {
@@ -70,7 +68,7 @@ func buildSchema(t reflect.Type, stack map[reflect.Type]bool) (*schemaNode, erro
 	switch {
 	case t == durationType:
 		n.Type = "string"
-		n.Pattern = `^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$`
+		n.Pattern = `^[+-]?(0|(([0-9]+(\.[0-9]*)?|\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+)$`
 		return n, nil
 	case jsonType(t):
 		return n, nil
@@ -116,7 +114,10 @@ func buildSchema(t reflect.Type, stack map[reflect.Type]bool) (*schemaNode, erro
 			if e != nil {
 				return nil, e
 			}
-			meta := typeinfo.FieldMeta(f.Field)
+			meta, e := fieldMeta(f.Field)
+			if e != nil {
+				return nil, e
+			}
 			child.Description = meta.Desc
 			child.WriteOnly = meta.Secret
 			if child.Type == "integer" || child.Type == "number" {

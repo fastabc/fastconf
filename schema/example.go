@@ -2,6 +2,7 @@ package schema
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -62,7 +63,10 @@ func exampleNode(t reflect.Type, meta typeinfo.Meta, stack map[reflect.Type]bool
 	case reflect.Struct:
 		n := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 		for _, f := range fields(t, true) {
-			meta := typeinfo.FieldMeta(f.Field)
+			meta, err := fieldMeta(f.Field)
+			if err != nil {
+				return nil, err
+			}
 			child, err := exampleNode(f.Field.Type, meta, stack)
 			if err != nil {
 				return nil, fmt.Errorf("schema: %s: %w", f.Name, err)
@@ -126,7 +130,10 @@ func ExampleEnv(t reflect.Type, prefix, sep string) ([]byte, error) {
 				fmt.Fprintf(&b, "# %s: not addressable with separator %q; use %q\n", strings.Join(keys, "."), sep, sep+sep)
 				continue
 			}
-			meta := typeinfo.FieldMeta(f.Field)
+			meta, err := fieldMeta(f.Field)
+			if err != nil {
+				return err
+			}
 			ft := baseType(f.Field.Type)
 			if ft.Kind() == reflect.Struct && !scalarType(ft) && !meta.HasDefault {
 				if err := walk(ft, keys); err != nil {
@@ -147,10 +154,19 @@ func ExampleEnv(t reflect.Type, prefix, sep string) ([]byte, error) {
 				}
 				if list, ok := v.([]any); ok {
 					parts := make([]string, len(list))
+					needsJSON := false
 					for i, item := range list {
 						parts[i] = fmt.Sprint(item)
+						needsJSON = needsJSON || parts[i] == "" || strings.Contains(parts[i], ",") || strings.TrimSpace(parts[i]) != parts[i]
 					}
 					value = strings.Join(parts, ",")
+					if needsJSON || strings.HasPrefix(value, "[") {
+						encoded, err := json.Marshal(list)
+						if err != nil {
+							return nilEnvError(f.Name, err)
+						}
+						value = string(encoded)
+					}
 				} else {
 					value = fmt.Sprint(v)
 				}

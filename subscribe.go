@@ -21,8 +21,9 @@ type subscribeConfig[S any] struct {
 }
 
 // WithEqual replaces reflect.DeepEqual; true suppresses the callback. It is only
-// called for two non-nil extracted pointers; nil transitions bypass it. Equal hashes
-// skip publication entirely. Use WithObserver to observe unchanged reloads.
+// called for two non-nil extracted pointers; nil transitions bypass it. Equal-value
+// reloads skip subscribers, including security-metadata-only commits. Use WithObserver
+// to observe reloads and metadata commits.
 // See docs/cookbook/runtime/subscribe.md for comparator examples.
 func WithEqual[S any](equal func(old, new *S) bool) SubscribeOption[S] {
 	return func(o *subscribeConfig[S]) { o.equal = equal }

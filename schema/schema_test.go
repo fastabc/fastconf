@@ -3,12 +3,17 @@ package schema_test
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fastabc/fastconf"
+	"github.com/fastabc/fastconf/providers/dotenv"
+	"github.com/fastabc/fastconf/providers/env"
 	"github.com/fastabc/fastconf/providers/source"
 	"github.com/fastabc/fastconf/schema"
 )
@@ -58,6 +63,40 @@ func TestJSONSchema_Sample(t *testing.T) {
 	}
 }
 
+func TestDurationSchemaAndExamples_MatchRuntimeLiterals(t *testing.T) {
+	type cfg struct {
+		Timeout time.Duration `json:"timeout" fc:"default=5000000000"`
+	}
+	b, err := schema.JSONSchema(reflect.TypeFor[cfg]())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root struct {
+		Properties map[string]struct{ Default, Pattern string }
+	}
+	if err := json.Unmarshal(b, &root); err != nil {
+		t.Fatal(err)
+	}
+	timeout := root.Properties["timeout"]
+	if timeout.Default != "5s" {
+		t.Fatalf("duration default = %q", timeout.Default)
+	}
+	pattern := regexp.MustCompile(timeout.Pattern)
+	for _, literal := range []string{"0", "-1s", "+2h", ".5s", "1.s", "1μs", "1µs", "1h30m"} {
+		if _, err := time.ParseDuration(literal); err != nil || !pattern.MatchString(literal) {
+			t.Errorf("valid runtime duration rejected: %q (%v)", literal, err)
+		}
+	}
+	yml, err := schema.ExampleYAML(reflect.TypeFor[cfg]())
+	if err != nil || !strings.Contains(string(yml), "timeout: 5s") {
+		t.Fatalf("YAML: %s; error: %v", yml, err)
+	}
+	env, err := schema.ExampleEnv(reflect.TypeFor[cfg](), "APP_", "__")
+	if err != nil || string(env) != "APP_TIMEOUT=5s\n" {
+		t.Fatalf("env: %s; error: %v", env, err)
+	}
+}
+
 const wantYAML = "# HTTP listen port\nport: 8080\n# Request timeout\ntimeout: 5s\nlevel: info\ndb:\n  # Database DSN (required, secret)\n  dsn: \"\"\n  hosts: [a, b]\n"
 
 func TestExampleYAML_Sample(t *testing.T) {
@@ -103,6 +142,30 @@ func TestExampleEnv_AmbiguousUnderscore(t *testing.T) {
 	}
 	if !strings.Contains(string(b), `# max_conns: not addressable with separator "_"; use "__"`) || strings.Contains(string(b), "APP_MAX_CONNS=") {
 		t.Fatalf("%s", b)
+	}
+}
+
+func TestExampleEnv_ListDefaultsLoadBack(t *testing.T) {
+	type cfg struct {
+		Values []string `json:"values" default:"[\"a,b\",\" c \",\"\"]"`
+		Empty  []string `json:"empty" default:"[\"\"]"`
+	}
+	b, err := schema.ExampleEnv(reflect.TypeFor[cfg](), "FC_SCHEMA_", "__")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := dotenv.New("FC_SCHEMA_", path).WithReplacer(env.DoubleUnderscoreReplacer).
+		WithLookup(func(string) (string, bool) { return "", false })
+	st, err := fastconf.Load[cfg](context.Background(), fastconf.WithProvider(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Value(); !reflect.DeepEqual(got.Values, []string{"a,b", " c ", ""}) || !reflect.DeepEqual(got.Empty, []string{""}) {
+		t.Fatalf("generated env changed defaults: %+v\n%s", got, b)
 	}
 }
 func TestJSONSchema_RecursiveType(t *testing.T) {

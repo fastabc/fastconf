@@ -30,6 +30,9 @@ var (
 	ErrInvalid = fcerr.ErrInvalid
 	// ErrClosed: the manager was closed.
 	ErrClosed = fcerr.ErrClosed
+	// ErrPaused: a notifier refresh was skipped because the manager is paused.
+	// The consumer must not acknowledge the event as successfully refreshed.
+	ErrPaused = fcerr.New("fastconf: manager paused")
 	// ErrTooLarge: a source body exceeded its size limit.
 	ErrTooLarge = fcerr.ErrTooLarge
 )

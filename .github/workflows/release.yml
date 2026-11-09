@@ -44,6 +44,8 @@ jobs:
           done < "$RUNNER_TEMP/release-tags"
       - name: Repository checks
         run: make check
+      - name: Extract release notes from changelog
+        run: python3 tools/release-notes.py "$VERSION" > "$RUNNER_TEMP/release-notes.md"
       - name: Check compatibility with v1.4.0
         run: make api-check BASE=v1.4.0
       - name: Test candidate modules
@@ -60,6 +62,6 @@ jobs:
             dist/*.zip
             dist/SHA256SUMS
           fail_on_unmatched_files: true
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release-notes.md
           prerelease: ${{ contains(github.ref_name, '-') }}
           make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}

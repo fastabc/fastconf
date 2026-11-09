@@ -11,7 +11,8 @@ Failed reloads keep the application on its last valid configuration.
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-This README presents the current v1.6.0 feature set; additions marked v1.6.0
+This README presents the planned v1.6.0 feature set in this checkout, listed under
+`Unreleased` in [CHANGELOG.md](CHANGELOG.md); additions marked v1.6.0
 refer to this checkout. Version-pinned installation examples below use v1.5.0.
 Read the documentation at your installed tag for release-specific behavior.
 For v0.20.0 upgrades, see the
@@ -210,7 +211,9 @@ assemble -> merge -> transform -> secret -> defaults -> typed-hooks -> decode
 ```
 
 A rejected candidate preserves the live snapshot and generation. Equal typed
-hashes skip publication. `Errors()` is bounded and evicts the oldest pending
+hashes skip publication unless resolved-secret paths change; those metadata
+commits update diagnostics/history without invoking value subscribers.
+`Errors()` is bounded and evicts the oldest pending
 error on overflow; consume it for ongoing failures. `WithUnknownFields` controls
 unknown struct keys; the default `UnknownWarn` needs `WithLogger` to be visible.
 `WithStrictMerge` controls raw merge type conflicts and file discovery instead.
@@ -411,10 +414,11 @@ that manager's reload/Plan/rollback/shutdown. Signal a bounded worker for costly
 resource updates. An override applies to one reload and does not edit sources.
 
 `Plan(ctx)` returns `Proposed`, `Diff`, `Validators` and `Policies` without
-publishing. Inspect validator errors and policy severity even when Plan returns
-nil error. Reload reads inputs again. `Pause` suppresses watcher triggers;
+publishing. Call `result.Err()` to check validator failures and policy denials
+even when Plan returns nil error. Reload reads inputs again. `Pause` suppresses watcher triggers;
 `Resume` does not replay ignored events, so reload explicitly after a paused batch.
-In v1.6.0, pause also skips notifier-triggered refresh and periodic resync.
+In v1.6.0, pause also skips periodic resync and returns `ErrPaused` to notifier
+refreshes; consumers must retain or negatively acknowledge those messages.
 
 `Snapshot().Map/Dump/Diff/Explain` provide masked diagnostics; enable
 `WithProvenance` for origins. `Unredacted().Map/Dump` exposes plaintext explicitly.
@@ -484,7 +488,8 @@ make check       # repository checks; see tools/README.md
 ```
 
 - [Documentation index](docs/README.md): guides and recipes by function.
-- [Examples](examples/README.md): complete programs, fixtures and expected output.
+- [Examples](examples/README.md): complete programs, fixtures, expected output and
+  a feature-to-example map covering additions after v1.5.0.
 - [Repository tooling](tools/README.md): module checks and development commands.
 - [Architecture](docs/architecture.md): package responsibilities and dependency direction.
 - [Performance notes](docs/design/perf.md): reproducible measurements and read-path budget.

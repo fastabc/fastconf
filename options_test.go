@@ -74,6 +74,40 @@ func TestWithProfile_InvalidMatchNamesField(t *testing.T) {
 	}
 }
 
+func TestEnumOptions_RejectInvalidValuesBeforeLoading(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opt  Option
+	}{
+		{"WithUnknownFields/3", WithUnknownFields(UnknownFields(3))},
+		{"WithUnknownFields/255", WithUnknownFields(UnknownFields(255))},
+		{"WithProvenance/3", WithProvenance(ProvenanceLevel(3))},
+		{"WithProvenance/255", WithProvenance(ProvenanceLevel(255))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, constructor := range []string{"Load", "New"} {
+				t.Run(constructor, func(t *testing.T) {
+					opts := []Option{WithFS(fstest.MapFS{}), tc.opt}
+					var err error
+					if constructor == "Load" {
+						_, err = Load[struct{}](context.Background(), opts...)
+					} else {
+						var m *Manager[struct{}]
+						m, err = New[struct{}](context.Background(), opts...)
+						if m != nil {
+							_ = m.Close()
+						}
+					}
+					optionName, _, _ := strings.Cut(tc.name, "/")
+					if !errors.Is(err, ErrFastConf) || errors.Is(err, ErrNoSources) || !strings.Contains(err.Error(), optionName) {
+						t.Fatalf("invalid option must fail before discovery: %v", err)
+					}
+				})
+			}
+		})
+	}
+}
+
 // applyOpts collects the supplied options against a fresh options
 // so individual fields can be asserted without running the full Manager
 // pipeline.

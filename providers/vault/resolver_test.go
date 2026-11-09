@@ -22,14 +22,14 @@ func TestResolver_Resolve(t *testing.T) {
 			w.WriteHeader(400)
 			return
 		}
-		_, _ = fmt.Fprint(w, `{"data":{"data":{"password":"pw","port":5432,"enabled":true,"object":{"secret":"pw"}}}}`)
+		_, _ = fmt.Fprint(w, `{"data":{"data":{"password":"pw","port":5432,"enabled":true,"large":9007199254740993,"decimal":1.234567890123456789,"object":{"secret":"pw"}}}}`)
 	}))
 	defer srv.Close()
 	r, err := vault.NewResolver(srv.URL, "token")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct{ body, want string }{{"app/db#password", "pw"}, {"app/db#port", "5432"}, {"app/db#enabled", "true"}} {
+	for _, tc := range []struct{ body, want string }{{"app/db#password", "pw"}, {"app/db#port", "5432"}, {"app/db#enabled", "true"}, {"app/db#large", "9007199254740993"}, {"app/db#decimal", "1.234567890123456789"}} {
 		got, err := r.Resolve(context.Background(), tc.body)
 		if err != nil || got != tc.want {
 			t.Fatalf("%q %v", got, err)

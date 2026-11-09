@@ -4,7 +4,7 @@
 `go.mod`，仅导入所需模块即可，根模块没有新增云 SDK。
 最低 Go 版本分别以各模块清单为准。
 
-Azure/GCP 模块固定 `golang.org/x/net v0.60.0` 的 HTTP/2 修复，最低 Go 为 1.26；
+Azure/GCP 模块当前固定 `golang.org/x/net v0.62.0`，最低 Go 为 1.26；
 这包括此前最低 Go 1.25 的 Azure Blob。语法兼容的最低版本不代表安全补丁基线：
 本次安全验收使用 Go 1.26.10，部署时应采用修复
 [GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809) 的受支持工具链版本。
@@ -114,7 +114,9 @@ FS/GCS/Azure Blob 限制解码前的文档字节数；Parameter Store 限制所�
 的累计字节数。超限返回 `contracts.ErrTooLarge`。
 
 三个云 Provider 只实现 `Provider` 和 `Describer`，没有自动轮询或原生 Watcher。
-调用 `Manager.Reload(ctx)` 获取新数据；自动刷新由应用调度并传入有界 context。
+调用 `Manager.Reload(ctx)` 获取新数据；自动刷新可由应用调度并传入有界 context，
+或使用当前源码的 `WithNotifier` / `WithResync` 托管通知与周期对账，详见
+[云通知配方](cloud-notifications.md)。
 加载错误遵循 Manager 的[重载失败策略](../runtime/reload-policy.md)。
 
 发布前，在当前 checkout 验证这些新模块：
@@ -158,6 +160,8 @@ if err != nil { return err }
 
 Prefix/Label 都是字面匹配，过滤器中的特殊字符会被转义。空 Label 只读无标签设置。
 去除 prefix 后，`server:host` 变为嵌套树，点号保留，值保持字符串。
+传入 `azappconfig.WithJSONValues()` 可按 `application/json` Content-Type
+解码单个 setting（含 `charset` 参数），保留精确 JSON 数值；其他值仍保持字符串。
 重复 key、空路径段、叶/分支冲突、分页失败均拒绝整次加载。读取完成后按排序后的
 key、label、ETag、value 计算 revision；删除 setting 会从下一次完整树中消失。
 这不代表服务端多 setting 的事务快照。Key Vault 引用和 App Configuration 特殊

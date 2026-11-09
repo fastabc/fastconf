@@ -8,9 +8,12 @@ import (
 	"github.com/fastabc/fastconf/internal/scan"
 )
 
-// Bound retained decoded layers under directory rotation. FIFO is sufficient:
-// the normal workload scans the same layers in order on every reload.
-const maxCachedLayers = 512
+// Bound admission by entry count and source-byte weight. This is not a decoded
+// heap/RSS limit: codecs may expand documents. Oversized documents still load.
+const (
+	maxCachedLayers      = 512
+	maxCachedSourceBytes = 16 << 20
+)
 
 type layerCacheKey struct {
 	path, codec string
@@ -19,20 +22,46 @@ type layerCacheKey struct {
 // layerCache is owned by the single writer, shared by Reload and Plan. File
 // bytes are always read by discovery; mtime and size never bypass hashing.
 type layerCache struct {
-	entries map[layerCacheKey]*decodedLayer
-	keys    []layerCacheKey
-	next    int
+	entries     map[layerCacheKey]*decodedLayer
+	sourceBytes int
 }
 
-// decodedLayer is immutable after decoding. Assembly may borrow it; only a
-// cloneTree may enter merge, whose output can alias its layer inputs.
+// decodedLayer payload is immutable after decoding. Only a cloneTree may enter
+// merge, whose output can alias its layer inputs. active is writer-owned cache bookkeeping.
 type decodedLayer struct {
-	sum        [32]byte
-	generation uint64
-	tree       map[string]any
+	sum         [32]byte
+	generation  uint64
+	tree        map[string]any
+	sourceBytes int
+	active      bool
 }
 
 func (l *decodedLayer) cloneTree() map[string]any { return confmap.DeepClone(l.tree) }
+
+// retain releases paths absent from this scan. During decoding, active entries
+// are never evicted to admit another path: a sequential scan larger than the
+// cache must not evict every hit before it is visited.
+func (c *layerCache) retain(layers []stagedLayer) {
+	if len(c.entries) == 0 {
+		return
+	}
+	for _, entry := range c.entries {
+		entry.active = false
+	}
+	for _, l := range layers {
+		if l.fileSum != ([32]byte{}) && l.src.Kind != LayerPatch {
+			if entry := c.entries[layerCacheKey{l.src.Path, l.src.Codec}]; entry != nil {
+				entry.active = true
+			}
+		}
+	}
+	for key, entry := range c.entries {
+		if !entry.active {
+			c.sourceBytes -= entry.sourceBytes
+			delete(c.entries, key)
+		}
+	}
+}
 
 func (c *layerCache) getOrDecode(layer scan.Layer, sum [32]byte, dec contracts.Decoder, generation uint64) (*decodedLayer, error) {
 	key := layerCacheKey{layer.Path, layer.Codec}
@@ -43,20 +72,19 @@ func (c *layerCache) getOrDecode(layer scan.Layer, sum [32]byte, dec contracts.D
 	if err != nil {
 		return nil, err
 	}
+	entry := &decodedLayer{sum: sum, generation: generation, tree: raw, sourceBytes: len(layer.Bytes)}
+	if old := c.entries[key]; old != nil {
+		c.sourceBytes -= old.sourceBytes
+		delete(c.entries, key)
+	}
+	if len(c.entries) >= maxCachedLayers || entry.sourceBytes > maxCachedSourceBytes-c.sourceBytes {
+		return entry, nil
+	}
 	if c.entries == nil {
 		c.entries = make(map[layerCacheKey]*decodedLayer)
 	}
-	if c.entries[key] == nil {
-		if len(c.keys) == maxCachedLayers {
-			delete(c.entries, c.keys[c.next])
-			c.keys[c.next] = key
-			c.next = (c.next + 1) % maxCachedLayers
-		} else {
-			c.keys = append(c.keys, key)
-		}
-	}
-	entry := &decodedLayer{sum: sum, generation: generation, tree: raw}
 	c.entries[key] = entry
+	c.sourceBytes += entry.sourceBytes
 	return entry, nil
 }
 

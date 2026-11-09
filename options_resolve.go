@@ -53,14 +53,15 @@ type options struct {
 	SecretRedactor        secret.Redactor
 	SecretPaths           []string
 	// YAMLBridge decodes *T through yaml instead of the default json bridge.
-	YAMLBridge    bool
-	UnknownFields UnknownFields
-	Tracer        obs.Tracer
-	Policies      []anyPolicy
-	OptionErrs    []error
-	// SecretResolver is retained for v1 API compatibility; execution uses SecretResolvers.
-	SecretResolver  secret.Resolver
+	YAMLBridge      bool
+	UnknownFields   UnknownFields
+	Tracer          obs.Tracer
+	Policies        []anyPolicy
+	OptionErrs      []error
 	SecretResolvers []secret.Resolver
+	// Retained for the v1 API surface reached through Option. Resolution uses
+	// SecretResolvers exclusively; remove this compatibility field only in v2.
+	SecretResolver secret.Resolver
 
 	Generators []contracts.Generator
 
@@ -106,9 +107,6 @@ func resolveOptions(opts []Option) (options, error) {
 			continue
 		}
 		fn(&o)
-	}
-	if o.SecretResolver != nil && len(o.SecretResolvers) == 0 {
-		o.SecretResolvers = []secret.Resolver{o.SecretResolver}
 	}
 	if o.ObserverTimeout == 0 {
 		o.ObserverTimeout = DefaultObserverTimeout
@@ -163,6 +161,8 @@ func buildTypedHookPlan[T any](o *options) *codec.TypedHookPlan {
 	}
 	if o.YAMLBridge {
 		planOpts = append(planOpts, codec.WithYAMLFields())
+	} else {
+		planOpts = append(planOpts, codec.WithJSONFields())
 	}
 	return codec.BuildTypedHookPlan(reflect.TypeFor[T](), hooks, planOpts...)
 }

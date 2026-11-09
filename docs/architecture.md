@@ -48,7 +48,8 @@ The [extensions guide](getting-started/extensions.md) lists optional adapters;
 Initialization loads synchronously. Only `New` starts the writer and configured
 watchers; later reloads, plans and rollbacks use that writer. Reload and Plan
 share assembly and pipeline stages. Publication updates the snapshot, retains
-enabled history, emits commit events and invokes subscribers. File/provider
+enabled history and emits commit events; value changes also invoke subscribers.
+Equal-value commits that update resolved-secret paths skip value subscribers. File/provider
 watchers enqueue work instead of modifying snapshots directly.
 
 The writer owns layer caches, merge metadata and the input fingerprint.

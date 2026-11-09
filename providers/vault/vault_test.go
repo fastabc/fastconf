@@ -324,7 +324,7 @@ func TestProvider_WatchRetriesAfterFailedLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := snap.Map["v"]; got != float64(2) {
+	if got := snap.Map["v"]; got != json.Number("2") {
 		t.Fatalf("v = %v", got)
 	}
 	// Accepted: no further events for version 2.

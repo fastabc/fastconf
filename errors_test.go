@@ -20,9 +20,8 @@ func TestErrFastConfHierarchy(t *testing.T) {
 	}
 }
 
-// TestCoreSentinelsChainToErrFastConf verifies the error table: eight
-// reload sentinels plus the two History misuse errors, all under the
-// umbrella.
+// TestCoreSentinelsChainToErrFastConf verifies reload, notification and history
+// errors share the umbrella sentinel.
 func TestCoreSentinelsChainToErrFastConf(t *testing.T) {
 	sentinels := map[string]error{
 		"ErrNoSources": ErrNoSources,
@@ -32,6 +31,7 @@ func TestCoreSentinelsChainToErrFastConf(t *testing.T) {
 		"ErrProvider":  ErrProvider,
 		"ErrInvalid":   ErrInvalid,
 		"ErrClosed":    ErrClosed,
+		"ErrPaused":    ErrPaused,
 		"ErrTooLarge":  ErrTooLarge,
 		// History errors use the same umbrella sentinel.
 		"ErrHistoryDisabled":   ErrHistoryDisabled,

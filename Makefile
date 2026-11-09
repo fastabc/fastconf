@@ -69,6 +69,7 @@ tools-check:
 check: fmt-check deps-check tidy-check
 	bash tools/check-repo.sh docs
 	python3 tools/check-doc-links-test.py
+	python3 tools/release-notes-test.py
 	bash tools/check-repo-test.sh
 	bash tools/modules-test.sh
 	bash tools/check-candidate-test.sh
@@ -111,6 +112,9 @@ example-optional:
 	go -C providers/azblob run ../../examples/azblob/main.go
 	go -C providers/appconfig run ../../examples/appconfig/main.go
 	go -C providers/azappconfig run ../../examples/azappconfig/main.go
+	go -C providers/azappconfig test ../../examples/azappconfig/main.go ../../examples/azappconfig/main_test.go
+	go -C secrets/age run ../../examples/age/main.go
+	go -C secrets/age test ../../examples/age/main.go ../../examples/age/main_test.go
 	go -C providers/secretmanager run ../../examples/secretmanager/main.go
 	go -C integrations/notify/sns run ../../../examples/sns/main.go
 	go -C integrations/notify/azservicebus run ../../../examples/azservicebus/main.go
