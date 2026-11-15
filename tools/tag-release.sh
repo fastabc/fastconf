@@ -27,6 +27,7 @@ fi
 if ! $DRYRUN && [[ -n "$(git status --porcelain)" ]]; then
   echo "commit changes before tagging" >&2; exit 1
 fi
+python3 "$ROOT/tools/release-notes.py" "$VERSION" >/dev/null
 TAGS=()
 MODULE_PATH="$(awk '$1 == "module" {print $2}' go.mod)"
 # Validate the entire plan before creating any tag.

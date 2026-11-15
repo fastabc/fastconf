@@ -50,7 +50,7 @@ func (p properties) MarshalJSON() ([]byte, error) {
 }
 
 // JSONSchema returns a Draft 2020-12 schema with JSON field names. Recursive
-// occurrences are represented as objects; additional fields remain permitted.
+// occurrences retain their object or array type; additional fields remain permitted.
 func JSONSchema(t reflect.Type) ([]byte, error) {
 	if err := checkType(t); err != nil {
 		return nil, err
@@ -78,6 +78,9 @@ func buildSchema(t reflect.Type, stack map[reflect.Type]bool) (*schemaNode, erro
 	}
 	if stack[t] {
 		n.Type = "object"
+		if t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
+			n.Type = "array"
+		}
 		return n, nil
 	}
 	stack[t] = true

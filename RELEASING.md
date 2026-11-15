@@ -15,7 +15,7 @@ Root tags use `vX.Y.Z`; satellite tags use `<directory>/vX.Y.Z`.
 `providers/s3/s3events` shares the S3 module's version. Logging adapters,
 Prometheus and OpenTelemetry retain separate leaf modules.
 
-`secrets/age` is a new independent module after v1.5.0. It needs its own
+`secrets/age` is a new independent module in v1.6.0. It needs its own
 `secrets/age/vX.Y.Z` tag at the same commit as the root release, even though it
 does not import the root module. For example, a v1.6.0 release includes both
 `v1.6.0` and `secrets/age/v1.6.0`. The discovery, tagging and release-validation
@@ -24,9 +24,9 @@ is needed. Its minimum Go version is 1.26; the root module remains at Go 1.25.
 
 ## Prepare and verify
 
-The dependency candidate defaults to `VERSION=v1.5.0`, matching current internal
-pins. API checks compare against `BASE=v1.4.0` and target `API_VERSION=v1.5.0`
-for the v1.5.0 release. Prepare and verify a release as follows:
+The dependency candidate defaults to `VERSION=v1.6.0`, matching current internal
+pins. API checks compare against `BASE=v1.4.0` and target `API_VERSION=v1.6.0`
+for the v1.6.0 release. Prepare and verify a release as follows:
 
 1. Update the changelog and any relevant migration notes. Add a non-empty
    `## [vX.Y.Z]` section for the exact tag, including any prerelease suffix.
@@ -38,16 +38,16 @@ for the v1.5.0 release. Prepare and verify a release as follows:
    The standalone benchmark module is excluded from release inventory.
 3. Run the checks against the final source, then merge the reviewed release
    commit before tagging. The commands below assume step 2 has aligned pins
-   for the planned v1.5.0 release.
+   for the planned v1.6.0 release.
 
 ```sh
-make tidy VERSION=v1.5.0
-make check VERSION=v1.5.0
-make lint VERSION=v1.5.0
+make tidy VERSION=v1.6.0
+make check VERSION=v1.6.0
+make lint VERSION=v1.6.0
 make test-workspace
-make test-candidate VERSION=v1.5.0
-make api-check VERSION=v1.5.0 API_VERSION=v1.5.0 BASE=v1.4.0
-VERSION=v1.5.0 bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
+make test-candidate VERSION=v1.6.0
+make api-check VERSION=v1.6.0 API_VERSION=v1.6.0 BASE=v1.4.0
+VERSION=v1.6.0 bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
 ```
 
 Tidy uses the isolated candidate proxy for internal dependencies at `VERSION`,
@@ -64,7 +64,7 @@ commits remain in its disposable checkout. This verifies a source combination
 without publishing it. To test one candidate module:
 
 ```sh
-VERSION=v1.5.0 bash tools/check-candidate.sh bash tools/modules.sh test providers/s3
+VERSION=v1.6.0 bash tools/check-candidate.sh bash tools/modules.sh test providers/s3
 ```
 
 After publication, `make test-all` checks independent resolution of the published
@@ -83,18 +83,18 @@ establishes a new baseline because public v1.0.0 proxy content conflicts with it
 immutable checksum record. The v1.4.0 release establishes another baseline:
 fields of the unexported option struct, which gorelease reaches through
 `Option`, were renamed. v1.4.0 was checked with `BASE=none`; later releases,
-including v1.5.0, compare against `BASE=v1.4.0`:
+including v1.6.0, compare against `BASE=v1.4.0`:
 
 ```sh
-make api-check BASE=v1.4.0 VERSION=v1.5.0 API_VERSION=v1.5.0
+make api-check BASE=v1.4.0 VERSION=v1.6.0 API_VERSION=v1.6.0
 ```
 
 `VERSION` controls candidate dependency pins; `API_VERSION` controls gorelease's
 release-version validation. CI uses the Makefile defaults for both. A baseline
 download failure must fail the check; use `BASE=none` only to establish a
 deliberate new baseline, never as a fallback. API checks do not replace behavior regression tests.
-API checks use a reserved prerelease of the next patch (`v1.5.1-api-check` for
-`VERSION=v1.5.0`), or append `.api-check` to an existing prerelease. The temporary
+API checks use a reserved prerelease of the next patch (`v1.6.1-api-check` for
+`VERSION=v1.6.0`), or append `.api-check` to an existing prerelease. The temporary
 archives and matching internal dependency pins use that version, so the baseline
 resolves to published code even when `BASE` equals `VERSION`. Existing release
 tags do not make reruns fail. The same conversion is applied independently to
@@ -112,6 +112,10 @@ modules already present still require their published baseline to resolve.
 The root module requires Go 1.25. Satellite modules declare their own minimums;
 CI tests each at that floor. Use `tools/modules.sh matrix` rather than maintaining
 a separate version table.
+
+Build and scan v1.6.0 with Go 1.26.11 or a newer patched toolchain: Go 1.26.10
+is affected by GO-2026-6859 in net/http. For local commands, set
+`GOTOOLCHAIN=go1.26.11`; the library module Go minimums stay unchanged.
 
 Run the vulnerability check before every release and record the toolchain,
 database date and target platform. Require no reachable vulnerabilities in any
@@ -134,11 +138,11 @@ bash tools/check-candidate.sh env GOOS=windows GOARCH=amd64 \
 Preview and publish the complete module tag set from a clean release commit:
 
 ```sh
-bash tools/tag-release.sh v1.5.0 --dry-run
-bash tools/tag-release.sh v1.5.0 --push
+bash tools/tag-release.sh v1.6.0 --dry-run
+bash tools/tag-release.sh v1.6.0 --push
 ```
 
-The script validates all version pins before creating tags at one commit. It
+The script validates the exact changelog section and all version pins before creating tags at one commit. It
 first pushes the satellite tags atomically, then pushes the root tag alone.
 This ensures the release workflow starts only after satellite tags exist;
 [GitHub suppresses tag push events when more than three tags are pushed at once](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push).
@@ -162,7 +166,7 @@ the binary, LICENSE and README.md. Builds disable CGO, use `-trimpath`, and embe
 the tag through `-X main.version=<tag>`.
 
 ```sh
-make dist VERSION=v1.5.0
+make dist VERSION=v1.6.0
 make dist-verify
 ```
 

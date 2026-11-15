@@ -186,3 +186,25 @@ func TestJSONSchema_RecursiveType(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestJSONSchema_RecursiveCollections(t *testing.T) {
+	type nested []nested
+	type cfg struct {
+		Values nested `json:"values"`
+	}
+	b, err := schema.JSONSchema(reflect.TypeFor[cfg]())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root struct {
+		Properties map[string]struct {
+			Items struct{ Type string }
+		}
+	}
+	if err := json.Unmarshal(b, &root); err != nil {
+		t.Fatal(err)
+	}
+	if got := root.Properties["values"].Items.Type; got != "array" {
+		t.Fatalf("recursive slice items type = %q, want array", got)
+	}
+}

@@ -2,7 +2,7 @@
 # Check each module as a consumer using the upstream gorelease implementation.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${API_VERSION:-${VERSION:-v1.5.0}}"
+VERSION="${API_VERSION:-${VERSION:-v1.6.0}}"
 # BASE=none establishes a new stable API baseline (v1.1.0, v1.4.0).
 BASE="${BASE:-v1.4.0}"
 if [[ "$BASE" != none && "$BASE" != latest ]]; then

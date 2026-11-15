@@ -6,6 +6,8 @@ v1.4.0 to v1.5.0. Older entries below describe their historical releases.
 
 ## [Unreleased]
 
+## [v1.6.0] - 2026-11-15
+
 ### Added
 
 - `PlanResult.Err()` aggregates validator failures and policy denials while
@@ -56,6 +58,9 @@ v1.4.0 to v1.5.0. Older entries below describe their historical releases.
   failed decoding. Byte lists and custom unmarshalers keep their wire semantics.
 
 ### Fixed
+
+- Recursive slice schemas retain array element types instead of rejecting valid arrays.
+- Tagging validates the exact changelog section before creating or pushing immutable tags.
 
 - Absent-key defaults follow the selected decoder's field names, JSON exact-name
   precedence and YAML case sensitivity; merged JSON aliases preserve explicit children.

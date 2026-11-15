@@ -10,9 +10,10 @@ git init -q
 git config user.name test
 git config user.email test@example.invalid
 mkdir -p tools sub
-cp "$ROOT/tools/tag-release.sh" "$ROOT/tools/modules.sh" tools/
+cp "$ROOT/tools/tag-release.sh" "$ROOT/tools/modules.sh" "$ROOT/tools/release-notes.py" tools/
 printf 'module example.com/test\n\ngo 1.24.0\n' > go.mod
 printf 'module example.com/test/sub\n\ngo 1.24.0\n\nrequire example.com/test v1.0.0\n' > sub/go.mod
+printf '## [v1.0.0]\n\nInitial release.\n\n## [v1.1.0]\n\nNext release.\n\n## [v1.2.0]\n\nNext release.\n' > CHANGELOG.md
 git add .
 git commit -qm initial
 initial_commit="$(git rev-parse HEAD)"
@@ -25,6 +26,13 @@ expect_failure() {
 for version in bad v01.0.0 v1.0.0-01 v1.0.0+meta; do expect_failure "$version"; done
 expect_failure v1.1.0 --dry-run
 [[ -z "$(git tag)" ]]
+cp CHANGELOG.md "$TMP/changelog"
+for notes in '## [Unreleased]\n\nPending.' '## [v1.0.0]\n' '## [v1.0.0]\n\nOne.\n\n## [v1.0.0]\n\nTwo.'; do
+  printf '%b\n' "$notes" > CHANGELOG.md
+  expect_failure v1.0.0 --dry-run
+  [[ -z "$(git tag)" ]]
+done
+cp "$TMP/changelog" CHANGELOG.md
 bash tools/tag-release.sh v1.0.0 --dry-run >/dev/null
 [[ -z "$(git tag)" ]]
 bash tools/tag-release.sh v1.0.0 >/dev/null
