@@ -112,3 +112,10 @@ keeps the live snapshot. Patches change the candidate tree, not source files.
 
 For class precedence, discovery limits and metadata rules, see the
 [runtime contract](../../design/spec.md#layer-order).
+
+The [basic example](../../../examples/basic/README.md) runs this combination as a
+complete program: embedded base/prod documents, a keyed listener list, an RFC 6902
+pool-size patch and environment overrides. It also enables full provenance for
+`Explain` and validates the final typed configuration. Strict raw merge is left
+disabled so string-valued environment inputs can override YAML numbers before
+conversion. `UnknownError` independently rejects unknown decoded struct fields.

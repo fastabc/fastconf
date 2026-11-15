@@ -3,12 +3,13 @@
 Run from the repository root (Go 1.25+):
 
 ```sh
+export GOPROXY=direct
 go run ./examples/basic
 FC_EXAMPLE_SERVER_PORT=9090 go run ./examples/basic
 ```
 
 With no `FC_EXAMPLE_*` variables, the first command prints
-`port=8080 timeout=30s pool=20`; the second changes only the port to 9090.
+`port=8080 timeout=30s pool=24 listeners=[{public 8443} {admin 8081}]`; the second changes only the port to 9090.
 
 [`base/00-app.yaml`](conf.d/base/00-app.yaml) supplies initial values,
 [`overlays/prod/50-app.yaml`](conf.d/overlays/prod/50-app.yaml) raises the timeout
@@ -26,3 +27,15 @@ Related: [environment conventions](../../docs/cookbook/sources/env-replacer.md),
 Source: [main.go](main.go).
 
 Verify from the repository root: `go test -race ./examples/basic`.
+
+The prod overlay merges `listeners` by `name` via `WithMergeKeys`: it updates
+public to 8443 while retaining admin at 8081. The subsequent
+[JSON Patch](conf.d/overlays/prod/90-pool.patch.json) replaces the pool with 24.
+`WithProvenance(ProvenanceFull)` retains origins for `state.Explain(path)`.
+`WithValidate` rejects non-positive timeouts in addition to field constraints.
+Unknown struct fields fail with `UnknownError`. Strict raw merge is intentionally
+left at its default: enabling it would reject an env string overriding a YAML
+integer before typed hooks can convert it.
+
+See [layers and patches](../../docs/cookbook/sources/layers.md) and
+[keyed lists](../../docs/cookbook/processing/strategic-merge.md).

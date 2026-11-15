@@ -3,6 +3,7 @@
 From the repository root, with Go 1.25+:
 
 ```sh
+export GOPROXY=direct
 go run ./examples/fs
 ```
 

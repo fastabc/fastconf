@@ -45,8 +45,9 @@ document at the exact prefix key or below its directory. Its recursive query
 keeps the exact key accessible; sibling prefixes are filtered before decoding.
 Use a prefix containing a single document to avoid ambiguity.
 
-### KV 列表与命名类型
+### KV lists and named types
 
-KV 字符串叶子可自动解码为标量列表和命名数字/布尔类型。列表可用逗号分隔、
-JSON 数组字符串，或连续下标键（例如 `hosts/0`、`hosts/1`）。
-元素含逗号时使用 JSON 数组。详见[typed hooks](../processing/typed-hooks.md)。
+String leaves decode into scalar lists and named numeric/boolean types. Lists
+accept comma-separated strings, JSON array strings or contiguous index keys
+(such as `hosts/0`, `hosts/1`). Use JSON arrays when elements contain commas.
+See [typed hooks](../processing/typed-hooks.md).

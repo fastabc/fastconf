@@ -52,7 +52,7 @@ go test -race ./examples/resource-update
 The [dynamic example](../../../examples/dynamic/README.md) demonstrates file
 watching, lightweight callbacks, rejected input and manager shutdown.
 
-## 按子树订阅：数据库与日志分离
+## Subtree subscriptions: separate database and logging updates
 
 ```go
 cancelDB := fastconf.Subscribe(mgr,
@@ -68,12 +68,14 @@ cancelLog := fastconf.Subscribe(mgr,
 defer cancelLog()
 ```
 
-只修改日志子树时，数据库回调不会触发。这里的 `WithEqual` 还使数据库 pool
-大小变化不触发重连；不传时比较整个 Database 子树。耗时重连交给有界 worker，
-回调只发信号。`Subscribe` 是包级泛型函数，因为 Go 方法不能声明类型参数；
-这样提取器和回调都保留静态类型。
+Changing only the logging subtree does not invoke the database callback.
+Here `WithEqual` also excludes pool-size changes from reconnection; without it,
+the entire Database subtree is compared. Delegate slow reconnection to a bounded
+worker and only signal from callbacks. `Subscribe` is a package-level generic
+function because Go methods cannot declare type parameters, keeping both the
+selector and callback statically typed.
 
-按路径前缀审计可使用 Observer，处理已脱敏的提交 diff：
+For path-prefix auditing, use an observer with the masked commit diff:
 
 ```go
 type audit struct{}
@@ -89,4 +91,4 @@ func (audit) Observe(ctx context.Context, ev fastconf.Event) {
 // fastconf.WithObserver(audit{})
 ```
 
-完整可执行 API 示例见根包的 `ExampleSubscribe_subtree`。
+See `ExampleSubscribe_subtree` in the root package for an executable API example.

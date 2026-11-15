@@ -3,13 +3,14 @@
 From the repository root, using the optional module's declared Go version:
 
 ```sh
-bash tools/modules.sh exec go -C providers/parameterstore run ../../examples/parameterstore/main.go
+GOPROXY=direct bash tools/modules.sh exec go -C providers/parameterstore run ../../examples/parameterstore/main.go
 ```
 
 Expected output:
 
 ```text
 map[server:map[host:localhost port:9090]]
+typed host=localhost port=9090
 ```
 
 [main.go](main.go) constructs a real AWS SSM client pointed at a local HTTP
@@ -30,3 +31,7 @@ the [provider module](../../providers/parameterstore/go.mod). `make example`
 runs the same temporary-workspace command shown above.
 
 See [embedded files and cloud sources](../../docs/cookbook/sources/cloud.md).
+
+The program completes the FastConf pipeline with typed loading, field constraints
+and `UnknownError`. Explicit providers use an empty discovery filesystem to keep
+unrelated local files out of the load.

@@ -17,8 +17,14 @@ import (
 //go:embed conf.d
 var files embed.FS
 
+type Listener struct {
+	Name string `json:"name"`
+	Port int    `json:"port" fc:"min=1,max=65535"`
+}
+
 type Config struct {
-	Server struct {
+	Listeners []Listener `json:"listeners"`
+	Server    struct {
 		Port    int           `json:"port" fc:"min=1,max=65535"`
 		Timeout time.Duration `json:"timeout"`
 	} `json:"server"`
@@ -35,6 +41,14 @@ func run(out io.Writer) error {
 		fastconf.WithProfile(fastconf.Profile{Names: []string{"prod"}}),
 		fastconf.WithProvider(env.New("FC_EXAMPLE_")),
 		fastconf.WithUnknownFields(fastconf.UnknownError),
+		fastconf.WithMergeKeys(map[string]string{"listeners": "name"}),
+		fastconf.WithProvenance(fastconf.ProvenanceFull),
+		fastconf.WithValidate(func(c *Config) error {
+			if c.Server.Timeout <= 0 {
+				return fmt.Errorf("server timeout must be positive")
+			}
+			return nil
+		}),
 	)
 	if err != nil {
 		return err
@@ -42,7 +56,7 @@ func run(out io.Writer) error {
 
 	// Consume the final typed configuration only after a successful load.
 	cfg := state.Value()
-	_, err = fmt.Fprintf(out, "port=%d timeout=%s pool=%d\n", cfg.Server.Port, cfg.Server.Timeout, cfg.Database.Pool)
+	_, err = fmt.Fprintf(out, "port=%d timeout=%s pool=%d listeners=%v\n", cfg.Server.Port, cfg.Server.Timeout, cfg.Database.Pool, cfg.Listeners)
 	return err
 }
 

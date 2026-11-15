@@ -51,9 +51,12 @@ or `WithSecretPaths` for diagnostic redaction. See [secrets](../processing/secre
 Numeric values remain `json.Number` in provider snapshots and retain their exact
 JSON literal when resolved as fields, including integers beyond float64 precision.
 
-## 字段引用 (v1.6.0)
+## Field references (v1.6.0)
 
-`NewResolver(addr, token, opts...)` 复用 HTTP、mount、body limit 和 `WithAuth` 选项。
-用 `fastconf.PrefixSecretResolver("vault", vault.ResolverPrefix, resolver.Resolve)`
-注册后，`ref+vault://app/db#password` 读取 KV v2 的一个标量；动态 token 在 403 后重登一次。
-解析值自动脱敏，详见[密钥解析](../processing/secrets.md)。
+`NewResolver(addr, token, opts...)` reuses the HTTP, mount, body-limit and
+`WithAuth` options. Register it with
+`fastconf.PrefixSecretResolver("vault", vault.ResolverPrefix, resolver.Resolve)`.
+`ref+vault://app/db#password` reads one KV v2 scalar. Dynamic authentication retries
+login once after a 403. Resolved values are automatically masked in diagnostics.
+See [secret resolution](../processing/secrets.md) and the
+[complete resolver/rotation example](../../../examples/secrets/README.md).

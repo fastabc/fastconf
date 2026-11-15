@@ -3,6 +3,7 @@
 From the repository root (Go 1.25+, no services required), run:
 
 ```sh
+export GOPROXY=direct
 go run ./examples/ini
 go test ./examples/ini
 ```

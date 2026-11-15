@@ -107,4 +107,22 @@ from the prefix (`env:APP_`, `env:LEGACY_`), not the replacer; use distinct
 prefixes to keep diagnostic names distinct. Equal-priority providers merge in
 registration order, with later values winning at the same path.
 
-支持 `${VAR:default}` 和配置引用的新 API 见[变量插值](../processing/interpolation.md)。
+For `${VAR:default}` and configuration references, see
+[interpolation](../processing/interpolation.md).
+
+## Explicit CLI flags
+
+Use `cliflag.FromStdFlag` for the standard library or the optional pflag adapter's
+`FromChanged`. Wrap the result in `cliflag.New` and pass it to `WithProvider`
+after document providers. Unchanged flag defaults contribute no keys, so they do
+not overwrite files or environment values. Explicit `false` and zero remain real
+inputs and survive absent-key `default` tags. Typed hooks convert CLI string
+values before field validation.
+
+The [complete pflag program](../../../examples/pflag/README.md) demonstrates a
+file host surviving an untouched CLI default, an explicit port override and
+`--debug=false`. Run against this checkout with:
+
+```sh
+GOPROXY=direct bash tools/modules.sh exec go -C integrations/cli/pflag run ../../../examples/pflag/main.go
+```

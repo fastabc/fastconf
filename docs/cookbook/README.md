@@ -1,6 +1,6 @@
 # Cookbook
 
-Recipes target v1.5.0; version-specific additions are noted explicitly.
+Recipes target the current v1.6.0 API; version-specific additions are noted explicitly.
 For a released dependency, read the recipe at its installed tag. Start with the
 [loading guides](../README.md#start-here) or [complete examples](../../examples/README.md).
 
@@ -80,3 +80,24 @@ API changes; it is separate from recipes for the current checkout.
 The [runtime contract](../design/spec.md) owns shared lifecycle, precedence,
 decoding and ownership rules. Recipes link to it instead of defining another
 version of those rules.
+
+## Runnable recipe coverage
+
+Use [examples/README.md](../../examples/README.md) for the complete command matrix.
+The examples pair API usage with fixtures, expected output and verification:
+
+| Topic | Runnable example |
+| --- | --- |
+| Profiles, keyed lists, patches, env and validation | [basic](../../examples/basic/README.md) |
+| Absent defaults, interpolation, lists and named scalars | [config-processing](../../examples/config-processing/README.md) |
+| Changed CLI flags and explicit false | [pflag](../../examples/pflag/README.md) |
+| Preview, rejection, commit and bounded rollback history | [reload](../../examples/reload/README.md) |
+| Resolver chains, redaction and failed rotation | [secrets](../../examples/secrets/README.md) |
+| Typed cloud loading, cache/revision behavior | [cloud sources](sources/cloud.md) |
+| Notification refresh and settlement | [cloud notifications](sources/cloud-notifications.md) |
+| Supervision, missed events and paused delivery | [cloud-reload](../../examples/cloud-reload/README.md) |
+| Subtree subscriptions and resource ownership | [resource-update](../../examples/resource-update/README.md) |
+| Schema, YAML and env generation | [schema](../../examples/schema/README.md) |
+
+From the repository root, `GOPROXY=direct make example` validates executable API
+examples, core programs and optional integrations against local module sources.

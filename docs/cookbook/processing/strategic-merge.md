@@ -71,3 +71,8 @@ Key matching builds an index and walks both lists; nested object merging adds
 the cost of their fields. Only registered paths use keyed merging; other lists
 retain replace/append behavior. Nested keyed-list paths use the parent `[]`
 segment, for example `containers[].ports`.
+
+The [complete basic program](../../../examples/basic/README.md) merges public and
+admin listeners by name, updates only the public listener in prod, then applies a
+JSON Patch to another field. Its output and tests verify that the untouched admin
+listener survives the overlay. Run `GOPROXY=direct go run ./examples/basic`.

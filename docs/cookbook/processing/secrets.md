@@ -140,10 +140,11 @@ printf %s 's3cret' | age -r age1… | base64 | tr -d '\n'
 
 Prepend `age:`; Linux can also use `base64 -w0` to remove line wrapping.
 
-## SOPS（应用自持 provider）
+## SOPS with an application-owned provider
 
-SOPS 字段 `ENC[…]` 的数据密钥依赖文件级 `sops:` 元数据，不能独立作为字段解密。
-其依赖树较大，因此由应用选择依赖并加载整个文件：
+SOPS `ENC[…]` fields depend on file-level `sops:` metadata for their data keys;
+they cannot be decrypted independently as fields. The application chooses the
+SOPS dependency and loads the whole file through its own provider:
 
 ```go
 // Application dependency: github.com/getsops/sops/v3/decrypt
@@ -159,4 +160,5 @@ func (s sopsFile) Load(ctx context.Context) (contracts.Snapshot, error) {
 // fastconf.WithProvider(sopsFile{"secrets.enc.yaml"})
 ```
 
-这些 provider 输出没有经过 resolver；应用应通过 `fc:"secret"` / `WithSecretPaths` 标记敏感字段。
+These provider outputs bypass field resolvers. Mark sensitive fields with
+`fc:"secret"` or `WithSecretPaths`.

@@ -207,7 +207,7 @@ Tag-based checks are best for static constraints (non-empty / range / enum). Use
 
 We deliberately do not run `go-playground/validator` from the core; that lives in the optional `validate/playground` sub-module. The built-in tag supports common constraints without that dependency.
 
-## `default` 标签：缺失键默认值
+## Absent-key defaults with `default` tags
 
 ```go
 Port int `json:"port" default:"8080"`
@@ -216,18 +216,23 @@ Enabled bool `json:"enabled" default:"true"`
 Hosts []string `json:"hosts" default:"a,b"`
 ```
 
-| 输入 | `default:"…"` | `fc:"default=…"` |
+| Input | `default:"…"` | `fc:"default=…"` |
 | --- | --- | --- |
-| 键缺失 | 注入字面量，再由 typed hooks / decode 转换 | 填充解码后的零值 |
-| 显式 false / 0 / 空串 | 保留 | 替换 |
-| 显式 null | 保留，解码为零值 | 零值被替换 |
-| Explain | `LayerDefault`，`default://tag` | 无来源记录 |
+| Missing key | Inject a literal, then apply typed hooks/decode | Fill the decoded zero value |
+| Explicit false / 0 / empty string | Preserve | Replace |
+| Explicit null | Preserve; decode as a zero value | Replace the zero value |
+| Explain | `LayerDefault`, `default://tag` | No origin record |
 
-开关、超时和列表推荐使用 `default:`；计算型默认值继续使用 `Defaulter`。
-默认值在 transform / secret 之后注入，不参与插值或 secret 解析。
-同一字段不能同时使用两种默认值标签；无效字面量在构造 Manager 时被拒绝。
-键是否存在按所选解码桥判断：JSON 优先精确字段名，再匹配首个声明的大小写无关字段；
-YAML 仅识别大小写完全一致的 YAML 字段名。另一解码桥的标签不影响默认值注入。
-多个 JSON 输入别名合并到同一对象时，已提供的子字段也会保留，包括显式零值。
-不支持集合元素内的默认值。可空父结构缺失或为 null 时不创建，父对象存在时
-才注入其子字段默认值；普通嵌套结构体可创建缺失的对象路径。
+Prefer `default` tags for switches, timeouts and lists. Continue using `Defaulter`
+for computed defaults. Defaults are injected after transforms and secrets, so
+they do not participate in interpolation or secret resolution. Using both default
+tag forms on one field fails construction, as do invalid literals.
+
+Presence follows the selected decoder: JSON prefers exact field names, then the
+first declared case-insensitive match; YAML uses case-sensitive YAML names only.
+Tags belonging to the other bridge do not affect injection. Multiple JSON input
+aliases merging into one object preserve supplied children, including zero values.
+Defaults inside collection elements are unsupported. Missing or null nullable
+parents are not allocated; defaults apply to their children only when the parent
+object exists. Ordinary nested structs can create missing object paths.
+See the [processing example](../../../examples/config-processing/README.md).

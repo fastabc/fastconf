@@ -18,6 +18,7 @@ transport. Delivery does not guarantee every intermediate configuration.
 Run from the repository root (Go 1.25+):
 
 ```sh
+export GOPROXY=direct
 go test -race ./examples/nats
 ```
 

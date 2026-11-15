@@ -10,12 +10,18 @@ import (
 	"hash/crc32"
 	"net/http"
 	"net/http/httptest"
+	"testing/fstest"
 	"time"
 
 	sdk "cloud.google.com/go/secretmanager/apiv1"
+	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/providers/secretmanager"
 	"google.golang.org/api/option"
 )
+
+type Config struct {
+	Host string `json:"host" fc:"required,secret"`
+}
 
 func main() {
 	// Serve a versioned document and its CRC32C checksum without cloud credentials.
@@ -63,4 +69,12 @@ func main() {
 	// Print the version, never the secret document. Configure FastConf secret
 	// paths/tags before exposing snapshots or diffs in a real application.
 	fmt.Println("loaded version:", snapshot.Revision)
+
+	// Use an empty discovery FS so only the explicit provider contributes data.
+	state, err := fastconf.Load[Config](ctx, fastconf.WithFS(fstest.MapFS{}),
+		fastconf.WithProvider(p), fastconf.WithUnknownFields(fastconf.UnknownError))
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("runtime-ready=%t diagnostics=%v\n", state.Value().Host != "", state.Map())
 }

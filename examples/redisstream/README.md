@@ -20,6 +20,7 @@ Malformed/missing payloads are skipped; full notification channels increment
 Run from the repository root (Go 1.25+):
 
 ```sh
+export GOPROXY=direct
 go test -race ./examples/redisstream
 ```
 

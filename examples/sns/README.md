@@ -4,6 +4,7 @@ From the repository root, with the Go version in
 [go.mod](../../integrations/notify/sns/go.mod):
 
 ```sh
+export GOPROXY=direct
 bash tools/modules.sh exec go -C integrations/notify/sns run ../../../examples/sns/main.go
 ```
 

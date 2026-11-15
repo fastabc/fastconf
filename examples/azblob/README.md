@@ -3,7 +3,7 @@
 From the repository root, using the optional module's declared Go version:
 
 ```sh
-bash tools/modules.sh exec go -C providers/azblob run ../../examples/azblob/main.go
+GOPROXY=direct bash tools/modules.sh exec go -C providers/azblob run ../../examples/azblob/main.go
 ```
 
 Expected output:
@@ -11,6 +11,7 @@ Expected output:
 ```text
 map[server:map[port:9090]]
 revision="example-v1" unchanged=true
+typed port=9090
 ```
 
 [main.go](main.go) creates a real Azure Blob SDK client pointed at a local HTTP
@@ -22,7 +23,7 @@ For Azure, replace the local client with your application's configured
 `*azblob.Client` using token credentials, shared key or SAS, and select a container
 and blob key. Pass the provider to `fastconf.WithProvider` when using
 `fastconf.Load` or `fastconf.New`; call `Manager.Reload` for explicit refresh.
-There is no automatic polling or Service Bus integration.
+Use `WithNotifier` with the Service Bus adapter and `WithResync` for managed refresh.
 
 This provider was added in v1.2.0. The example uses `//go:build ignore` to
 keep Azure SDK dependencies outside the root module; naming `main.go` runs it
@@ -30,3 +31,7 @@ through the [provider module](../../providers/azblob/go.mod). `make example`
 runs the same temporary-workspace command shown above.
 
 See [embedded files and cloud sources](../../docs/cookbook/sources/cloud.md).
+
+The program completes the FastConf pipeline with typed loading, field constraints
+and `UnknownError`. Explicit providers use an empty discovery filesystem to keep
+unrelated local files out of the load.

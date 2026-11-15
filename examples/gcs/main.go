@@ -9,12 +9,20 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"testing/fstest"
 	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/providers/gcs"
 	"google.golang.org/api/option"
 )
+
+type Config struct {
+	Server struct {
+		Port int `json:"port" fc:"min=1,max=65535"`
+	} `json:"server"`
+}
 
 func main() {
 	const body = "server:\n  port: 9090\n"
@@ -66,4 +74,12 @@ func main() {
 
 	fmt.Println(second.Map)
 	fmt.Printf("revision=%s unchanged=%t\n", second.Revision, first.Revision == second.Revision)
+
+	// Use an empty discovery FS so only the explicit provider contributes data.
+	state, err := fastconf.Load[Config](ctx, fastconf.WithFS(fstest.MapFS{}),
+		fastconf.WithProvider(provider), fastconf.WithUnknownFields(fastconf.UnknownError))
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("typed port=%d\n", state.Value().Server.Port)
 }

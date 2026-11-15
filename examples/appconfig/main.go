@@ -7,12 +7,20 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"testing/fstest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk "github.com/aws/aws-sdk-go-v2/service/appconfigdata"
+	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/providers/appconfig"
 )
+
+type Config struct {
+	Server struct {
+		Host string `json:"host" fc:"required"`
+	} `json:"server"`
+}
 
 func main() {
 	// Serve session creation and the first configuration without an AWS account.
@@ -56,4 +64,12 @@ func main() {
 
 	fmt.Println(second.Map)
 	fmt.Println("cached before next poll:", first.Revision == second.Revision)
+
+	// Use an empty discovery FS so only the explicit provider contributes data.
+	state, err := fastconf.Load[Config](ctx, fastconf.WithFS(fstest.MapFS{}),
+		fastconf.WithProvider(p), fastconf.WithUnknownFields(fastconf.UnknownError))
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("typed host=%s\n", state.Value().Server.Host)
 }

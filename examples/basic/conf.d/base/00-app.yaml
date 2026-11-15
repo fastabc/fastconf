@@ -3,3 +3,6 @@ server:
   timeout: 5s
 database:
   pool: 5
+listeners:
+  - {name: public, port: 8080}
+  - {name: admin, port: 8081}

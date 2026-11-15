@@ -6,7 +6,7 @@
 
 `codec.DefaultTypedHooks()` installs `DurationHook` and `StringPrimitiveHook`.
 Duration strings become `time.Duration`; strings for built-in bool/integer/float
-fields convert to their destination types. Since the post-v1.5.0 additions,
+fields convert to their destination types. Since v1.6.0,
 Manager also coerces scalar lists and installs `NamedPrimitiveHook` after
 application hooks for named numeric/boolean types without custom unmarshalers.
 For example:
@@ -100,21 +100,25 @@ The field plan is built once during `New` or `Load`. Each pipeline execution
 walks the input tree; assignment of direct typed results such as URLs also uses
 reflection. These operations do not run on the `Get()` read path.
 
-## KV 字符串叶子
+## String-valued KV leaves
 
-默认 hooks 支持标量列表和没有自定义反序列化器的命名基础类型。用户 hook
-优先于 `NamedPrimitiveHook`；`codec.DefaultTypedHooks()` 的返回值不变。
-单独使用 `codec.BuildTypedHookPlan` 时，通过 `codec.WithListCoercion()` 开启列表转换。
+Default manager hooks support scalar lists and named numeric/boolean types
+without custom unmarshalers. Application hooks run before `NamedPrimitiveHook`;
+`codec.DefaultTypedHooks()` itself is unchanged. Standalone
+`codec.BuildTypedHookPlan` callers enable lists with `codec.WithListCoercion()`.
 
-| 输入 | 目标 | 结果 |
+| Input | Destination | Result |
 | --- | --- | --- |
 | `"a, b"` | `[]string` | `[a b]` |
 | `'["a,b","c"]'` | `[]string` | `[a,b c]` |
 | `{"0":"80","1":"443"}` | `[]int` | `[80 443]` |
 | `"3"` | `type Level int` | `3` |
 
-元素含逗号时使用 JSON 数组；空串生成空列表。下标必须从 0 连续且没有前导零。
-`[]byte` 保持 base64 语义，字节数组也不参与列表转换。
-`WithoutDefaultTypedHooks()` 同时关闭默认列表转换和命名基础类型兜底。
-Azure App Configuration 的 JSON ContentType 可用 `azappconfig.WithJSONValues()`
-选择性解码（支持 `application/json; charset=utf-8`）。
+Use JSON arrays for elements containing commas. An empty string produces an empty
+list. Index keys must be contiguous from zero without leading zeros. `[]byte`
+retains base64 semantics; byte arrays also skip list coercion.
+`WithoutDefaultTypedHooks()` disables list coercion and the named-primitive
+fallback as well. Azure App Configuration can selectively decode JSON settings
+with `azappconfig.WithJSONValues()`, including `application/json; charset=utf-8`.
+See the [processing example](../../../examples/config-processing/README.md) and
+[typed Parameter Store example](../../../examples/parameterstore/README.md).

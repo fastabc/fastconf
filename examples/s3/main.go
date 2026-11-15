@@ -7,11 +7,20 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"testing/fstest"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/providers/s3"
 )
+
+type Config struct {
+	Server struct {
+		Port int `json:"port" fc:"min=1,max=65535"`
+	} `json:"server"`
+}
 
 func main() {
 	// A local S3-compatible endpoint makes this example runnable without AWS.
@@ -38,11 +47,20 @@ func main() {
 		panic(err)
 	}
 
-	// Applications can pass provider directly to fastconf.WithProvider.
-	snapshot, err := provider.Load(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snapshot, err := provider.Load(ctx)
 	if err != nil {
 		panic(err)
 	}
 
 	fmt.Println(snapshot.Map)
+
+	// Use an empty discovery FS so only the explicit provider contributes data.
+	state, err := fastconf.Load[Config](ctx, fastconf.WithFS(fstest.MapFS{}),
+		fastconf.WithProvider(provider), fastconf.WithUnknownFields(fastconf.UnknownError))
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("typed port=%d\n", state.Value().Server.Port)
 }

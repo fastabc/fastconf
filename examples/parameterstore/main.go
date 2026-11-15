@@ -8,12 +8,21 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"testing/fstest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/providers/parameterstore"
 )
+
+type Config struct {
+	Server struct {
+		Host string `json:"host" fc:"required"`
+		Port int    `json:"port" fc:"min=1,max=65535"`
+	} `json:"server"`
+}
 
 func main() {
 	// A local SSM endpoint serves two pages without an AWS account or credentials.
@@ -53,4 +62,12 @@ func main() {
 	}
 
 	fmt.Println(snapshot.Map)
+
+	// Use an empty discovery FS so only the explicit provider contributes data.
+	state, err := fastconf.Load[Config](ctx, fastconf.WithFS(fstest.MapFS{}),
+		fastconf.WithProvider(provider), fastconf.WithUnknownFields(fastconf.UnknownError))
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("typed host=%s port=%d\n", state.Value().Server.Host, state.Value().Server.Port)
 }

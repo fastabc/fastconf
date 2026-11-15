@@ -3,6 +3,7 @@
 Run from the repository root (Go 1.25+, no database connection is made):
 
 ```sh
+export GOPROXY=direct
 go run ./examples/tenant
 FC_TENANT_A_DATABASE_POOL=12 go run ./examples/tenant
 go run ./examples/tenant -dir /absolute/path/to/conf.d
@@ -80,6 +81,7 @@ access and rules for in-flight users. Do not share mutable providers or mutable
 hook state between tenant managers.
 
 ```sh
+export GOPROXY=direct
 go test -race ./examples/tenant
 ```
 

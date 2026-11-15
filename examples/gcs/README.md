@@ -3,7 +3,7 @@
 From the repository root, using the optional module's declared Go version:
 
 ```sh
-bash tools/modules.sh exec go -C providers/gcs run ../../examples/gcs/main.go
+GOPROXY=direct bash tools/modules.sh exec go -C providers/gcs run ../../examples/gcs/main.go
 ```
 
 Expected output:
@@ -11,6 +11,7 @@ Expected output:
 ```text
 map[server:map[port:9090]]
 revision=1 unchanged=true
+typed port=9090
 ```
 
 [main.go](main.go) uses a real GCS SDK client with a local JSON API endpoint.
@@ -21,8 +22,7 @@ No GCP account, credentials or external service is needed.
 For GCP, supply your application's authenticated `*storage.Client`, bucket and
 object key. The application owns the client and closes it when finished.
 Pass the provider to `fastconf.WithProvider` when using `fastconf.Load` or
-`fastconf.New`; call `Manager.Reload` for explicit refresh. There is no automatic
-polling or Pub/Sub integration.
+`fastconf.New`; call `Manager.Reload` for explicit refresh. Use `WithNotifier` with the Pub/Sub adapter and `WithResync` for managed refresh.
 
 This provider was added in v1.2.0. The example uses `//go:build ignore` to
 keep Google SDK dependencies outside the root module; naming `main.go` runs it
@@ -30,3 +30,7 @@ through the [provider module](../../providers/gcs/go.mod). `make example` runs
 the same temporary-workspace command shown above.
 
 See [embedded files and cloud sources](../../docs/cookbook/sources/cloud.md).
+
+The program completes the FastConf pipeline with typed loading, field constraints
+and `UnknownError`. Explicit providers use an empty discovery filesystem to keep
+unrelated local files out of the load.

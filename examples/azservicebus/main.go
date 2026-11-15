@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"testing/fstest"
 	"time"
 
 	sdk "github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
+	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/integrations/notify/azservicebus"
 )
 
@@ -43,6 +45,19 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// A mutable local document stands in for the remote provider.
+	files := fstest.MapFS{"conf.d/base/app.json": {Data: []byte(`{"value":"old"}`)}}
+	type config struct {
+		Value string `json:"value" fc:"required"`
+	}
+	mgr, err := fastconf.New[config](ctx, fastconf.WithFS(files),
+		fastconf.WithUnknownFields(fastconf.UnknownError))
+	if err != nil {
+		panic(err)
+	}
+	defer mgr.Close()
+	files["conf.d/base/app.json"].Data = []byte(`{"value":"new"}`)
+
 	// Match one App Configuration store and the same prefix/label as its provider.
 	c, err := azservicebus.New(azservicebus.Config{
 		Source: azservicebus.AppConfiguration, ResourceID: "/example",
@@ -53,12 +68,15 @@ func main() {
 	}
 
 	// Complete runs only after this callback succeeds, within the message lock.
-	err = c.Run(ctx, func(context.Context) error {
-		// Use mgr.Reload(ctx) here; return its error without swallowing it.
+	err = c.Run(ctx, func(work context.Context) error {
+		if err := mgr.Reload(work); err != nil {
+			return err
+		}
 		fmt.Println("refresh successful")
 		return nil
 	})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		panic(err)
 	}
+	fmt.Println("configuration:", mgr.Get().Value)
 }

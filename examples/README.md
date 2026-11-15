@@ -5,11 +5,10 @@ These programs need no external services or credentials and follow the current
 checkout. `single-file` and `fs` use APIs added in v1.2.0. The linked READMEs
 provide source/fixture links, expected output and verification commands.
 
-## Features added after v1.5.0
+## Current API coverage (v1.6.0)
 
-These features are currently listed under `Unreleased` in the
-[changelog](../CHANGELOG.md). The examples follow this checkout; use the temporary
-workspace commands for optional modules until the matching release is available.
+These examples target the v1.6.0 API in this checkout. Optional modules are
+validated against local sources through the temporary workspace commands below.
 
 | Feature / API | Runnable example |
 | --- | --- |
@@ -37,7 +36,7 @@ file-watch usage.
 | [single-file](single-file/README.md) | One YAML file, strict keys, startup validation | `go run ./examples/single-file` |
 | [fs](fs/README.md) | One embedded YAML document through `source.NewFS`, typed loading and validation | `go run ./examples/fs` |
 | [dynamic](dynamic/README.md) | File watching, rejection and shutdown | `go run ./examples/dynamic` |
-| [basic](basic/README.md) | Typed base/prod layering, duration decoding, env override and field validation | `go run ./examples/basic` |
+| [basic](basic/README.md) | Typed layering, keyed lists, JSON Patch, env overrides and validation | `go run ./examples/basic` |
 | [schema](schema/README.md) | JSON Schema, annotated YAML and env from a struct (v1.6.0) | `go run ./examples/schema` |
 | [config-processing](config-processing/README.md) | Defaults, provenance, interpolation and typed KV values | `go run ./examples/config-processing` |
 | [ini](ini/README.md) | INI base/prod layering, typed scalars and preservation of leading zeros | `go run ./examples/ini` |
@@ -54,6 +53,7 @@ file-watch usage.
 | [cloud-reload](cloud-reload/README.md) | Missed-notification recovery, periodic reload and consumer supervision | `go run ./examples/cloud-reload` |
 
 ```sh
+export GOPROXY=direct
 FC_EXAMPLE_SERVER_PORT=9090 go run ./examples/basic
 FC_TENANT_A_DATABASE_POOL=12 go run ./examples/tenant
 go test -race ./examples/...
@@ -89,8 +89,8 @@ Run the commands from the repository root:
 
 | Example | Demonstrates | Command |
 | --- | --- | --- |
-| [pflag](pflag/main.go) | Changed flags become nested configuration; defaults are omitted | `go -C integrations/cli/pflag run ../../../examples/pflag/main.go` |
-| [s3](s3/main.go) | Load YAML from a local S3-compatible HTTP endpoint | `go -C providers/s3 run ../../examples/s3/main.go` |
+| [pflag](pflag/README.md) | Typed CLI precedence, omitted defaults and explicit false | `go -C integrations/cli/pflag run ../../../examples/pflag/main.go` |
+| [s3](s3/README.md) | Load and validate typed YAML from a local S3-compatible endpoint | `go -C providers/s3 run ../../examples/s3/main.go` |
 | [parameterstore](parameterstore/README.md) | Load two SSM pages into a nested string-valued tree | `go -C providers/parameterstore run ../../examples/parameterstore/main.go` |
 | [gcs](gcs/README.md) | Load YAML and reuse a decoded generation | `go -C providers/gcs run ../../examples/gcs/main.go` |
 | [azblob](azblob/README.md) | Load YAML and reuse cached data on HTTP 304 | `go -C providers/azblob run ../../examples/azblob/main.go` |
@@ -114,9 +114,15 @@ against this checkout, use the temporary workspace commands below; `make example
 runs these same optional programs:
 
 ```sh
+export GOPROXY=direct
 bash tools/modules.sh exec go -C integrations/cli/pflag run ../../../examples/pflag/main.go
 bash tools/modules.sh exec go -C providers/s3 run ../../examples/s3/main.go
 bash tools/modules.sh exec go -C providers/parameterstore run ../../examples/parameterstore/main.go
 bash tools/modules.sh exec go -C providers/gcs run ../../examples/gcs/main.go
 bash tools/modules.sh exec go -C providers/azblob run ../../examples/azblob/main.go
 ```
+
+Run the complete local validation suite with `GOPROXY=direct make example`.
+For race checks use `GOPROXY=direct go test -race ./examples/...`; optional
+programs run through `make example` because their build constraints isolate SDK
+dependencies. The interactive dynamic example is verified by its watcher tests.

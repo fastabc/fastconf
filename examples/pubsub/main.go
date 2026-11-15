@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"testing/fstest"
 	"time"
 
 	sdk "cloud.google.com/go/pubsub/v2"
 	pb "cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
+	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/integrations/notify/pubsub"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
@@ -92,18 +94,34 @@ func main() {
 	sub.ReceiveSettings.MaxOutstandingMessages = 1
 	sub.ReceiveSettings.MaxExtension = time.Minute
 
+	// A mutable local document stands in for the remote provider.
+	files := fstest.MapFS{"conf.d/base/app.json": {Data: []byte(`{"value":"old"}`)}}
+	type config struct {
+		Value string `json:"value" fc:"required"`
+	}
+	mgr, err := fastconf.New[config](ctx, fastconf.WithFS(files),
+		fastconf.WithUnknownFields(fastconf.UnknownError))
+	if err != nil {
+		panic(err)
+	}
+	defer mgr.Close()
+	files["conf.d/base/app.json"].Data = []byte(`{"value":"new"}`)
+
 	// Filter by the same bucket and full object key as the GCS provider.
 	c, err := pubsub.New(pubsub.Config{Source: pubsub.GCS, Bucket: "configs", Key: "app.json"}, sub)
 	if err != nil {
 		panic(err)
 	}
 
-	err = c.Run(ctx, func(context.Context) error {
-		// Use mgr.Reload(ctx) here and return its error to control Ack/Nack.
+	err = c.Run(ctx, func(work context.Context) error {
+		if err := mgr.Reload(work); err != nil {
+			return err
+		}
 		fmt.Println("refresh successful")
 		return nil
 	})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		panic(err)
 	}
+	fmt.Println("configuration:", mgr.Get().Value)
 }

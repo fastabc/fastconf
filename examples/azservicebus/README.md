@@ -4,7 +4,7 @@ From the repository root, with the Go version in
 [go.mod](../../integrations/notify/azservicebus/go.mod):
 
 ```sh
-bash tools/modules.sh exec go -C integrations/notify/azservicebus run ../../../examples/azservicebus/main.go
+GOPROXY=direct bash tools/modules.sh exec go -C integrations/notify/azservicebus run ../../../examples/azservicebus/main.go
 ```
 
 [main.go](main.go) uses an SDK-compatible local receiver with an EventGridSchema
@@ -13,6 +13,7 @@ App Configuration event and a message lock. Expected output:
 ```text
 refresh successful
 complete after refresh
+configuration: new
 ```
 
 Production supplies a `*azservicebus.Receiver` in PeekLock mode and passes
@@ -20,3 +21,6 @@ Production supplies a `*azservicebus.Receiver` in PeekLock mode and passes
 delivery. Configure lock duration, dead-letter handling and separate subscriptions
 using the [setup guide](../../docs/cookbook/sources/cloud-notifications.md), and
 keep [periodic reconciliation](../cloud-reload/README.md).
+
+The refresh callback executes `Manager.Reload` before settlement and prints the
+committed value. The local mutable document stands in for the cloud loader.

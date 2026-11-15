@@ -3,6 +3,7 @@
 Run from the repository root (Go 1.25+, no services required):
 
 ```sh
+export GOPROXY=direct
 go run ./examples/features
 ```
 
