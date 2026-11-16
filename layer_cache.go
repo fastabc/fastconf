@@ -1,8 +1,6 @@
 package fastconf
 
 import (
-	"crypto/sha256"
-
 	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/contracts"
 	"github.com/fastabc/fastconf/internal/scan"
@@ -97,8 +95,7 @@ type metaKeysCache struct {
 	set  bool
 }
 
-func (c *metaKeysCache) getOrBuild(metaBytes []byte, build func() map[string]string) map[string]string {
-	sum := sha256.Sum256(metaBytes)
+func (c *metaKeysCache) getOrBuild(sum [32]byte, build func() map[string]string) map[string]string {
 	if !c.set || c.sum != sum {
 		c.sum, c.keys, c.set = sum, build(), true
 	}

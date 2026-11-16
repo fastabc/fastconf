@@ -223,10 +223,10 @@ func TestPlanPreservesEveryReport(t *testing.T) {
 	for _, withCustom := range []bool{false, true} {
 		t.Run(fmt.Sprint(withCustom), func(t *testing.T) {
 			fs := fstest.MapFS{"conf.d/base/00.json": &fstest.MapFile{Data: []byte(`{"port":1,"count":1}`)}}
-			sentinel := errors.New("custom invalid")
+			sentinels := []error{errors.New("first custom invalid"), errors.New("second custom invalid")}
 			opts := []Option{WithFS(fs)}
 			if withCustom {
-				for i := 0; i < 2; i++ {
+				for _, sentinel := range sentinels {
 					opts = append(opts, WithValidate(func(c *config) error {
 						if c.Port == 0 {
 							return sentinel
@@ -286,7 +286,7 @@ func TestPlanPreservesEveryReport(t *testing.T) {
 			}
 			if withCustom {
 				for i := 2; i < 4; i++ {
-					if !errors.Is(plan.Validators[i].Err, sentinel) {
+					if !errors.Is(plan.Validators[i].Err, sentinels[i-2]) {
 						t.Fatal("lost custom report")
 					}
 				}
@@ -300,8 +300,12 @@ func TestPlanPreservesEveryReport(t *testing.T) {
 			}
 			if withCustom {
 				var denied *PolicyError
-				if !errors.Is(planErr, sentinel) || !errors.As(planErr, &denied) || len(denied.Violations) != 1 || denied.Violations[0].Rule != "error" {
+				if !errors.Is(planErr, sentinels[0]) || !errors.Is(planErr, sentinels[1]) || !errors.As(planErr, &denied) || len(denied.Violations) != 1 || denied.Violations[0].Rule != "error" {
 					t.Fatalf("invalid plan lost validator or denial: %v", planErr)
+				}
+				denied.Violations[0].Rule = "changed"
+				if plan.Policies[1].Rule != "error" || len(plan.Policies) != 2 || len(plan.Validators) != want {
+					t.Fatal("Err mutated original reports")
 				}
 			}
 			if m.Snapshot() != before {
@@ -312,6 +316,22 @@ func TestPlanPreservesEveryReport(t *testing.T) {
 			}
 			if m.Snapshot() != before {
 				t.Fatal("failed reload published")
+			}
+		})
+	}
+}
+
+func TestPlanResultErrMissingSnapshot(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		plan *PlanResult[struct{}]
+	}{
+		{"nil", nil},
+		{"incomplete", &PlanResult[struct{}]{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.plan.Err(); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("Err() = %v; want ErrInvalid", err)
 			}
 		})
 	}

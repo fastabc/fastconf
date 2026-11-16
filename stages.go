@@ -105,7 +105,7 @@ func runSecretResolve[T any](ctx context.Context, m *Manager[T], pipeline *pipel
 	return firstErr
 }
 
-// --- typed-hooks ---
+// --- defaults ---
 
 func runTagDefaults[T any](_ context.Context, m *Manager[T], p *pipelineState[T]) error {
 	var record func(string, string)
@@ -124,9 +124,9 @@ func runTagDefaults[T any](_ context.Context, m *Manager[T], p *pipelineState[T]
 }
 
 // runTypedHooks rewrites leaves of the merged map to forms that the
-// JSON decoder can natively assign to *T's fields ("30s" → int64
-// nanoseconds for time.Duration, etc). The plan is precomputed once at
-// Manager construction so this stage is a tree walk with no reflection.
+// selected decode bridge can assign to *T's fields ("30s" → int64
+// nanoseconds for time.Duration, etc). Field selection and hook dispatch are
+// precomputed at Manager construction; conversions may still use reflection.
 func runTypedHooks[T any](_ context.Context, m *Manager[T], pipeline *pipelineState[T]) error {
 	if m.typedHookPlan == nil {
 		return nil

@@ -23,9 +23,8 @@ type pipelineState[T any] struct {
 	mergeKeys       map[string]string
 	resolvedSecrets [][]string
 
-	// dryRun = true skips the terminal swap/audit/history fan-out and
-	// instructs validate to collect every report instead of bailing on
-	// the first failure (Plan semantics).
+	// dryRun collects validation and policy findings instead of rejecting
+	// the pipeline. Publication is handled separately by commit.
 	dryRun bool
 
 	// reports is populated when dryRun is true.

@@ -45,9 +45,7 @@ func compareLayers(a, b stagedLayer) int {
 	return cmp.Or(cmp.Compare(a.class, b.class), cmp.Compare(a.classPriority, b.classPriority))
 }
 
-// Assemble: build []stagedLayer from File / Generator / Provider layers.
-
-// stagedLayer is the unit produced by assemble() and consumed by commit().
+// stagedLayer is an assembled input consumed by the shared reload/preview pipeline.
 // File bytes are decoded only when the pipeline runs. Afterwards exactly one of
 // data (owned), cachedLayer (borrowed file data) or canonical patch bytes is set.
 // Layers sort by class, then classPriority, then declaration order; src.Priority is
@@ -167,7 +165,7 @@ func (m *Manager[T]) resolveDiscovery(hostnameOverride string) (scan.Options, ro
 		meta.ApplyTo(&scanOpt)
 		metaOut.appendSlices = meta.Spec.AppendSlices
 	}
-	metaOut.mergeKeys = m.metaKeys.getOrBuild(metaBytes, func() map[string]string {
+	metaOut.mergeKeys = m.metaKeys.getOrBuild(metaOut.metaSum, func() map[string]string {
 		// Programmatic entries (WithMergeKeys) win on conflict.
 		keys := maps.Clone(meta.Spec.MergeKeys)
 		if keys == nil && len(m.opts.MergeKeys) > 0 {

@@ -260,10 +260,10 @@ func canonicalHash[T any](v *T, yamlBridge bool) ([32]byte, error) {
 	return sha256.Sum256(buf), nil
 }
 
-// encodeJSONTree turns any pointer into a generic map[string]any view by
-// round-tripping through encoding/json, so the user's struct tags govern
-// field names. It preserves JSON numbers and reports serialization
-// failures; a nil input yields a nil map.
+// encodeJSONTree copies a value into an independent JSON-shaped tree,
+// materializing pointers and structs using JSON field names. Snapshots and
+// override layers share this conversion, which preserves JSON numbers and
+// reports serialization failures; a nil input yields a nil map.
 func encodeJSONTree(v any) (map[string]any, error) {
 	if v == nil {
 		return nil, nil

@@ -1,9 +1,7 @@
 package fastconf
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -72,32 +70,13 @@ type reloadConfig struct {
 // natural sources again. See docs/cookbook/runtime/reload-policy.md.
 func WithOverride(override map[string]any) ReloadOption {
 	return func(c *reloadConfig) {
-		copied, err := cloneOverride(override)
+		copied, err := encodeJSONTree(override)
 		if err != nil {
 			c.err = fmt.Errorf("%w: WithOverride: %v", fcerr.ErrDecode, err)
 			return
 		}
 		c.override = copied
 	}
-}
-
-// cloneOverride JSON-round-trips accepted values into an independent JSON-shaped
-// tree, materializing pointers and structs so caller mutations cannot alias it.
-func cloneOverride(m map[string]any) (map[string]any, error) {
-	if m == nil {
-		return nil, nil
-	}
-	buf, err := json.Marshal(m)
-	if err != nil {
-		return nil, err
-	}
-	dec := json.NewDecoder(bytes.NewReader(buf))
-	dec.UseNumber()
-	out := map[string]any{}
-	if err := dec.Decode(&out); err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 // WithReason overrides the default "manual" reason tag stamped on
