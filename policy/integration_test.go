@@ -77,6 +77,19 @@ func TestPolicy_PreviewAndPublication(t *testing.T) {
 			if !reflect.DeepEqual(preview.Policies, want) {
 				t.Fatalf("Plan policies = %+v; want %+v", preview.Policies, want)
 			}
+			planErr := preview.Err()
+			if tc.reject {
+				var denied *fastconf.PolicyError
+				if !errors.Is(planErr, fastconf.ErrInvalid) || !errors.As(planErr, &denied) {
+					t.Fatalf("PlanResult.Err = %v; want PolicyError", planErr)
+				}
+				// Each rejecting case has one error finding after any warnings.
+				if len(denied.Violations) != 1 || denied.Violations[0] != want[len(want)-1] {
+					t.Fatalf("PlanResult.Err violations = %+v; want only %+v", denied.Violations, want[len(want)-1])
+				}
+			} else if planErr != nil {
+				t.Fatalf("allowed plan rejected: %v", planErr)
+			}
 			err = m.Reload(context.Background())
 			if tc.reject {
 				var denied *fastconf.PolicyError

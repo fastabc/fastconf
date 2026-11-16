@@ -50,105 +50,89 @@ func newFakeNotifier() *fakeNotifier {
 	return &fakeNotifier{trigger: make(chan struct{}, 1), results: make(chan error, 1), stopped: make(chan struct{})}
 }
 func TestNotifier_RefreshReloadsAndReturnsResult(t *testing.T) {
-	for _, named := range []bool{false, true} {
-		n := newFakeNotifier()
-		p := &loadOnlyProvider{}
-		p.value.Store(1)
-		opt := fastconf.WithNotifier(n)
-		reason := "notify[0]"
-		if named {
-			opt = fastconf.WithNotifier(namedNotifier{n})
-			reason = "notify:sns"
-		}
-		m, err := fastconf.New[struct {
-			Value int `json:"value"`
-		}](context.Background(), fastconf.WithProvider(p), opt)
-		if err != nil {
-			t.Fatal(err)
-		}
-		p.value.Store(2)
-		n.trigger <- struct{}{}
-		select {
-		case err := <-n.results:
+	for _, name := range []string{"unnamed", "named"} {
+		t.Run(name, func(t *testing.T) {
+			n := newFakeNotifier()
+			p := &loadOnlyProvider{}
+			p.value.Store(1)
+			opt := fastconf.WithNotifier(n)
+			reason := "notify[0]"
+			if name == "named" {
+				opt = fastconf.WithNotifier(namedNotifier{n})
+				reason = "notify:sns"
+			}
+			m, err := fastconf.New[struct {
+				Value int `json:"value"`
+			}](context.Background(), fastconf.WithProvider(p), opt)
 			if err != nil {
 				t.Fatal(err)
 			}
-		case <-time.After(time.Second):
-			t.Fatal("refresh timed out")
-		}
-		if m.Get().Value != 2 || m.Snapshot().Cause().Reason != reason {
-			t.Fatalf("%+v %+v", m.Get(), m.Snapshot().Cause())
-		}
-		m.Pause()
-		g := m.Snapshot().Generation()
-		p.value.Store(3)
-		n.trigger <- struct{}{}
-		select {
-		case err := <-n.results:
-			if !errors.Is(err, fastconf.ErrPaused) || !errors.Is(err, fastconf.ErrFastConf) {
+			t.Cleanup(func() { _ = m.Close() })
+			p.value.Store(2)
+			n.trigger <- struct{}{}
+			if err := await(t, n.results); err != nil {
+				t.Fatal(err)
+			}
+			if m.Get().Value != 2 || m.Snapshot().Cause().Reason != reason {
+				t.Fatalf("%+v %+v", m.Get(), m.Snapshot().Cause())
+			}
+			m.Pause()
+			g := m.Snapshot().Generation()
+			p.value.Store(3)
+			n.trigger <- struct{}{}
+			if err := await(t, n.results); !errors.Is(err, fastconf.ErrPaused) || !errors.Is(err, fastconf.ErrFastConf) {
 				t.Fatalf("paused refresh = %v; want ErrPaused", err)
 			}
-		case <-time.After(time.Second):
-			t.Fatal("pause timed out")
-		}
-		if m.Snapshot().Generation() != g {
-			t.Fatal("reloaded while paused")
-		}
-		m.Resume()
-		n.trigger <- struct{}{} // Redelivery after the failed acknowledgement.
-		select {
-		case err := <-n.results:
-			if err != nil {
+			if m.Snapshot().Generation() != g {
+				t.Fatal("reloaded while paused")
+			}
+			m.Resume()
+			n.trigger <- struct{}{} // Redelivery after the failed acknowledgement.
+			if err := await(t, n.results); err != nil {
 				t.Fatal(err)
 			}
-		case <-time.After(time.Second):
-			t.Fatal("redelivery timed out")
-		}
-		if m.Get().Value != 3 {
-			t.Fatal("redelivery did not refresh")
-		}
-		if err := m.Close(); err != nil {
-			t.Fatal(err)
-		}
-		select {
-		case <-n.stopped:
-		default:
-			t.Fatal("notifier still running")
-		}
+			if m.Get().Value != 3 {
+				t.Fatal("redelivery did not refresh")
+			}
+			if err := m.Close(); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-n.stopped:
+			default:
+				t.Fatal("notifier still running")
+			}
+		})
 	}
 }
 func TestNotifier_RestartsAfterError(t *testing.T) {
-	for _, panics := range []bool{false, true} {
-		n := newFakeNotifier()
-		n.failFirst = errors.New("boom")
-		n.panicFirst = panics
-		obs := &recObserver{}
-		m, err := fastconf.New[struct {
-			Value int `json:"value"`
-		}](context.Background(), fastconf.WithProvider(&loadOnlyProvider{}), fastconf.WithNotifier(n), fastconf.WithObserver(obs))
-		if err != nil {
-			t.Fatal(err)
-		}
-		deadline := time.After(2 * time.Second)
-		for n.runs.Load() < 2 {
-			select {
-			case <-deadline:
-				t.Fatal("did not restart")
-			case <-time.After(5 * time.Millisecond):
+	for _, name := range []string{"error", "panic"} {
+		t.Run(name, func(t *testing.T) {
+			n := newFakeNotifier()
+			n.failFirst = errors.New("boom")
+			n.panicFirst = name == "panic"
+			obs := &recObserver{}
+			m, err := fastconf.New[struct {
+				Value int `json:"value"`
+			}](context.Background(), fastconf.WithProvider(&loadOnlyProvider{}), fastconf.WithNotifier(n), fastconf.WithObserver(obs))
+			if err != nil {
+				t.Fatal(err)
 			}
-		}
-		if err := m.Close(); err != nil {
-			t.Fatal(err)
-		}
-		found := false
-		for _, ev := range obs.snapshot() {
-			if e, ok := ev.(fastconf.ProviderError); ok && e.Provider == "notify[0]" && e.Err != nil {
-				found = true
+			t.Cleanup(func() { _ = m.Close() })
+			waitFor(t, func() bool { return n.runs.Load() >= 2 }, "notifier restart")
+			if err := m.Close(); err != nil {
+				t.Fatal(err)
 			}
-		}
-		if !found {
-			t.Fatal("missing ProviderError")
-		}
+			found := false
+			for _, ev := range obs.snapshot() {
+				if e, ok := ev.(fastconf.ProviderError); ok && e.Provider == "notify[0]" && e.Err != nil {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatal("missing ProviderError")
+			}
+		})
 	}
 }
 func TestWithResync_RecoversMissedChange(t *testing.T) {
@@ -162,21 +146,17 @@ func TestWithResync_RecoversMissedChange(t *testing.T) {
 	}
 	defer func() { _ = m.Close() }()
 	p.value.Store(2)
-	deadline := time.After(time.Second)
-	for m.Get().Value != 2 {
-		select {
-		case <-deadline:
-			t.Fatal("resync timed out")
-		case <-time.After(5 * time.Millisecond):
-		}
-	}
+	waitFor(t, func() bool { return m.Get().Value == 2 }, "resync")
 	if m.Snapshot().Cause().Reason != "resync" {
 		t.Fatal(m.Snapshot().Cause())
 	}
 }
 func TestNotifyOptions_Reject(t *testing.T) {
 	for _, opt := range []fastconf.Option{fastconf.WithNotifier(nil), fastconf.WithResync(-time.Second)} {
-		_, err := fastconf.New[struct{}](context.Background(), opt)
+		m, err := fastconf.New[struct{}](context.Background(), opt)
+		if m != nil {
+			_ = m.Close()
+		}
 		if !errors.Is(err, fastconf.ErrFastConf) {
 			t.Fatal(err)
 		}
@@ -205,13 +185,8 @@ func TestNotifier_RefreshFailurePreservesState(t *testing.T) {
 	before := m.Snapshot()
 	p.data = map[string]any{"value": "invalid"}
 	n.trigger <- struct{}{}
-	select {
-	case err := <-n.results:
-		if !errors.Is(err, fastconf.ErrTransform) {
-			t.Fatalf("refresh error = %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("refresh did not return")
+	if err := await(t, n.results); !errors.Is(err, fastconf.ErrTransform) {
+		t.Fatalf("refresh error = %v", err)
 	}
 	if m.Snapshot() != before {
 		t.Fatal("failed refresh published state")

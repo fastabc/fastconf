@@ -319,8 +319,6 @@ type promLike struct {
 	stages   map[string]bool
 }
 
-func (p *promLike) ReloadStarted() {}
-
 func (p *promLike) ReloadFinished(ok bool, _ time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

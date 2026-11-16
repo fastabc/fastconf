@@ -86,3 +86,30 @@ func TestLayerCacheSourceBudget(t *testing.T) {
 		t.Fatal("removed paths retained budget")
 	}
 }
+
+func TestInputFingerprint_CacheCapacityBoundary(t *testing.T) {
+	for _, n := range []int{maxCachedLayers, maxCachedLayers + 1} {
+		t.Run(fmt.Sprint(n), func(t *testing.T) {
+			var calls atomic.Int64
+			name := fmt.Sprintf("capacity-boundary-%d", n)
+			codec.Register(name, countingLayerCodec{&calls, ""})
+			codec.RegisterExt(name, name)
+			fs := fstest.MapFS{}
+			for i := 0; i < n; i++ {
+				fs[fmt.Sprintf("conf.d/base/%04d.%s", i, name)] = &fstest.MapFile{Data: []byte("value")}
+			}
+			m, err := New[map[string]any](context.Background(), WithFS(fs))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = m.Close() })
+			calls.Store(0)
+			if err := m.Reload(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if got := calls.Load(); got != 0 {
+				t.Fatalf("unchanged reload of %d layers decoded %d files", n, got)
+			}
+		})
+	}
+}

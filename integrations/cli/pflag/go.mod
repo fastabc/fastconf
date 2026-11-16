@@ -2,7 +2,7 @@
 // dependency closure of plain fastconf users.
 module github.com/fastabc/fastconf/integrations/cli/pflag
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/fastabc/fastconf v1.6.0

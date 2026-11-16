@@ -41,6 +41,8 @@ for the v1.6.0 release. Prepare and verify a release as follows:
    for the planned v1.6.0 release.
 
 ```sh
+export GOPROXY=direct
+export GOTOOLCHAIN=go1.26.11
 make tidy VERSION=v1.6.0
 make check VERSION=v1.6.0
 make lint VERSION=v1.6.0

@@ -30,7 +30,7 @@ Keep checksum verification enabled. Candidate checks prepend their temporary
 | `make tools-check` | Requires shellcheck and actionlint |
 | `make bench` / `make bench-guard` | Benchmarks / hot-read budget |
 | `make cover` / `make example` | Root coverage / godoc, scenario tests and optional provider/notifier programs |
-| `make soak` | Resource soak test; `FASTCONF_SOAK_DURATION=5m` for an extended run |
+| `make soak` | 10-second resource soak test; `FASTCONF_SOAK_DURATION=5m` for an extended run |
 | `make tidy` | Update dependency metadata in the root and all submodules, including benchmarks |
 | `make tidy-check` | Tidy the same modules in isolation; report metadata drift without editing source files |
 | `make module-matrix` | CI JSON from discovered submodule Go floors |

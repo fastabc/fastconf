@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fastabc/fastconf/contracts"
+	"github.com/fastabc/fastconf/internal/testutil"
 )
 
 type watchGapGenerator struct {
@@ -92,4 +93,50 @@ func TestNewFailedWatchInitializationCleansWorkers(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("workers retained after failed construction: before=%d after=%d", before, runtime.NumGoroutine())
+}
+
+func TestFileWatch_InitialReadGap(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "base"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "base", "a.yaml")
+	if err := os.WriteFile(path, []byte("value: old\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var once atomic.Bool
+	m, err := New[map[string]string](context.Background(), WithDir(dir), WithWatch(Watch{Quiet: 5 * time.Millisecond, MaxLag: 20 * time.Millisecond}), WithValidate(func(_ *map[string]string) error {
+		if once.CompareAndSwap(false, true) {
+			return os.WriteFile(path, []byte("value: new\n"), 0600)
+		}
+		return nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	testutil.WaitFor(t, func() bool { return (*m.Get())["value"] == "new" }, 3*time.Second, "watch lost update between initial read and watch registration")
+}
+
+func TestFileWatch_InactiveOverlayMetadata(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{"base/a.yaml": "value: base\n", "overlays/candidate/a.yaml": "value: overlay\n", "overlays/candidate/_meta.yaml": "match: dev\n"}
+	for name, data := range files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m, err := New[map[string]string](context.Background(), WithDir(dir), WithProfile(Profile{Names: []string{"prod"}}), WithWatch(Watch{Quiet: 5 * time.Millisecond, MaxLag: 20 * time.Millisecond}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	if err := os.WriteFile(filepath.Join(dir, "overlays/candidate/_meta.yaml"), []byte("match: prod\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, func() bool { return (*m.Get())["value"] == "overlay" }, 3*time.Second, "inactive overlay metadata change")
 }

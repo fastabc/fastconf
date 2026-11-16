@@ -121,7 +121,7 @@ example-optional:
 	go -C integrations/notify/pubsub run ../../../examples/pubsub/main.go
 
 soak:
-	go test -race -count=1 -timeout=10m -run '^TestResourceSoak$$' -v ./tests/soak
+	FASTCONF_SOAK_DURATION=$${FASTCONF_SOAK_DURATION:-10s} go test -race -count=1 -timeout=10m -run '^TestResourceSoak$$' -v ./tests/soak
 
 module-matrix:
 	@bash tools/modules.sh matrix

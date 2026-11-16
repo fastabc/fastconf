@@ -258,6 +258,9 @@ func TestPlanPreservesEveryReport(t *testing.T) {
 			if len(passing.Validators) != wantPassing {
 				t.Fatalf("passing reports = %+v, want %d custom validators and no field-meta reports", passing.Validators, wantPassing)
 			}
+			if err := passing.Err(); err != nil {
+				t.Fatalf("passing plan rejected: %v", err)
+			}
 			for i, report := range passing.Validators {
 				if report.Name != fmt.Sprintf("validator[%d]", i) || report.Err != nil {
 					t.Fatalf("passing validator %d = %+v", i, report)
@@ -289,6 +292,16 @@ func TestPlanPreservesEveryReport(t *testing.T) {
 				}
 				if len(plan.Policies) != 2 || plan.Policies[0].Rule != "warning" || plan.Policies[1].Rule != "error" {
 					t.Fatal("lost policy report ordering")
+				}
+			}
+			planErr := plan.Err()
+			if !errors.Is(planErr, ErrInvalid) || !errors.Is(planErr, ErrFastConf) {
+				t.Fatalf("invalid plan lost classification: %v", planErr)
+			}
+			if withCustom {
+				var denied *PolicyError
+				if !errors.Is(planErr, sentinel) || !errors.As(planErr, &denied) || len(denied.Violations) != 1 || denied.Violations[0].Rule != "error" {
+					t.Fatalf("invalid plan lost validator or denial: %v", planErr)
 				}
 			}
 			if m.Snapshot() != before {

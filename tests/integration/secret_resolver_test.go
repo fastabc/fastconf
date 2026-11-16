@@ -29,13 +29,32 @@ func TestSecretResolvers_FirstRecognizerWins(t *testing.T) {
 		t.Fatal(o)
 	}
 }
-func TestWithSecretResolver_ReplacesList(t *testing.T) {
+func TestSecretResolverOptions_ChainOrder(t *testing.T) {
 	type C struct {
 		A string `json:"a"`
+		B string `json:"b"`
 	}
-	st, err := fastconf.Load[C](context.Background(), fastconf.WithProvider(&snapshotProvider{name: "p", data: map[string]any{"a": "a:x"}}), fastconf.WithSecretResolvers(testPrefix("a", "a:", "plain")), fastconf.WithSecretResolver(testPrefix("b", "b:", "plain")))
-	if err != nil || st.Value().A != "a:x" {
-		t.Fatalf("%v %v", st, err)
+	a, b := testPrefix("a", "a:", "first"), testPrefix("b", "b:", "second")
+	for _, tc := range []struct {
+		name string
+		opts []fastconf.Option
+		want C
+	}{
+		{"append", []fastconf.Option{fastconf.WithSecretResolvers(a), fastconf.WithSecretResolvers(nil, b)}, C{"first", "second"}},
+		{"replace", []fastconf.Option{fastconf.WithSecretResolvers(a), fastconf.WithSecretResolver(b)}, C{"a:x", "second"}},
+		{"clear", []fastconf.Option{fastconf.WithSecretResolvers(a, b), fastconf.WithSecretResolver(nil)}, C{"a:x", "b:y"}},
+		{"append after clear", []fastconf.Option{fastconf.WithSecretResolvers(a), fastconf.WithSecretResolver(nil), fastconf.WithSecretResolvers(b)}, C{"a:x", "second"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := append([]fastconf.Option{fastconf.WithProvider(&snapshotProvider{name: "p", data: map[string]any{"a": "a:x", "b": "b:y"}})}, tc.opts...)
+			st, err := fastconf.Load[C](context.Background(), opts...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := *st.Value(); got != tc.want {
+				t.Fatalf("resolved = %+v; want %+v", got, tc.want)
+			}
+		})
 	}
 }
 func TestResolvedSecrets_MaskedInDiagnostics(t *testing.T) {

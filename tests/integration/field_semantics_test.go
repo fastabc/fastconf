@@ -66,6 +66,12 @@ type scalarValues struct {
 	Label   string `json:"label" yaml:"label"`
 }
 
+type absentKeyDefaults struct {
+	Enabled bool   `json:"enabled" yaml:"enabled" default:"true"`
+	Retries int    `json:"retries" yaml:"retries" default:"3"`
+	Label   string `json:"label" yaml:"label" default:"default"`
+}
+
 func TestFieldDefaults_CompatibilityAndBaseLayers(t *testing.T) {
 	for _, format := range []fastconf.Format{fastconf.JSON, fastconf.YAML} {
 		for _, tc := range []struct {
@@ -88,6 +94,13 @@ func TestFieldDefaults_CompatibilityAndBaseLayers(t *testing.T) {
 				}
 				if got := *legacy.Value(); got != (scalarDefaults{true, 3, "default"}) {
 					t.Fatalf("legacy: %+v", got)
+				}
+				absent, err := fastconf.Load[absentKeyDefaults](ctx, fastconf.WithFS(files), fastconf.WithDecodeFormat(format))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := scalarValues(*absent.Value()); got != tc.want {
+					t.Fatalf("absent-key defaults: %+v; want %+v", got, tc.want)
 				}
 				files["conf.d/base/a.yaml"].Data = []byte("enabled: true\nretries: 3\nlabel: default")
 				files["conf.d/overlays/prod/a.yaml"] = &fstest.MapFile{Data: []byte(tc.input)}

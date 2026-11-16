@@ -439,3 +439,60 @@ func TestSecretResolver_SingleResolverOption(t *testing.T) {
 		t.Fatalf("%v", m.Get())
 	}
 }
+
+func TestInterfaceResolvedSecretsStayRedacted(t *testing.T) {
+	for _, format := range []Format{JSON, YAML} {
+		t.Run(format.String(), func(t *testing.T) {
+			plain := "private-first"
+			m, err := New[any](context.Background(), WithFS(emptyFS()),
+				WithProvider(source.NewBytes("config", "json", []byte(`{"token":"ref:test","public":"visible"}`))),
+				WithDecodeFormat(format), WithProvenance(ProvenanceFull), WithHistory(2),
+				WithSecretResolvers(PrefixSecretResolver("test", "ref:", func(context.Context, string) (string, error) { return plain, nil })))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = m.Close() }()
+			check := func(s *State[any]) {
+				t.Helper()
+				if got := s.Map(); got["token"] != "***REDACTED***" || got["public"] != "visible" {
+					t.Fatalf("unsafe map: %v", got)
+				}
+				for _, f := range []Format{JSON, YAML, TOML} {
+					b, err := s.Dump(f)
+					if err != nil || strings.Contains(string(b), "private-") {
+						t.Fatalf("unsafe dump: %s (%v)", b, err)
+					}
+				}
+				for _, o := range s.Explain("token") {
+					if o.Value != nil && o.Value != "***REDACTED***" {
+						t.Fatalf("unsafe origin: %+v", o)
+					}
+				}
+			}
+			before := m.Snapshot()
+			check(before)
+			if before.Unredacted().Map()["token"] != plain {
+				t.Fatal("plaintext access changed")
+			}
+			plain = "private-second"
+			preview, err := m.Plan(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			check(preview.Proposed)
+			if err := m.Reload(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			check(m.Snapshot())
+			for _, diff := range [][]DiffEntry{preview.Diff, before.Diff(m.Snapshot())} {
+				if len(diff) != 1 || diff[0].Before != "***REDACTED***" || diff[0].After != "***REDACTED***" {
+					t.Fatalf("unsafe diff: %+v", diff)
+				}
+			}
+			if err := m.History().Rollback(before); err != nil {
+				t.Fatal(err)
+			}
+			check(m.Snapshot())
+		})
+	}
+}

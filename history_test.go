@@ -3,6 +3,7 @@ package fastconf
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 
@@ -128,5 +129,65 @@ func TestHistory_Disabled(t *testing.T) {
 	fake := &State[snapshotConfig]{generation: 1}
 	if err := mgr.History().Rollback(fake); !errors.Is(err, ErrHistoryDisabled) {
 		t.Fatalf("Rollback() err=%v want ErrHistoryDisabled", err)
+	}
+}
+
+func TestRollbackRechecksRetentionOnWriter(t *testing.T) {
+	m, err := New[snapshotConfig](context.Background(), WithFS(emptyFS()),
+		WithProvider(source.NewBytes("base", "json", []byte(`{"name":"gamma"}`))), WithHistory(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.Close() }()
+	if err := m.Reload(context.Background(), WithOverride(map[string]any{"name": "alpha"})); err != nil {
+		t.Fatal(err)
+	}
+	target := m.Snapshot()
+	if err := m.Reload(context.Background(), WithOverride(map[string]any{"name": "beta"})); err != nil {
+		t.Fatal(err)
+	}
+	before := m.Snapshot()
+	callbacks := 0
+	Subscribe(m, func(c *snapshotConfig) *string { return &c.Name }, func(_, _ *string) { callbacks++ })
+	started, release := make(chan struct{}), make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	m.reloadCh <- reloadRequest{run: func(context.Context) error { close(started); <-release; return nil }}
+	<-started
+	// The next queued reload evicts alpha before the rollback runs.
+	reloaded := make(chan error, 1)
+	m.reloadCh <- reloadRequest{reason: "manual", doneCh: reloaded}
+	rolledBack := make(chan error, 1)
+	go func() { rolledBack <- m.History().Rollback(target) }()
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for len(m.reloadCh) != 2 {
+		select {
+		case <-timer.C:
+			t.Fatal("rollback was not queued")
+		default:
+			runtime.Gosched()
+		}
+	}
+	close(release)
+	if err := <-reloaded; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-rolledBack; !errors.Is(err, ErrUnknownGeneration) {
+		t.Fatalf("stale rollback = %v; want ErrUnknownGeneration", err)
+	}
+	if got := m.Snapshot(); got.Value().Name != "gamma" || got.Generation() != before.Generation()+1 {
+		t.Fatalf("stale rollback changed state: %+v", got)
+	}
+	if got := m.History().List(); len(got) != 1 || got[0] != before {
+		t.Fatal("stale rollback changed history")
+	}
+	if callbacks != 1 {
+		t.Fatalf("callbacks = %d; only the successful reload should notify", callbacks)
 	}
 }
