@@ -39,7 +39,8 @@ historical releases.
 
 - The new optional `secrets/age` module requires Go 1.26 and uses the fixed
   `golang.org/x/crypto` v0.58.1-0.20261009181718-2f1f834330b2 and `x/sys` v0.49.0,
-  clearing its three module-only vulnerability findings. The root stays at Go 1.25.
+  clearing its three module-only vulnerability findings. The root stays at Go 1.25 with `golang.org/x/sys` v0.47.0;
+  optional modules retain their own dependency-driven Go minimums.
 
 - Secret resolver options share one ordered chain; the legacy single-resolver
   fallback was removed. Its unused option field remains for v1 API compatibility.
