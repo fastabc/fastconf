@@ -1,8 +1,8 @@
 # FastConf Runtime Contract
 
-This document defines the FastConf v1.5.0 runtime contract.
+This document defines the FastConf v1.6.0 runtime contract.
 For another release, use this document at its installed tag. Release changes
-are recorded in the [changelog](../../CHANGELOG.md#v130).
+are recorded in the [changelog](../../CHANGELOG.md#v160---2026-11-15).
 The root module requires Go 1.25; independent modules declare their own
 minimum versions. See [architecture.md](../architecture.md) for package
 ownership and [RELEASING.md](../../RELEASING.md) for release checks.
@@ -237,9 +237,10 @@ findings; call `PlanResult.Err()` to aggregate rejections, and inspect the repor
 for details. Warning-only findings do not reject a preview.
 Reload loads sources again, so a preview does not reserve its exact candidate.
 Plan still invokes providers, generators and user hooks, whose external effects
-are not rolled back. A proposed state retains the current generation; it does
-not reserve a future generation or populate a normal commit cause. It accepts
-PlanOption values, not ReloadOption values such as `WithOverride`.
+are not rolled back. A proposed state retains the current generation and carries
+a cause with reason `plan`, preview time and tenant; it does not reserve a future
+generation or record provider revisions in its cause. Plan accepts PlanOption
+values, not ReloadOption values such as `WithOverride`.
 
 ## Watchers and observation
 

@@ -10,16 +10,17 @@ inventory when changing implementation files.
 | Location | Responsibility |
 |---|---|
 | Root `fastconf` package | `LoadFile`, `Load`, `New`, Manager lifecycle, serialized reload/Plan/rollback and immutable snapshots |
-| [`contracts/`](../contracts) | Provider, watcher, decoder and generator interfaces |
+| [`contracts/`](../contracts) | Provider, watcher, notifier, decoder and generator interfaces |
 | [`codec/`](../codec) | Document decoders, registry and typed hooks |
 | [`confmap/`](../confmap) | Merge, patch, paths, cloning and coercion |
 | [`transform/`](../transform) | Raw-tree transformations and schema migration chains |
+| [`schema/`](../schema) | JSON Schema, annotated YAML and env examples from struct metadata |
 | [`providers/`](../providers) | File, env, flag, label and remote sources; remote cloud sources are separate modules |
 | [`secrets/age/`](../secrets/age) | Independent age decryption adapter; no root module dependency |
 | [`policy/`](../policy), [`cue/`](../cue), [`validate/`](../validate) | Policies and optional validation backends |
 | [`observe/`](../observe), [`observability/`](../observability) | Event composition and optional telemetry backends |
 | [`feature/`](../feature) | Configuration-backed feature rule evaluation |
-| [`integrations/`](../integrations) | Rendering, CLI and logging adapters |
+| [`integrations/`](../integrations) | Rendering, CLI, logging and cloud notification adapters |
 | [`internal/`](../internal) | Private scanning, watching, coalescing, metadata, provenance, secret and shared utilities |
 | [`cmd/`](../cmd) | `fastconfctl`, `fastconfd` and independently versioned `fastconfgen` |
 | [`examples/`](../examples) | Complete programs, fixtures and transport reference implementations |
@@ -44,13 +45,16 @@ The [extensions guide](getting-started/extensions.md) lists optional adapters;
 | Publication, snapshots and diagnostics | [`commit.go`](../commit.go), [`state.go`](../state.go), [`dump.go`](../dump.go), [`diff.go`](../diff.go), [`provenance.go`](../provenance.go) |
 | Preview, recovery and callbacks | [`plan.go`](../plan.go), [`history.go`](../history.go), [`subscribe.go`](../subscribe.go) |
 | File/provider triggers and lifecycle events | [`file_watch.go`](../file_watch.go), [`provider_watch.go`](../provider_watch.go), [`observe.go`](../observe.go) |
+| Managed notification consumers and periodic reconciliation | [`notify.go`](../notify.go) |
 
-Initialization loads synchronously. Only `New` starts the writer and configured
-watchers; later reloads, plans and rollbacks use that writer. Reload and Plan
-share assembly and pipeline stages. Publication updates the snapshot, retains
+Initialization loads synchronously. Only `New` starts the writer, configured
+watchers, notifiers and periodic reconciliation; later reloads, plans and
+rollbacks use that writer. Reload and Plan share assembly and pipeline stages.
+Publication updates the snapshot, retains
 enabled history and emits commit events; value changes also invoke subscribers.
-Equal-value commits that update resolved-secret paths skip value subscribers. File/provider
-watchers enqueue work instead of modifying snapshots directly.
+Equal-value commits that update resolved-secret paths skip value subscribers.
+Watchers, notifier refreshes and reconciliation enqueue work instead of modifying
+snapshots directly.
 
 The writer owns layer caches, merge metadata and the input fingerprint.
 Readers load the snapshot atomically. Subscription registration has a separate

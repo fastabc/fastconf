@@ -30,9 +30,10 @@ Import `github.com/fastabc/fastconf/policy` and add business rules with
 validation rejection, policy rejection, policy warnings, a successful commit,
 rollback, and source-file repair.
 
-Even when Plan returns a nil error, inspect Validators and Policies: warnings
-allow publication, while SeverityError blocks it. Sources are read again between
-Plan and Reload.
+Even when Plan returns a nil error, call `result.Err()` to check validator
+failures and policy denials, and inspect Validators and Policies for details.
+Warnings allow publication, while SeverityError blocks it. Sources are read again
+between Plan and Reload.
 
 ## Extension points and module boundaries
 
@@ -54,7 +55,7 @@ Extensions in the root module need no separate installation. Choose by use case:
 Install only the adapters your application imports, for example:
 
 ```sh
-go get github.com/fastabc/fastconf/providers/s3@v1.5.0
+go get github.com/fastabc/fastconf/providers/s3@v1.6.0
 ```
 
 The table below helps locate modules. Each linked `go.mod` is authoritative for
@@ -77,7 +78,7 @@ not apply to every adapter.
 | go-playground validation | [`validate/playground`](../../validate/playground/go.mod) |
 | CUE validation and policies | [`cue`](../../cue/go.mod); includes `cuelang` and `policy` packages |
 | OPA/Rego policies | [`policy/opa`](../../policy/opa/go.mod) |
-| age field decryption | [`secrets/age`](../../secrets/age/go.mod); new after v1.5.0, requires Go 1.26+ |
+| age field decryption | [`secrets/age`](../../secrets/age/go.mod); added in v1.6.0, requires Go 1.26+ |
 | Prometheus metrics | [`observability/metrics/prometheus`](../../observability/metrics/prometheus/go.mod) |
 | OpenTelemetry tracing | [`observability/otel`](../../observability/otel/go.mod) |
 | zerolog logging | [`integrations/log/zerolog`](../../integrations/log/zerolog/go.mod) |

@@ -57,6 +57,7 @@ fastconf.reload
        ├─ fastconf.merge
        ├─ fastconf.transform
        ├─ fastconf.secret
+       ├─ fastconf.defaults
        ├─ fastconf.typed-hooks
        ├─ fastconf.decode
        ├─ fastconf.field-meta

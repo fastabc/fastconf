@@ -1,19 +1,59 @@
-# Migration: v0.20.0 → v1.1.0
+# Migration to v1.6.0
 
 The tables document the API migration from v0.20.0 to v1.1.0. These changes
-also apply when upgrading directly to v1.5.0; intermediate development APIs
+also apply when upgrading directly to v1.6.0; intermediate development APIs
 are not migration steps. Install the current root and optional modules together:
 
 ```sh
-go get github.com/fastabc/fastconf@v1.5.0
+go get github.com/fastabc/fastconf@v1.6.0
 # Example optional module; update the adapters your application imports.
-go get github.com/fastabc/fastconf/providers/s3@v1.5.0
+go get github.com/fastabc/fastconf/providers/s3@v1.6.0
 go mod tidy
 ```
 
 The root now requires Go 1.25 (Go 1.24 through v1.4.0; Go 1.22 in v0.20.0).
 Optional modules can require a newer toolchain; check their `go.mod` files.
 Import paths remain under `github.com/fastabc/fastconf`.
+
+## Upgrading from v1.5.0 to v1.6.0
+
+Update the root and optional modules together using the commands above. Public
+v1 APIs remain compatible and the root still requires Go 1.25. The new optional
+`secrets/age` module requires Go 1.26; install it separately if needed.
+
+Review these behavior changes before upgrading:
+
+- `default:"…"` fills only absent input keys before typed decoding and preserves
+  explicit false, 0, empty strings and nulls. Legacy `fc:"default=…"` still replaces
+  decoded zero values. Using both forms on one field or an invalid new literal
+  fails construction. Defaults run after transforms and secrets; put defaults
+  needed by interpolation or resolvers in a base layer instead. See
+  [field metadata](processing/field-meta.md#absent-key-defaults-with-default-tags).
+- Default typed hooks now accept comma-separated/JSON scalar lists, contiguous
+  index maps and named numeric/boolean string values. Application hooks run
+  before the named-primitive fallback. `[]byte` and custom unmarshalers retain
+  their wire forms; `WithoutDefaultTypedHooks` also disables list coercion and
+  the fallback. See [typed hooks](processing/typed-hooks.md).
+- Resolver-produced values are automatically masked in `Map`, `Dump`, `Diff`
+  and `Explain`; `Value`, `Get` and `Unredacted` retain plaintext access.
+  Equal-value reloads that change resolved-secret paths now advance generation
+  and history and emit `Committed`, while skipping value subscribers. See
+  [secrets](processing/secrets.md) and [subscriptions](runtime/subscribe.md).
+- `WithSecretResolver` replaces the resolver list; `WithSecretResolvers` appends
+  in order, with the first recognizer owning each reference. Use the plural
+  option to combine application, Vault and age resolvers.
+- `WithNotifier` and `WithResync` let Manager own consumer restart, reconciliation
+  and shutdown. Remove application-owned workers for consumers moved to Manager.
+  While paused, managed refresh returns `ErrPaused` and periodic reconciliation
+  is skipped. Consumers must retain or negatively acknowledge those messages.
+  See [cloud notifications](sources/cloud-notifications.md).
+- Invalid `WithUnknownFields` and `WithProvenance` values fail construction
+  before sources are read. Use the declared enum constants.
+
+New opt-in APIs also include `transform.Interpolate`,
+`azappconfig.WithJSONValues`, the `schema` package and `PlanResult.Err()` for
+aggregating preview rejections. See the [v1.6.0 changelog](../../CHANGELOG.md#v160---2026-11-15)
+and [runnable feature examples](../../examples/README.md#current-api-coverage-v160).
 
 ## Upgrading from v1.4.0 to v1.5.0
 
@@ -242,14 +282,15 @@ extracted value changes. Callbacks now follow registration order.
 
 Run `go test ./...` in the application and exercise its reload/rollback paths.
 Use the [runtime contract](../design/spec.md) and [examples](../../examples/README.md)
-for current behavior and configuration. This migration table targets v1.1.0;
-changes made afterward are listed in the [changelog](../../CHANGELOG.md#v130).
+for current behavior and configuration. The API tables target v1.1.0;
+later upgrade sections above and the [changelog](../../CHANGELOG.md) cover subsequent changes.
 
 ## Preserve explicit zero values
 
-Tag defaults retain their zero-value semantics. When migrating a switch or limit
-that must accept false, 0 or an empty string, remove its default tag and supply
-the default through a lower-priority base layer. Review custom Defaults methods
-as well. See [the missing/zero/null matrix](processing/field-meta.md#missing-zero-and-null).
+Legacy `fc:"default=…"` tags retain their zero-value semantics. When migrating
+a switch or limit that must accept false, 0 or an empty string, replace the legacy
+directive with an absent-key `default:"…"` tag, or supply the default through a
+lower-priority base layer. Review custom `Defaults()` methods as well. See
+[the missing/zero/null matrix](processing/field-meta.md#missing-zero-and-null).
 Use UnknownError for new struct configurations, or supply WithLogger explicitly
 when retaining UnknownWarn during a migration.

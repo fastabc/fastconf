@@ -11,7 +11,7 @@ and commit events. Use it for audit and telemetry; use
 | `ReloadStarted` | A reload begins |
 | `ReloadFinished` | A reload ends; `Err == nil` includes unchanged values |
 | `StageFinished` | A stage completes, including pipeline stages during Plan |
-| `ProviderError` | A provider `Watch` call fails or reports a resume gap |
+| `ProviderError` | A provider `Watch` call fails or reports a resume gap, or a managed notifier stops/panics |
 | `EventDropped` | A provider trigger overflows the manager's reload queue |
 | `Committed` | A snapshot publishes, including initial load and rollback |
 
@@ -80,6 +80,9 @@ See the [runtime contract](../../design/spec.md#reads-and-writes) for progress
 conditions and [resource-update](../../../examples/resource-update/README.md)
 for bounded business resource changes.
 
-`Committed` does not fire for rejected or unchanged candidates. Handle
+`Committed` does not fire for rejected candidates or when both the typed hash
+and resolved-secret paths are unchanged. A change to those paths publishes a
+metadata commit even with an equal hash and empty value diff; generation/history
+advance without invoking value subscribers. Handle
 `ReloadFinished` for success/failure counts and `Errors()` for failures.
 See [metrics and tracing](observability.md) for instrumentation.

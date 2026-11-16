@@ -10,11 +10,10 @@ FastConf 将文件、环境变量与云端配置统一为强类型 Go 配置。�
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-本 README 介绍当前源码中计划用于 v1.6.0 的功能，见 [CHANGELOG.md](CHANGELOG.md)
-的 `Unreleased`；标注 v1.6.0 的新增能力对应本次源码。
-以下固定版本的安装示例使用 v1.5.0，版本行为请以所安装 tag 的文档为准。
-从 v0.20.0 升级见[迁移指南](docs/cookbook/migration-v1.md)；从 v1.4.0 升级见
-[v1.5.0 升级说明](docs/cookbook/migration-v1.md#upgrading-from-v140-to-v150)。
+本 README 介绍 v1.6.0，见[版本说明](CHANGELOG.md#v160---2026-11-15)。
+版本行为请以所安装 tag 的文档为准。
+从 v0.20.0 升级见[迁移指南](docs/cookbook/migration-v1.md)；从 v1.5.0 升级见
+[v1.6.0 升级说明](docs/cookbook/migration-v1.md#upgrading-from-v150-to-v160)。
 
 ## 为什么选择 FastConf
 
@@ -38,7 +37,7 @@ FastConf 将文件、环境变量与云端配置统一为强类型 Go 配置。�
 根模块要求 Go 1.25+。可选模块的最低 Go 版本以各自的 `go.mod` 为准，按需安装。
 
 ```sh
-go get github.com/fastabc/fastconf@v1.5.0
+go get github.com/fastabc/fastconf@v1.6.0
 ```
 
 ## 快速上手
@@ -382,8 +381,8 @@ if err := mgr.Reload(ctx, fastconf.WithReason("admin"),
 `Pause` 抑制监听触发；`Resume` 不重放忽略的事件，暂停批次完成后需显式 Reload。
 v1.6.0 中暂停也会跳过周期对账，并向通知 refresh 返回 `ErrPaused`；消费者应保留消息或 NACK，不能按成功 ACK。
 
-v1.5.0 之后新增特性的 API、可运行示例与验证命令，统一列在
-[examples 特性索引](examples/README.md#features-added-after-v150)。
+v1.6.0 新增特性的 API、可运行示例与验证命令，统一列在
+[examples 特性索引](examples/README.md#current-api-coverage-v160)。
 
 `Snapshot().Map/Dump/Diff/Explain` 提供脱敏诊断，来源追溯需启用 `WithProvenance`。
 明文诊断使用 `Unredacted().Map/Dump`。`History().List()` 按从旧到新返回历史快照；
@@ -416,9 +415,9 @@ v1.5.0 之后新增特性的 API、可运行示例与验证命令，统一列在
 中的二进制：
 
 ```sh
-go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.5.0
-go install github.com/fastabc/fastconf/cmd/fastconfd@v1.5.0
-go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.5.0
+go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.6.0
+go install github.com/fastabc/fastconf/cmd/fastconfd@v1.6.0
+go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.6.0
 fastconfctl dump -dir conf.d -profile prod -format yaml
 fastconfctl diff -dir conf.d -from dev -to prod -json
 fastconfctl validate -dir conf.d -profile prod

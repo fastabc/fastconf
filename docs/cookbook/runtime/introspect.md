@@ -28,8 +28,8 @@ db, _ := state.Map()["database"].(map[string]any)
 dbCfg := &state.Value().Database
 ```
 
-Secrets are the fields tagged `fc:"secret"` plus any `WithSecretPaths`
-patterns; `WithRedactor` changes how they display.
+Secrets are the fields tagged `fc:"secret"`, any `WithSecretPaths`
+matches and resolver-produced values; `WithRedactor` changes how they display.
 
 ## Dumping the merged state
 
@@ -86,13 +86,16 @@ curl -s -H "X-Config-Token: $FASTCONFD_READ_TOKEN" http://localhost:8650/dump?fo
 
 ### Redaction
 
-`Dump` always masks fields tagged `fc:"secret"` and paths matched by `WithSecretPaths`, showing `***REDACTED***` (or whatever `WithRedactor` returns). Plaintext is an explicit, greppable call:
+`Dump` masks fields tagged `fc:"secret"`, paths matched by `WithSecretPaths` and
+resolver-produced values, showing `***REDACTED***` (or whatever `WithRedactor`
+returns). Plaintext is an explicit, greppable call:
 
 ```go
 b, _ := state.Unredacted().Dump(fastconf.YAML)
 ```
 
-Map-typed configurations have no struct tags, so they rely on path patterns:
+Map-typed configurations have no struct tags. Resolver-produced values are still
+masked automatically; use path patterns for other sensitive inputs:
 
 ```go
 mgr, err := fastconf.New[map[string]any](ctx, fastconf.WithSecretPaths("**.password", "db.dsn"))
@@ -114,8 +117,10 @@ when YAML-only fields can change.
 
 Enable `WithProvenance(ProvenanceFull)` for leaf origin chains or
 `ProvenanceTopLevel` for top-level keys. `Explain` shows recorded layer writes,
-not a complete execution trace of transforms or defaults. Secret resolution
-adds a secret origin rather than replacing the original layer history.
+resolved-secret origins and absent-key defaults (`LayerDefault`, `default://tag`).
+It is not a complete trace of arbitrary transforms, typed hooks, legacy `fc`
+defaults or `Defaults()` methods. Secret resolution adds a secret origin rather
+than replacing the original layer history.
 
 ## History and rollback
 

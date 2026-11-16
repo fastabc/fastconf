@@ -6,6 +6,16 @@ dependencies; workspace tests create and remove their own temporary workspace.
 No command publishes a release unless `tag-release.sh --push` is explicitly used.
 Pushing a root version tag starts the release workflow.
 
+For local Go commands, Make targets and scripts that invoke Go, use direct
+dependency downloads:
+
+```sh
+export GOPROXY=direct
+```
+
+Keep checksum verification enabled. Candidate checks prepend their temporary
+`file://` proxy and then fall back to this direct setting.
+
 ## Development
 
 | Command | Scope |

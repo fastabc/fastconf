@@ -64,8 +64,10 @@ known unrelated events are acknowledged, while malformed events are retried or
 dead-lettered. Filter cloud events as precisely as possible.
 
 Events mean “read the current source again.” Duplicates and out-of-order delivery
-do not directly install old values; unchanged values do not republish. Invalid
-configurations and read/validation failures preserve the last valid snapshot.
+do not directly install old values. Reloads skip publication when both the typed
+hash and resolved-secret paths are unchanged; changes to those paths publish a
+metadata commit without invoking value subscribers. Invalid configurations and
+read/validation failures preserve the last valid snapshot.
 ACK means one reload succeeded, without transactional consistency between an
 event and a remote read. Visibility delays, gradual deployments and lost events
 still require periodic reconciliation.
