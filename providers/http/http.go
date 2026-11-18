@@ -33,12 +33,13 @@ type Provider struct {
 	headers      map[string]string
 	maxBodyBytes int64
 
-	mu          sync.Mutex
-	etag        string
-	bodyHash    [32]byte
-	loaded      bool
-	lastBody    map[string]any
-	contentType string
+	mu              sync.Mutex
+	etag            string
+	bodyHash        [32]byte
+	loaded          bool
+	lastBody        map[string]any
+	contentType     string
+	codecGeneration uint64
 }
 
 // Option mutates a Provider during construction. Use the With* helpers below to compose
@@ -107,20 +108,21 @@ func (p *Provider) Describe() contracts.ProviderInfo {
 // bookkeeping so the next Watch tick can short-circuit unchanged responses. A 304 response returns
 // the previously-loaded snapshot rather than an error.
 func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
-	body, etag, contentType, notModified, err := p.fetch(ctx)
+	generation := p.decoderGeneration()
+	body, etag, contentType, notModified, err := p.fetch(ctx, generation)
 	if err != nil {
 		return contracts.Snapshot{}, err
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if notModified {
-		if !p.loaded {
+		if !p.loaded || generation != p.codecGeneration {
 			return contracts.Snapshot{}, fmt.Errorf("fastconf/http: 304 without an accepted document")
 		}
 		return contracts.Snapshot{Map: maps.Clone(p.lastBody), Revision: p.etag}, nil
 	}
 	hash := sha256.Sum256(body)
-	if p.loaded && hash == p.bodyHash && (p.codec != nil || contentType == p.contentType) {
+	if p.matchesDocument(hash, contentType, generation) {
 		p.etag = etag
 		return contracts.Snapshot{Map: maps.Clone(p.lastBody), Revision: p.etag}, nil
 	}
@@ -140,6 +142,7 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 	p.bodyHash = hash
 	p.lastBody = out
 	p.contentType = contentType
+	p.codecGeneration = generation
 	p.loaded = true
 	return contracts.Snapshot{Map: maps.Clone(out), Revision: p.etag}, nil
 }
@@ -177,7 +180,8 @@ func (p *Provider) Watch(ctx context.Context, _ string) (<-chan contracts.Event,
 // poll probes without accepting decoded state. It returns whether the response
 // changed and that response's ETag, so Watch need not read the mutable cache.
 func (p *Provider) poll(ctx context.Context) (bool, string, error) {
-	body, etag, contentType, notModified, err := p.fetch(ctx)
+	generation := p.decoderGeneration()
+	body, etag, contentType, notModified, err := p.fetch(ctx, generation)
 	if err != nil {
 		return false, "", err
 	}
@@ -187,7 +191,7 @@ func (p *Provider) poll(ctx context.Context) (bool, string, error) {
 	hash := sha256.Sum256(body)
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.loaded && hash == p.bodyHash && etag == p.etag && (p.codec != nil || contentType == p.contentType) {
+	if etag == p.etag && p.matchesDocument(hash, contentType, generation) {
 		return false, "", nil
 	}
 	// Only a successful Load may advance the accepted body/hash/ETag.
@@ -195,7 +199,21 @@ func (p *Provider) poll(ctx context.Context) (bool, string, error) {
 	return true, etag, nil
 }
 
-func (p *Provider) fetch(ctx context.Context) (body []byte, etag, contentType string, notModified bool, err error) {
+// An explicit decoder is independent of registry changes. Sample before the
+// conditional request so a registration during decoding invalidates our result.
+func (p *Provider) decoderGeneration() uint64 {
+	if p.codec != nil {
+		return 0
+	}
+	return registry.Generation()
+}
+
+// Called with p.mu held.
+func (p *Provider) matchesDocument(hash [32]byte, contentType string, generation uint64) bool {
+	return p.loaded && p.bodyHash == hash && p.codecGeneration == generation && (p.codec != nil || p.contentType == contentType)
+}
+
+func (p *Provider) fetch(ctx context.Context, generation uint64) (body []byte, etag, contentType string, notModified bool, err error) {
 	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, p.url, nil)
 	if err != nil {
 		return nil, "", "", false, contracts.SafeError("fastconf/http: request failed", err)
@@ -204,7 +222,7 @@ func (p *Provider) fetch(ctx context.Context) (body []byte, etag, contentType st
 		req.Header.Set(k, v)
 	}
 	p.mu.Lock()
-	if p.etag != "" {
+	if p.etag != "" && p.codecGeneration == generation {
 		req.Header.Set("If-None-Match", p.etag)
 	}
 	p.mu.Unlock()

@@ -142,12 +142,18 @@ func FormatDiff(entries []DiffEntry) []string {
 
 // diagnosticDiff detects changes before redaction, then substitutes safe views.
 // Secret-only changes remain visible even when both displayed values are masked.
-func diagnosticDiff[T any](before, after *State[T]) []DiffEntry {
-	a, _ := before.cachedJSONTree()
-	b, _ := after.cachedJSONTree()
+func diagnosticDiff[T any](before, after *State[T]) ([]DiffEntry, error) {
+	a, err := before.cachedJSONTree()
+	if err != nil {
+		return nil, fmt.Errorf("diff previous snapshot: %w", err)
+	}
+	b, err := after.cachedJSONTree()
+	if err != nil {
+		return nil, fmt.Errorf("diff next snapshot: %w", err)
+	}
 	entries := diffMaps(nil, a, b)
 	if len(entries) == 0 {
-		return nil
+		return nil, nil
 	}
 	a, b = before.Map(), after.Map()
 	out := make([]DiffEntry, len(entries))
@@ -156,5 +162,5 @@ func diagnosticDiff[T any](before, after *State[T]) []DiffEntry {
 		out[i].Before, _ = confmap.Get(a, e.segs...)
 		out[i].After, _ = confmap.Get(b, e.segs...)
 	}
-	return out
+	return out, nil
 }

@@ -57,7 +57,7 @@ A nil Plan error does not imply valid findings. `result.Err()` aggregates all
 validator failures and policy denials, supports `errors.Is(err, fastconf.ErrInvalid)`
 and `errors.As` for `*fastconf.PolicyError`, and returns nil for warnings alone. Policy evaluation errors become
 error-severity findings in `Policies`. Assembly, transform, secret resolution,
-typed conversion and decode failures still abort the preview. `Reload` loads inputs again;
+typed conversion, decode and diagnostic JSON encoding failures abort the preview. `Reload` loads inputs again;
 the preview does not freeze files or remote values, and an active watcher can
 publish independently of the preview flow.
 

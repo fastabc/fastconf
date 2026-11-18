@@ -273,7 +273,7 @@ func TestTreeCacheRedactorIsolationAndSecretDiff(t *testing.T) {
 	after := &State[cfg]{value: &cfg{Tokens: []map[string]string{{"token": "after-secret"}}, Value: "unchanged"}}
 	view := before.Map()
 	view["tokens"].([]any)[0].(map[string]any)["token"] = "caller mutation"
-	diff := diagnosticDiff(before, after)
+	diff := before.Diff(after)
 	if len(diff) != 1 || diff[0].Path != "tokens" {
 		t.Fatalf("secret-only change lost: %+v", diff)
 	}

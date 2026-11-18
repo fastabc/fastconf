@@ -42,7 +42,8 @@ without starting watchers.
 Accepted ETags enable conditional requests; a 304 reuses the accepted document.
 Body hashes also detect changes. With automatic codec selection, a changed
 `Content-Type` also triggers a reload and redecoding even if the bytes are unchanged;
-an explicit decoder ignores content-type changes. A changed response triggers a full reload;
+a registry update also invalidates the decoded cache and forces a fresh body read.
+An explicit decoder keeps its cache across registry and content-type changes. A changed response triggers a full reload;
 only a successful typed candidate publishes a new manager snapshot. Polling
 transport errors are currently retried at the next interval without emitting a
 `ProviderError`; errors from an actual reload reach `Errors()`.

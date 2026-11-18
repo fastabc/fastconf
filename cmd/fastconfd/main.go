@@ -66,11 +66,7 @@ func main() {
 	srv := newServer(mgr, bus, f.token, log)
 	srv.readToken = f.readToken
 	srv.unredactedToken = f.unredactedToken
-	httpSrv := &http.Server{
-		Addr:              f.addr,
-		Handler:           srv.routes(),
-		ReadHeaderTimeout: 5 * time.Second,
-	}
+	httpSrv := srv.httpServer(f.addr)
 	go func() {
 		log.LogAttrs(context.Background(), slog.LevelInfo, "fastconfd listening", slog.String("addr", f.addr))
 		if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
@@ -83,7 +79,10 @@ func main() {
 	log.LogAttrs(context.Background(), slog.LevelInfo, "fastconfd shutting down")
 	shutdownCtx, c := context.WithTimeout(context.Background(), 5*time.Second)
 	defer c()
-	_ = httpSrv.Shutdown(shutdownCtx)
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		log.LogAttrs(context.Background(), slog.LevelWarn, "http shutdown", slog.Any("err", err))
+		_ = httpSrv.Close()
+	}
 }
 
 func listen(addr string) (net.Listener, error) { return net.Listen("tcp", addr) }

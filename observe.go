@@ -60,8 +60,8 @@ type EventDropped struct{ Source string }
 
 // Committed is emitted after a new snapshot is published. Diff computes the
 // redacted per-path changes from Prev to Next on first call and caches
-// them; observers that do not need them pay nothing. Layers is the number
-// of merged layers.
+// them. Diff returns nil if either JSON view cannot be encoded. Layers is
+// the number of merged layers.
 type Committed struct {
 	Prev, Next uint64
 	Cause      ReloadCause
@@ -155,7 +155,7 @@ func lazyDiff[T any](prev, next *State[T]) func() []DiffEntry {
 	return func() []DiffEntry {
 		once.Do(func() {
 			if prev != nil {
-				diff = diagnosticDiff(prev, next)
+				diff = prev.Diff(next)
 			}
 		})
 		return diff

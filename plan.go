@@ -70,8 +70,9 @@ func WithPlanHostname(host string) PlanOption {
 
 // Plan previews the pipeline without publication. It queues on the same writer as
 // Reload, so user hooks remain serialized. Hooks may still have external effects;
-// a failed preview also reaches Errors. A nil error means a preview was produced;
-// call PlanResult.Err to check whether validation or policy findings reject it.
+// a failed preview (including a JSON diff encoding error) also reaches Errors.
+// A nil error means a preview was produced. Call PlanResult.Err to check
+// whether validation or policy findings reject it.
 func (m *Manager[T]) Plan(ctx context.Context, opts ...PlanOption) (*PlanResult[T], error) {
 	if m == nil {
 		return nil, ErrClosed
@@ -119,7 +120,10 @@ func (m *Manager[T]) runPlan(ctx context.Context, hostname string) (*PlanResult[
 
 	var diff []DiffEntry
 	if cur := m.state.Load(); cur != nil {
-		diff = diagnosticDiff(cur, proposed)
+		diff, err = diagnosticDiff(cur, proposed)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &PlanResult[T]{
 		Proposed:   proposed,

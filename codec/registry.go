@@ -17,7 +17,7 @@ var (
 	generation atomic.Uint64
 )
 
-// Generation advances after each codec registration. Caches of decoded documents sample it before
+// Generation advances after each codec registration or extension mapping change. Caches of decoded documents sample it before
 // looking up a decoder; a concurrent registration then invalidates that sample on the next reload,
 // even when it replaces a codec under the same name.
 func Generation() uint64 { return generation.Load() }
@@ -39,7 +39,11 @@ func Register(name string, c contracts.Decoder) {
 // is custom.
 func RegisterExt(ext, codec string) {
 	ext = strings.TrimPrefix(strings.ToLower(ext), ".")
-	extMap.Store(ext, strings.ToLower(codec))
+	name := strings.ToLower(codec)
+	previous, loaded := extMap.Swap(ext, name)
+	if !loaded || previous != name {
+		generation.Add(1)
+	}
 }
 
 // Lookup returns the registered codec for name (case-insensitive). The boolean

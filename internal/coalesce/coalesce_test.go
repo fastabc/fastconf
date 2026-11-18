@@ -325,6 +325,9 @@ func TestPush_ExpiredBurstAndStaleTimer(t *testing.T) {
 	old.deadline = time.Now().Add(-time.Second)
 	c.mu.Unlock()
 	c.Push("key", "new", false)
+	if !r.waitFor(1, time.Second) {
+		t.Fatal("expired burst never dispatched")
+	}
 	calls := r.snapshot()
 	if len(calls) != 1 || calls[0].reason != "old" {
 		t.Fatalf("expired burst=%v; want old reason", calls)
@@ -341,5 +344,37 @@ func TestPush_ExpiredBurstAndStaleTimer(t *testing.T) {
 	calls = r.snapshot()
 	if len(calls) != 2 || calls[1].reason != "new" {
 		t.Fatalf("current burst=%v; want new reason", calls)
+	}
+}
+
+func TestCoalesce_ExpiredBurstDoesNotBlockPush(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	c := New(Options{Quiet: time.Hour, MaxLag: time.Hour}, func(_, reason string) {
+		if reason == "old" {
+			close(started)
+			<-release
+		}
+	})
+	defer c.Stop()
+	defer close(release)
+	c.Push("a", "old", false)
+	c.mu.Lock()
+	c.bursts["a"].deadline = time.Now().Add(-time.Minute)
+	c.mu.Unlock()
+	returned := make(chan struct{})
+	go func() {
+		c.Push("a", "new", false)
+		c.Push("b", "other", false)
+		close(returned)
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("expired burst never dispatched")
+	}
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		t.Fatal("file event reader blocked in callback")
 	}
 }

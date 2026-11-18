@@ -209,3 +209,58 @@ func TestContentTypeAndManualReload(t *testing.T) {
 		t.Fatalf("Watch = %v, %v; hits=%d", ch, err, hits)
 	}
 }
+
+type revisionDecoder string
+
+func (d revisionDecoder) Decode([]byte) (map[string]any, error) {
+	return map[string]any{"revision": string(d)}, nil
+}
+
+func TestProvider_RegistryInvalidatesAcceptedDocument(t *testing.T) {
+	for _, tag := range []string{"", `"v1"`} {
+		t.Run("etag="+tag, func(t *testing.T) {
+			const name = "fastconf-http-revision-test"
+			codec.RegisterExt(name, name)
+			codec.Register(name, revisionDecoder("first"))
+			srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+				if tag != "" && r.Header.Get("If-None-Match") == tag {
+					w.WriteHeader(nethttp.StatusNotModified)
+					return
+				}
+				w.Header().Set("Content-Type", "application/"+name)
+				w.Header().Set("ETag", tag)
+				_, _ = io.WriteString(w, "unchanged")
+			}))
+			defer srv.Close()
+			p, err := httpprov.New("cache", srv.URL, nil, httpprov.WithInterval(time.Millisecond))
+			if err != nil {
+				t.Fatal(err)
+			}
+			check := func(want string) {
+				t.Helper()
+				snap, err := p.Load(t.Context())
+				if err != nil || snap.Map["revision"] != want {
+					t.Fatalf("load=%v err=%v want=%s", snap, err, want)
+				}
+			}
+			check("first")
+			codec.Register(name, revisionDecoder("second"))
+			check("second")
+			codec.Register(name+"-alias", revisionDecoder("third"))
+			check("second")
+			codec.RegisterExt(name, name+"-alias")
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			events, err := p.Watch(ctx, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-events:
+			case <-time.After(time.Second):
+				t.Fatal("watch missed registry remapping")
+			}
+			check("third")
+		})
+	}
+}

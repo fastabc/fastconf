@@ -149,9 +149,10 @@ func (s *State[T]) Dump(format Format) ([]byte, error) {
 // Diff returns the per-path differences from s to other. Changes are
 // detected on plaintext, so a secret that changed is reported, but the
 // Before/After values shown are the redacted ones. Either snapshot may be
-// nil (treated as empty).
+// nil (treated as empty). Diff returns nil if either JSON view cannot be encoded.
 func (s *State[T]) Diff(other *State[T]) []DiffEntry {
-	return diagnosticDiff(s, other)
+	entries, _ := diagnosticDiff(s, other)
+	return entries
 }
 
 // Explain lists the layers that wrote path, lowest priority first. Origin

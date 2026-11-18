@@ -397,3 +397,28 @@ func TestParseFlags_TokensNeverPrinted(t *testing.T) {
 		t.Fatalf("flag precedence failed: %v", err)
 	}
 }
+
+func TestServer_ShutdownEndsIdleEventStream(t *testing.T) {
+	s, done := newTestServer(t)
+	defer done()
+	testServer := httptest.NewUnstartedServer(nil)
+	testServer.Config = s.httpServer("")
+	testServer.Start()
+	defer testServer.Close()
+	resp, err := testServer.Client().Get(testServer.URL + "/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := testServer.Config.Shutdown(ctx); err != nil {
+		t.Fatalf("shutdown with idle SSE client: %v", err)
+	}
+	if body, err := io.ReadAll(resp.Body); err != nil || len(body) != 0 {
+		t.Fatalf("stream ended with %q, %v", body, err)
+	}
+}

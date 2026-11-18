@@ -7,6 +7,13 @@ historical releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Plan reports a diagnostic JSON encoding error when it cannot compare snapshots.
+- The HTTP provider refreshes automatically decoded documents after codec registration or extension remapping.
+- Expired file event bursts allow the watcher to keep reading while a reload runs.
+- Graceful shutdown of fastconfd closes idle SSE streams.
+
 ## [v1.6.0] - 2026-11-15
 
 ### Added

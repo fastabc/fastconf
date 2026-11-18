@@ -336,3 +336,43 @@ func TestPlanResultErrMissingSnapshot(t *testing.T) {
 		})
 	}
 }
+
+var errPlanJSON = errors.New("diagnostic encoding unavailable")
+
+type planJSONConfig struct {
+	Value int `yaml:"value"`
+}
+
+func (c planJSONConfig) MarshalJSON() ([]byte, error) {
+	if c.Value < 0 {
+		return nil, errPlanJSON
+	}
+	return json.Marshal(map[string]int{"value": c.Value})
+}
+
+func TestPlan_ReportsDiffEncodingErrors(t *testing.T) {
+	for _, values := range [][2]int{{1, -1}, {-1, 1}, {-1, -2}} {
+		t.Run(fmt.Sprint(values), func(t *testing.T) {
+			file := &fstest.MapFile{Data: []byte(fmt.Sprintf("value: %d", values[0]))}
+			m, err := New[planJSONConfig](t.Context(), WithFS(fstest.MapFS{"conf.d/base/a.yaml": file}), WithDecodeFormat(YAML))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = m.Close() }()
+			before := m.Snapshot()
+			file.Data = []byte(fmt.Sprintf("value: %d", values[1]))
+			plan, err := m.Plan(t.Context())
+			if plan != nil || !errors.Is(err, errPlanJSON) || m.Snapshot() != before {
+				t.Fatalf("plan=%v err=%v changed=%v", plan, err, m.Snapshot() != before)
+			}
+			select {
+			case failure := <-m.Errors():
+				if failure.Reason != "plan" || !errors.Is(failure.Err, errPlanJSON) {
+					t.Fatalf("failure=%v", failure)
+				}
+			default:
+				t.Fatal("missing plan error")
+			}
+		})
+	}
+}

@@ -169,6 +169,8 @@ func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 	for {
 		select {
+		case <-s.stopping:
+			return
 		case <-r.Context().Done():
 			return
 		case cause, ok := <-c:

@@ -57,9 +57,10 @@ type Coalescer struct {
 	opts Options
 	fn   func(key, reason string)
 
-	mu      sync.Mutex
-	bursts  map[string]*burst
-	stopped bool
+	mu        sync.Mutex
+	bursts    map[string]*burst
+	stopped   bool
+	callbacks sync.WaitGroup
 }
 
 type burst struct {
@@ -69,7 +70,7 @@ type burst struct {
 	swapSeen bool
 }
 
-// New creates a coalescer; fn runs in timer goroutines and should return promptly.
+// New creates a coalescer; fn runs in background goroutines and should return promptly.
 func New(opts Options, fn func(key, reason string)) *Coalescer {
 	return &Coalescer{
 		opts:   opts.normalize(),
@@ -139,11 +140,10 @@ func (c *Coalescer) Push(key, reason string, swapCommit bool) {
 		}
 	}
 
-	c.mu.Unlock()
-
 	if fireEvicted {
-		c.fn(key, joinUnique(evictedReasons))
+		c.callbacks.Go(func() { c.fn(key, joinUnique(evictedReasons)) })
 	}
+	c.mu.Unlock()
 }
 
 // flush is the timer callback; it acquires the lock, removes the burst,
@@ -157,7 +157,9 @@ func (c *Coalescer) flush(key string, self *burst) {
 	}
 	delete(c.bursts, key)
 	reasons := b.reasons
+	c.callbacks.Add(1)
 	c.mu.Unlock()
+	defer c.callbacks.Done()
 
 	if len(reasons) == 0 {
 		return
@@ -166,10 +168,10 @@ func (c *Coalescer) flush(key string, self *burst) {
 }
 
 // Stop disarms every pending burst and drops their reasons. Subsequent
-// Push calls are no-ops. Stop is idempotent.
+// Push calls are no-ops. Stop waits for dispatched callbacks and is idempotent.
+// Callbacks must not call Stop synchronously.
 func (c *Coalescer) Stop() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.stopped = true
 	for k, b := range c.bursts {
 		if b.timer != nil {
@@ -177,6 +179,8 @@ func (c *Coalescer) Stop() {
 		}
 		delete(c.bursts, k)
 	}
+	c.mu.Unlock()
+	c.callbacks.Wait()
 }
 
 // joinUnique returns the input reasons joined by ',' with duplicates
