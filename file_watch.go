@@ -53,9 +53,10 @@ func (m *Manager[T]) startFileWatcher(ctx context.Context) error {
 			reason = slot.reason
 			slot.pending = false
 			slot.mu.Unlock()
-			// reload already logs pipeline failures at Warn and reports them on
-			// Errors; ErrClosed only means the manager is shutting down.
-			if err := m.requestReload(context.Background(), TriggerFile, reason, key); err != nil && !errors.Is(err, ErrClosed) {
+			// ctx is the manager lifetime, so the reload keeps New's context
+			// values. reload already logs pipeline failures at Warn and reports
+			// them on Errors; ErrClosed or a canceled lifetime only means shutdown.
+			if err := m.requestReload(ctx, TriggerFile, reason, key); err != nil && !errors.Is(err, ErrClosed) && ctx.Err() == nil {
 				m.opts.Logger.LogAttrs(ctx, slog.LevelDebug, "watch: reload failed", slog.String("key", key), slog.String("reason", reason), slog.Any("err", err))
 			}
 			slot.mu.Lock()
