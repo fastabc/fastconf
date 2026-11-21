@@ -83,6 +83,16 @@ type removedDefaultWithTag struct {
 	Port int `json:"port" yaml:"port" default:"1" fc:"default=2"`
 }
 
+// v1.6.0 also filled fields the decode bridge skips, so a leftover declaration
+// there must fail too rather than silently stop applying.
+type removedDefaultSkipped struct {
+	Internal int `json:"-" yaml:"-" fc:"default=5"`
+}
+
+type removedDefaultSkippedNested struct {
+	Child removedDefaultChild `json:"-" yaml:"-"`
+}
+
 func TestTagDefaultsFor_RejectsRemovedFCDefault(t *testing.T) {
 	for _, typ := range []reflect.Type{
 		reflect.TypeFor[removedDefaultTop](),
@@ -90,6 +100,8 @@ func TestTagDefaultsFor_RejectsRemovedFCDefault(t *testing.T) {
 		reflect.TypeFor[removedDefaultOptional](),
 		reflect.TypeFor[removedDefaultElement](),
 		reflect.TypeFor[removedDefaultWithTag](),
+		reflect.TypeFor[removedDefaultSkipped](),
+		reflect.TypeFor[removedDefaultSkippedNested](),
 	} {
 		for _, yamlBridge := range []bool{false, true} {
 			_, err := TagDefaultsFor(typ, yamlBridge)

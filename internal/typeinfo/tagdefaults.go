@@ -99,8 +99,25 @@ func TagDefaultsFor(t reflect.Type, yamlBridge bool) ([]TagDefault, error) {
 		if err := visit(t, TagDefault{}, false); err != nil {
 			return nil, err
 		}
+		if err := rejectSkippedFCDefaults(t); err != nil {
+			return nil, err
+		}
 	}
 	return defs, nil
+}
+
+// rejectSkippedFCDefaults walks the fields v1.6.0 filled from fc:"default=…",
+// which include fields the decode bridge skips (json:"-"); the decoded-field
+// walk never visits those, so a leftover token there would stop applying silently.
+func rejectSkippedFCDefaults(t reflect.Type) error {
+	var err error
+	Walk(t, func(path string, _ []int, f reflect.StructField) bool {
+		if err == nil && HasRemovedFCDefault(f.Tag.Get(TagKey)) {
+			err = nilDefaultError(path, ErrRemovedFCDefault)
+		}
+		return err == nil
+	})
+	return err
 }
 
 func nilDefaultError(path, reason string) error {
