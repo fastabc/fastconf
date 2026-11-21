@@ -13,9 +13,9 @@ import (
 
 // LoadFile reads one required file (at most 4 MiB), using its extension's codec
 // and JSON field tags. Unknown fields fail; absent-key defaults, typed hooks,
-// fc defaults, Defaulter and field validation run normally. It skips discovery, profiles and environment
-// overrides, starts no workers and returns a caller-owned *T. Use Load for options
-// or diagnostics and New for runtime updates.
+// Defaulter and field validation run normally. It skips discovery, profiles and
+// environment overrides, starts no workers and returns a caller-owned *T. Use Load
+// for options or diagnostics and New for runtime updates.
 //
 // The file is loaded as a provider, so errors classify as follows: a missing or
 // unreadable file and a syntax error wrap ErrProvider; an oversized file wraps

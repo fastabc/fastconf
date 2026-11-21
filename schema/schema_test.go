@@ -21,7 +21,7 @@ import (
 type sampleConfig struct {
 	Port    int           `json:"port" default:"8080" desc:"HTTP listen port" fc:"min=1,max=65535"`
 	Timeout time.Duration `json:"timeout" default:"5s" desc:"Request timeout"`
-	Level   string        `json:"level" fc:"default=info,oneof=debug|info|warn"`
+	Level   string        `json:"level" default:"info" fc:"oneof=debug|info|warn"`
 	DB      struct {
 		DSN   string   `json:"dsn" fc:"required,secret" desc:"Database DSN"`
 		Hosts []string `json:"hosts" default:"a,b"`
@@ -65,7 +65,7 @@ func TestJSONSchema_Sample(t *testing.T) {
 
 func TestDurationSchemaAndExamples_MatchRuntimeLiterals(t *testing.T) {
 	type cfg struct {
-		Timeout time.Duration `json:"timeout" fc:"default=5000000000"`
+		Timeout time.Duration `json:"timeout" default:"5s"`
 	}
 	b, err := schema.JSONSchema(reflect.TypeFor[cfg]())
 	if err != nil {
@@ -94,6 +94,22 @@ func TestDurationSchemaAndExamples_MatchRuntimeLiterals(t *testing.T) {
 	env, err := schema.ExampleEnv(reflect.TypeFor[cfg](), "APP_", "__")
 	if err != nil || string(env) != "APP_TIMEOUT=5s\n" {
 		t.Fatalf("env: %s; error: %v", env, err)
+	}
+}
+
+func TestSchema_RejectsRemovedFCDefault(t *testing.T) {
+	type cfg struct {
+		Port int `json:"port" fc:"default=8080"`
+	}
+	typ := reflect.TypeFor[cfg]()
+	for name, run := range map[string]func() error{
+		"JSONSchema":  func() error { _, err := schema.JSONSchema(typ); return err },
+		"ExampleYAML": func() error { _, err := schema.ExampleYAML(typ); return err },
+		"ExampleEnv":  func() error { _, err := schema.ExampleEnv(typ, "APP_", "__"); return err },
+	} {
+		if err := run(); err == nil || !strings.Contains(err.Error(), `fc:"default=…" was removed`) {
+			t.Errorf("%s: err = %v; want removed fc default", name, err)
+		}
 	}
 }
 

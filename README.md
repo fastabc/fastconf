@@ -339,8 +339,8 @@ In v1.6.0, `default:"…"` fills absent keys before typed decoding: `5s` becomes
 `time.Duration`, `primary,replica` becomes a list, and explicit false, 0, empty
 strings are retained, while null counts as present. `Explain` records injected
 defaults as `LayerDefault`.
-Legacy `fc:"default=…"` still fills decoded Go zero values; `Defaulter.Defaults`
-provides computed defaults. Field constraints run before `WithValidate` and
+`fc:"default=…"` was removed in v1.7.0 and now fails construction; use
+`default:"…"`, or `Defaulter.Defaults` for computed defaults and zero values. Field constraints run before `WithValidate` and
 `WithPolicy`; policy warnings allow publication and error-severity findings reject it. Tags do not validate
 collection elements; use a validator for those checks.
 For pointers, `required` checks for nil; `min`, `max` and `oneof` check the

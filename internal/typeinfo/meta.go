@@ -15,7 +15,8 @@ type Meta struct {
 	OneOf            []string
 }
 
-// FieldMeta reads desc/default tags, falling back to the corresponding fc tokens.
+// FieldMeta reads the desc tag (falling back to the fc desc= token), the
+// default tag and fc constraints. The removed fc default= token is not read.
 func FieldMeta(f reflect.StructField) Meta {
 	tag := f.Tag.Get(TagKey)
 	constraints := parseFieldTag(tag)
@@ -33,8 +34,5 @@ func FieldMeta(f reflect.StructField) Meta {
 		meta.Desc = desc
 	}
 	meta.Default, meta.HasDefault = f.Tag.Lookup(DefaultTagKey)
-	if !meta.HasDefault {
-		meta.Default, meta.HasDefault = defaultTagValue(tag)
-	}
 	return meta
 }

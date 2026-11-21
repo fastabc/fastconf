@@ -195,10 +195,11 @@ include optional schema migration functions. Provenance records layer writes,
 resolved secret leaves and absent-key `default` tags. It is not a complete trace
 of arbitrary transform or hook mutations. Secret resolution precedes the
 `defaults` stage, which injects literal `default:"…"` values only for absent keys;
-then typed hooks convert inputs before decode. Decode applies legacy
-`fc:"default=…"` zero-value defaults and then `Defaulter`. These two mechanisms
-remain distinct: `default` preserves explicit false, 0, empty strings and nulls;
-legacy `fc` defaults replace decoded zero values. Field metadata, validators and
+then typed hooks convert inputs before decode. After decode, `Defaulter` supplies
+computed defaults and may replace zero values; `default` preserves explicit false,
+0, empty strings and nulls. `fc:"default=…"` was removed in v1.7.0: a field that
+still declares it, including inside a collection element, fails construction.
+Field metadata, validators and
 policies run before publication; see [field semantics](../cookbook/processing/field-meta.md).
 UnknownWarn uses the configured logger, whose default discards output. Production
 struct examples select UnknownError; permissive callers must supply WithLogger.

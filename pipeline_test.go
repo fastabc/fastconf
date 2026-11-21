@@ -302,7 +302,7 @@ func TestMergeKeysCachedPerMeta(t *testing.T) {
 }
 
 type optionalMetaChild struct {
-	Port int `json:"port" fc:"min=1,default=9"`
+	Port int `json:"port" default:"9" fc:"min=1"`
 }
 
 type optionalMetaConfig struct {

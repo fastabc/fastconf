@@ -19,7 +19,8 @@ callback=https://example.test/callback owner=demo literal=${NOT_EXPANDED}
 
 - `default:"…"` fills absent keys: explicit `false` and `0` survive. A missing
   `time.Duration` receives `5s`; `Explain` attributes it to `LayerDefault`.
-  The older `fc:"default=…"` fills decoded zero values instead.
+  The former `fc:"default=…"` was removed in v1.7.0; implement `Defaults()`
+  when a zero value must be replaced.
 - Default hooks accept comma lists, JSON array strings, contiguous index maps,
   and named numeric/boolean types. `[]byte` retains base64 wire semantics;
   custom unmarshalers remain in control of their input. Applications using

@@ -312,8 +312,8 @@ type Database struct {
 
 v1.6.0 的 `default:"…"` 在类型解码前只填充缺失键：`5s` 转为 `time.Duration`，
 `primary,replica` 转为列表；显式 false、0 和空字符串保留，null 视为键已存在而不注入默认值。
-`Explain` 以 `LayerDefault` 记录注入值的来源。旧 `fc:"default=…"` 仍填充解码后的 Go 零值，
-`Defaulter.Defaults` 可提供计算型默认值。字段约束先于 `WithValidate` 和 `WithPolicy`
+`Explain` 以 `LayerDefault` 记录注入值的来源。`fc:"default=…"` 已在 v1.7.0 移除，
+残留的声明会导致构造失败；请改用 `default:"…"`，计算型默认值或需替换零值时使用 `Defaulter.Defaults`。字段约束先于 `WithValidate` 和 `WithPolicy`
 执行；策略警告允许发布，错误级发现阻止发布。标签约束不遍历集合元素，
 此类检查使用自定义 validator。
 对指针字段，`required` 检查是否为 nil；`min`、`max` 和 `oneof` 检查指向的值，

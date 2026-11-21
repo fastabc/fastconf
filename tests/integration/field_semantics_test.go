@@ -54,12 +54,6 @@ func TestUnknownFields_BridgesAndFailedReload(t *testing.T) {
 	}
 }
 
-type scalarDefaults struct {
-	Enabled bool   `json:"enabled" yaml:"enabled" fc:"default=true"`
-	Retries int    `json:"retries" yaml:"retries" fc:"default=3"`
-	Label   string `json:"label" yaml:"label" fc:"default=default"`
-}
-
 type scalarValues struct {
 	Enabled bool   `json:"enabled" yaml:"enabled"`
 	Retries int    `json:"retries" yaml:"retries"`
@@ -72,7 +66,7 @@ type absentKeyDefaults struct {
 	Label   string `json:"label" yaml:"label" default:"default"`
 }
 
-func TestFieldDefaults_CompatibilityAndBaseLayers(t *testing.T) {
+func TestFieldDefaults_AbsentKeysAndBaseLayers(t *testing.T) {
 	for _, format := range []fastconf.Format{fastconf.JSON, fastconf.YAML} {
 		for _, tc := range []struct {
 			name, input string
@@ -88,13 +82,6 @@ func TestFieldDefaults_CompatibilityAndBaseLayers(t *testing.T) {
 			t.Run(string(format)+"/"+tc.name, func(t *testing.T) {
 				ctx := context.Background()
 				files := fstest.MapFS{"conf.d/base/a.yaml": {Data: []byte(tc.input)}}
-				legacy, err := fastconf.Load[scalarDefaults](ctx, fastconf.WithFS(files), fastconf.WithDecodeFormat(format))
-				if err != nil {
-					t.Fatal(err)
-				}
-				if got := *legacy.Value(); got != (scalarDefaults{true, 3, "default"}) {
-					t.Fatalf("legacy: %+v", got)
-				}
 				absent, err := fastconf.Load[absentKeyDefaults](ctx, fastconf.WithFS(files), fastconf.WithDecodeFormat(format))
 				if err != nil {
 					t.Fatal(err)
@@ -143,7 +130,7 @@ func TestFieldDefaults_CompatibilityAndBaseLayers(t *testing.T) {
 }
 
 type promotedMeta struct {
-	Port  int    `json:"port" fc:"default=8080"`
+	Port  int    `json:"port" default:"8080"`
 	Name  string `json:"name" fc:"required"`
 	Token string `json:"token" fc:"secret"`
 }

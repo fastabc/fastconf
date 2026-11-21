@@ -15,10 +15,11 @@ if err != nil { return err }
 ```
 
 Input must be a struct or a pointer to one. Field names follow JSON tags and
-embedding rules. `desc:"…"` takes precedence over `fc:"desc=…"`; `default:"…"`
-takes precedence over legacy `fc:"default=…"`. The manager rejects both default
-tag forms on one field; generators use this metadata precedence. Reflection
-cannot read source comments, so supply descriptions with `desc` tags.
+embedding rules. `desc:"…"` takes precedence over `fc:"desc=…"`; defaults come
+from `default:"…"` only. A field that still declares the removed `fc:"default=…"`
+makes `JSONSchema`, `ExampleYAML` and `ExampleEnv` return an error, as manager
+construction does. Reflection cannot read source comments, so supply
+descriptions with `desc` tags.
 
 Schemas support primitive scalars, durations (strings with a pattern), `[]byte`
 (base64), lists, string-keyed maps and nested structs. `TextUnmarshaler` becomes a
@@ -27,9 +28,8 @@ occurrences preserve their object or array types, including array element types.
 `required`, numeric `min`/`max`, `oneof` and `secret` map to required properties,
 numeric bounds, enums and writeOnly. Objects allow additional properties, matching
 the default `UnknownWarn` behavior.
-Duration patterns accept signed, fractional and zero literals. Legacy `fc`
-duration defaults remain integer nanoseconds, converted to readable durations
-in generated JSON Schema, YAML and env artifacts.
+Duration patterns accept signed, fractional and zero literals, and duration
+defaults use the same literals, such as `default:"5s"`.
 
 YAML/env comments follow field declaration order. Descriptions are followed by
 applicable `(required, secret)` annotations. YAML emits zero values when defaults

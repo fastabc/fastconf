@@ -95,6 +95,10 @@ func TestTagDefaults_InvalidDeclarations(t *testing.T) {
 			t.Fatalf("%v", err)
 		}
 	}
+	// The removed fc default is reported as such, not as a conflict.
+	if err := newTagDefaults[Conflict](); !strings.Contains(err.Error(), `fc:"default=…" was removed`) {
+		t.Fatalf("conflict error = %v; want removed fc default", err)
+	}
 }
 func newTagDefaults[T any]() error {
 	m, err := fastconf.New[T](context.Background())

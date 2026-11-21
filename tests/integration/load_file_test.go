@@ -14,7 +14,7 @@ import (
 )
 
 type loadFileConfig struct {
-	Port int    `json:"port" fc:"default=8080"`
+	Port int    `json:"port" default:"8080"`
 	Name string `json:"name"`
 }
 

@@ -158,11 +158,8 @@ func runDecode[T any](_ context.Context, m *Manager[T], pipeline *pipelineState[
 	}
 	// Hook results without a wire form (e.g. *url.URL) land after decoding.
 	m.typedHookPlan.Assign(pipeline.merged, pipeline.target)
-	// Struct-tag defaults (fc:"default=…") first, then the Defaulter
-	// interface for computed defaults; both run before validation.
-	if err := typeinfo.ApplyStructDefaults(pipeline.target); err != nil {
-		return fmt.Errorf("%w: %w", fcerr.ErrDecode, err)
-	}
+	// Absent-key default tags were injected before decoding; Defaulter supplies
+	// computed defaults and runs before validation.
 	if d, ok := any(pipeline.target).(Defaulter); ok {
 		d.Defaults()
 	}

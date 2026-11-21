@@ -2,6 +2,7 @@ package typeinfo
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -40,47 +41,62 @@ func TestCheckFieldMeta_PointerFields(t *testing.T) {
 	}
 }
 
-type withDefaults struct {
-	Host  string  `fc:"default=localhost"`
-	Port  int     `fc:"default=8080"`
-	Debug bool    `fc:"default=true"`
-	Ratio float64 `fc:"default=0.5"`
-	Set   string  // no default
-}
-
-func TestApplyStructDefaults_FillsZero(t *testing.T) {
-	v := &withDefaults{}
-	if err := ApplyStructDefaults(v); err != nil {
-		t.Fatal(err)
-	}
-	if v.Host != "localhost" || v.Port != 8080 || !v.Debug || v.Ratio != 0.5 {
-		t.Fatalf("defaults not applied: %+v", v)
-	}
-	if v.Set != "" {
-		t.Fatalf("Set should remain zero: %q", v.Set)
+func TestHasRemovedFCDefault(t *testing.T) {
+	for _, tc := range []struct {
+		tag  string
+		want bool
+	}{
+		{"", false},
+		{"min=1,max=5", false},
+		{"desc=default=x", false},
+		{"default=1", true},
+		{"required, default=a", true},
+		{"min=1,default=9,secret", true},
+	} {
+		if got := HasRemovedFCDefault(tc.tag); got != tc.want {
+			t.Errorf("HasRemovedFCDefault(%q) = %v; want %v", tc.tag, got, tc.want)
+		}
 	}
 }
 
-func TestApplyStructDefaults_PreservesUserValues(t *testing.T) {
-	v := &withDefaults{Host: "user", Port: 9999, Ratio: 0.1}
-	if err := ApplyStructDefaults(v); err != nil {
-		t.Fatal(err)
-	}
-	if v.Host != "user" || v.Port != 9999 || v.Ratio != 0.1 {
-		t.Fatalf("user values overwritten: %+v", v)
-	}
-	if !v.Debug {
-		t.Fatal("Debug zero-default should fire")
-	}
+type removedDefaultChild struct {
+	Port int `json:"port" yaml:"port" fc:"min=1,default=9"`
 }
 
-func TestApplyStructDefaults_InvalidValue(t *testing.T) {
-	type bad struct {
-		P int `fc:"default=notanumber"`
-	}
-	v := &bad{}
-	if err := ApplyStructDefaults(v); err == nil {
-		t.Fatal("expected parse error")
+type removedDefaultTop struct {
+	Port int `json:"port" yaml:"port" fc:"default=8080"`
+}
+
+type removedDefaultNested struct {
+	Child removedDefaultChild `json:"child" yaml:"child"`
+}
+
+type removedDefaultOptional struct {
+	Child *removedDefaultChild `json:"child" yaml:"child"`
+}
+
+type removedDefaultElement struct {
+	Items []removedDefaultChild `json:"items" yaml:"items"`
+}
+
+type removedDefaultWithTag struct {
+	Port int `json:"port" yaml:"port" default:"1" fc:"default=2"`
+}
+
+func TestTagDefaultsFor_RejectsRemovedFCDefault(t *testing.T) {
+	for _, typ := range []reflect.Type{
+		reflect.TypeFor[removedDefaultTop](),
+		reflect.TypeFor[removedDefaultNested](),
+		reflect.TypeFor[removedDefaultOptional](),
+		reflect.TypeFor[removedDefaultElement](),
+		reflect.TypeFor[removedDefaultWithTag](),
+	} {
+		for _, yamlBridge := range []bool{false, true} {
+			_, err := TagDefaultsFor(typ, yamlBridge)
+			if err == nil || !strings.Contains(err.Error(), ErrRemovedFCDefault) {
+				t.Errorf("%v (yaml=%v): err = %v; want removed fc default", typ, yamlBridge, err)
+			}
+		}
 	}
 }
 
@@ -139,7 +155,7 @@ func TestCheckFieldMeta_OneOfMismatch(t *testing.T) {
 }
 
 func TestParseFieldTag_AllTokens(t *testing.T) {
-	fs := parseFieldTag("required,min=1,max=10,oneof=a|b|c,default=foo,desc=help")
+	fs := parseFieldTag("required,min=1,max=10,oneof=a|b|c,desc=help")
 	if !fs.Required || fs.Min == nil || fs.Max == nil || len(fs.OneOf) != 3 {
 		t.Fatalf("parsed wrong: %+v", fs)
 	}
@@ -154,19 +170,15 @@ func TestParseFieldTag_IgnoresUnknown(t *testing.T) {
 
 func TestFieldMetaFor_IgnoresNonConstraintTags(t *testing.T) {
 	type config struct {
-		Host string `fc:"default=localhost,desc=host,secret"`
+		Host string `fc:"desc=host,secret"`
 	}
 	if specs := fieldMetaPlanFor(reflect.TypeFor[config]()); len(specs) != 0 {
 		t.Fatalf("non-constraint tags produced metadata: %+v", specs)
 	}
-	var value config
-	if err := ApplyStructDefaults(&value); err != nil || value.Host != "localhost" {
-		t.Fatalf("defaults must still apply: value=%+v, err=%v", value, err)
-	}
 }
 
 type embeddedInner struct {
-	Port int    `fc:"default=8080"`
+	Port int    `fc:"min=1"`
 	Name string `fc:"required"`
 }
 type embeddedOuter struct {
@@ -175,26 +187,15 @@ type embeddedOuter struct {
 }
 type embeddedPtrOuter struct{ *embeddedInner }
 
-func TestDefaults_UnexportedEmbedPromotedFields(t *testing.T) {
-	var c embeddedOuter
-	if err := ApplyStructDefaults(&c); err != nil {
-		t.Fatal(err)
-	}
-	if c.Port != 8080 {
-		t.Fatalf("Port=%d", c.Port)
-	}
+func TestFieldMeta_UnexportedEmbedPromotedFields(t *testing.T) {
+	c := embeddedOuter{embeddedInner: embeddedInner{Port: 1}}
 	if v := CheckFieldMeta(&c); len(v) != 1 || v[0].Path != "name" {
 		t.Fatalf("violations=%v", v)
 	}
 }
-func TestDefaults_NilEmbeddedPointerUntouched(t *testing.T) {
+
+func TestFieldMeta_NilEmbeddedPointerSkipped(t *testing.T) {
 	var c embeddedPtrOuter
-	if err := ApplyStructDefaults(&c); err != nil {
-		t.Fatal(err)
-	}
-	if c.embeddedInner != nil {
-		t.Fatal("allocated optional pointer")
-	}
 	if v := CheckFieldMeta(&c); len(v) != 0 {
 		t.Fatalf("violations=%v", v)
 	}

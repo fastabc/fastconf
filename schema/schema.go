@@ -46,20 +46,14 @@ func checkType(t reflect.Type) error {
 	return nil
 }
 
-// Legacy fc duration defaults are integer nanoseconds, while generated input
-// documents use the duration strings accepted by the default typed hooks.
+// fieldMeta reads generation metadata and rejects the removed fc default=
+// token, matching manager construction, so generated documents never omit a
+// default that the application believes it declared.
 func fieldMeta(f reflect.StructField) (typeinfo.Meta, error) {
-	meta := typeinfo.FieldMeta(f)
-	if meta.HasDefault && baseType(f.Type) == durationType {
-		if _, literal := f.Tag.Lookup(typeinfo.DefaultTagKey); !literal {
-			n, err := strconv.ParseInt(meta.Default, 10, 64)
-			if err != nil {
-				return meta, fmt.Errorf("schema: %s default: %w", f.Name, err)
-			}
-			meta.Default = time.Duration(n).String()
-		}
+	if typeinfo.HasRemovedFCDefault(f.Tag.Get(typeinfo.TagKey)) {
+		return typeinfo.Meta{}, fmt.Errorf("schema: %s: %s", f.Name, typeinfo.ErrRemovedFCDefault)
 	}
-	return meta, nil
+	return typeinfo.FieldMeta(f), nil
 }
 
 // defaultValue converts literal tag values into their schema/example wire form.

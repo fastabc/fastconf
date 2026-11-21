@@ -24,6 +24,8 @@ type TagDefault struct {
 }
 
 // TagDefaultsFor validates declarations and selects paths using the decode bridge's fields.
+// It also rejects the removed fc:"default=…" token on any decoded field,
+// including collection elements, so old declarations fail at construction.
 func TagDefaultsFor(t reflect.Type, yamlBridge bool) ([]TagDefault, error) {
 	var defs []TagDefault
 	type visitKey struct {
@@ -68,11 +70,11 @@ func TagDefaultsFor(t reflect.Type, yamlBridge bool) ([]TagDefault, error) {
 				path.jsonFields = append(append([][]JSONField(nil), parent.jsonFields...), fields)
 				path.Path = strings.Join(path.Keys, ".")
 				path.foldNames = !yamlBridge
+				if HasRemovedFCDefault(f.Tag.Get(TagKey)) {
+					return nilDefaultError(path.Path, ErrRemovedFCDefault)
+				}
 				raw, has := f.Tag.Lookup(DefaultTagKey)
 				if has {
-					if _, conflict := defaultTagValue(f.Tag.Get(TagKey)); conflict {
-						return nilDefaultError(path.Path, "conflicts with fc default")
-					}
 					if collection {
 						return nilDefaultError(path.Path, "not supported inside collection elements")
 					}

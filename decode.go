@@ -136,8 +136,9 @@ func (m *Manager[T]) warnUnknownField(err error) {
 	m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf: configuration key has no matching field; ignored (WithUnknownFields(UnknownError) rejects it)", slog.String("err", msg))
 }
 
-// Defaulter supplies computed defaults after decoding and struct-tag defaults,
-// before validation. It is called once per pipeline execution when *T implements it.
+// Defaulter supplies computed defaults after decoding, which already includes
+// absent-key default tags, and before validation. It is called once per pipeline
+// execution when *T implements it; use it to replace zero values.
 type Defaulter interface {
 	Defaults()
 }

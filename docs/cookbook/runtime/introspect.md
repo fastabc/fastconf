@@ -118,8 +118,8 @@ when YAML-only fields can change.
 Enable `WithProvenance(ProvenanceFull)` for leaf origin chains or
 `ProvenanceTopLevel` for top-level keys. `Explain` shows recorded layer writes,
 resolved-secret origins and absent-key defaults (`LayerDefault`, `default://tag`).
-It is not a complete trace of arbitrary transforms, typed hooks, legacy `fc`
-defaults or `Defaults()` methods. Secret resolution adds a secret origin rather
+It is not a complete trace of arbitrary transforms, typed hooks or `Defaults()`
+methods. Secret resolution adds a secret origin rather
 than replacing the original layer history.
 
 ## History and rollback

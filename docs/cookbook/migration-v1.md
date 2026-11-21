@@ -24,9 +24,9 @@ v1 APIs remain compatible and the root still requires Go 1.25. The new optional
 Review these behavior changes before upgrading:
 
 - `default:"…"` fills only absent input keys before typed decoding and preserves
-  explicit false, 0, empty strings and nulls. Legacy `fc:"default=…"` still replaces
-  decoded zero values. Using both forms on one field or an invalid new literal
-  fails construction. Defaults run after transforms and secrets; put defaults
+  explicit false, 0, empty strings and nulls. In v1.6.0 the earlier
+  `fc:"default=…"` still replaced decoded zero values (it was removed in v1.7.0).
+  Using both forms on one field or an invalid new literal fails construction. Defaults run after transforms and secrets; put defaults
   needed by interpolation or resolvers in a base layer instead. See
   [field metadata](processing/field-meta.md#absent-key-defaults-with-default-tags).
 - Default typed hooks now accept comma-separated/JSON scalar lists, contiguous
@@ -123,7 +123,7 @@ including file-reload backpressure, Consul retries and YAML `inline` handling.
 | `WithStrict(b)` | `WithStrictMerge(b)` |
 | `WithCodecBridge(BridgeJSON/BridgeYAML)` | `WithDecodeFormat(JSON/YAML)` |
 | `WithValidator[T](fn)` | `WithValidate[T](fn)` |
-| `WithStructDefaults[T]()` | Remove; `fc:"default=…"` tags always apply |
+| `WithStructDefaults[T]()` | Remove; use `default:"…"` tags or `Defaults()` (`fc:"default=…"` was removed in v1.7.0) |
 | `WithDefaults[T](fn)` | Implement `Defaults()` on `*T` (`Defaulter`) |
 | `WithSecretRedactor(r)` | `WithRedactor(r)` |
 | `WithSourceOverride(m)`, `WithReloadReason(s)` | `WithOverride(m)`, `WithReason(s)` |
@@ -242,7 +242,7 @@ in `/version.loaded_at` and SSE causes are RFC 3339 strings rather than numbers.
 | `WithMigrations(fn)` | Put the migration first in `WithTransform` |
 | `WithRawMapAccess(fn)` | A final read-only transform wrapping `fn` and returning nil |
 | `transform.MergeByKey(path, key)` | `WithMergeKeys(map[string]string{path: key})` before transform execution |
-| `transform.Defaults`, `SetIfAbsent` | `fc:"default=…"` or `Defaulter` |
+| `transform.Defaults`, `SetIfAbsent` | `default:"…"` tags or `Defaulter` |
 | `transform.ExpandLabels` | A label provider or `confmap.ExpandLabels` in a transform; see [labels](sources/labels.md) |
 | `WithMetrics`, `WithAuditSink`, `WithDiffReporter` | `WithObserver` with `observe.Metrics`, `observe.JSONLines`, or a `Committed` handler |
 | `DiffEvent` | `Committed`: use `Prev`, `Next`, `Cause` and `Diff()` |
@@ -287,10 +287,10 @@ later upgrade sections above and the [changelog](../../CHANGELOG.md) cover subse
 
 ## Preserve explicit zero values
 
-Legacy `fc:"default=…"` tags retain their zero-value semantics. When migrating
-a switch or limit that must accept false, 0 or an empty string, replace the legacy
-directive with an absent-key `default:"…"` tag, or supply the default through a
-lower-priority base layer. Review custom `Defaults()` methods as well. See
+`fc:"default=…"` was removed in v1.7.0. For a switch or limit that must accept
+false, 0 or an empty string, use an absent-key `default:"…"` tag, or supply the
+default through a lower-priority base layer. Review custom `Defaults()` methods
+as well, since they can replace zero values. See
 [the missing/zero/null matrix](processing/field-meta.md#missing-zero-and-null).
 Use UnknownError for new struct configurations, or supply WithLogger explicitly
 when retaining UnknownWarn during a migration.

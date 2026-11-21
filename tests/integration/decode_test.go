@@ -472,7 +472,7 @@ func TestNew_WarnsOnYAMLOnlyTags(t *testing.T) {
 
 	t.Run("fc metadata does not suppress warning", func(t *testing.T) {
 		type yamlWithFC struct {
-			DBPool int `yaml:"db_pool" fc:"default=1"`
+			DBPool int `yaml:"db_pool" fc:"desc=database pool"`
 		}
 		var buf bytes.Buffer
 		logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
