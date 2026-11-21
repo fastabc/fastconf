@@ -114,7 +114,7 @@ func Load[T any](ctx context.Context, opts ...Option) (*State[T], error) {
 // newManager resolves options and prepares shared state without loading sources
 // or starting workers. New and Load differ only in their lifecycle ownership.
 func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) {
-	o, err := resolveOptions(opts)
+	o, err := resolveOptions(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) 
 		return nil, err
 	}
 	if !o.YAMLBridge {
-		warnIfYAMLOnlyTags[T](o.Logger)
+		warnIfYAMLOnlyTags[T](ctx, o.Logger)
 	}
 	defs, err := typeinfo.TagDefaultsFor(reflect.TypeFor[T](), o.YAMLBridge)
 	if err != nil {

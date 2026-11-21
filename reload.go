@@ -106,7 +106,7 @@ func (m *Manager[T]) reload(ctx context.Context, trigger ReloadTrigger, reason, 
 	if m.hasObservers() {
 		m.emit(ReloadStarted{Reason: reason})
 	}
-	m.opts.Logger.LogAttrs(context.Background(), slog.LevelDebug, "fastconf reload start", slog.String("reason", reason))
+	m.opts.Logger.LogAttrs(ctx, slog.LevelDebug, "fastconf reload start", slog.String("reason", reason))
 
 	ctx, root := m.startSpan(ctx, "fastconf.reload")
 	root.SetAttribute("reason", reason)
@@ -116,7 +116,7 @@ func (m *Manager[T]) reload(ctx context.Context, trigger ReloadTrigger, reason, 
 	var assembly assemblyResult
 	var onDir func(string)
 	if m.fileWatcher != nil {
-		onDir = m.watchSourceDir
+		onDir = func(dir string) { m.watchSourceDir(ctx, dir) }
 	}
 	_, err := m.runTimedStage(ctx, "fastconf.assemble", func(ctx context.Context, sp Span) (err error) {
 		assembly, err = m.assembleSources(ctx, "", onDir, m.publishedFingerprint, extra...)
@@ -128,7 +128,7 @@ func (m *Manager[T]) reload(ctx context.Context, trigger ReloadTrigger, reason, 
 	if err != nil {
 		root.RecordError(err)
 		m.emitReload(reason, time.Since(start), err)
-		m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf reload assemble_failed", slog.String("reason", reason), slog.Any("err", err))
+		m.opts.Logger.LogAttrs(ctx, slog.LevelWarn, "fastconf reload assemble_failed", slog.String("reason", reason), slog.Any("err", err))
 		return err
 	}
 	_, err = m.runTimedStage(ctx, "fastconf.commit", func(ctx context.Context, _ Span) error {
@@ -136,7 +136,7 @@ func (m *Manager[T]) reload(ctx context.Context, trigger ReloadTrigger, reason, 
 	})
 	if err != nil {
 		root.RecordError(err)
-		m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf reload commit_failed", slog.String("reason", reason), slog.Any("err", err))
+		m.opts.Logger.LogAttrs(ctx, slog.LevelWarn, "fastconf reload commit_failed", slog.String("reason", reason), slog.Any("err", err))
 	}
 	m.emitReload(reason, time.Since(start), err)
 	return err

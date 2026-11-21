@@ -2,6 +2,7 @@ package fastconf
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"path/filepath"
 	"sync"
@@ -21,7 +22,7 @@ type dirReloadSlot struct {
 // so file creation and Kubernetes symlink swaps cannot slip between scan and watch.
 func (m *Manager[T]) startFileWatcher(ctx context.Context) error {
 	if m.opts.FS != nil {
-		m.opts.Logger.LogAttrs(context.Background(), slog.LevelDebug, "watch: skipped (virtual fs in use)")
+		m.opts.Logger.LogAttrs(ctx, slog.LevelDebug, "watch: skipped (virtual fs in use)")
 		return nil
 	}
 	paths := staticWatchPaths(&m.opts)
@@ -35,7 +36,7 @@ func (m *Manager[T]) startFileWatcher(ctx context.Context) error {
 		default:
 		}
 		if m.eventsPaused.Load() {
-			m.opts.Logger.LogAttrs(context.Background(), slog.LevelDebug, "watch: event ignored (paused)", slog.String("key", key), slog.String("reason", reason))
+			m.opts.Logger.LogAttrs(ctx, slog.LevelDebug, "watch: event ignored (paused)", slog.String("key", key), slog.String("reason", reason))
 			return
 		}
 		entry, _ := m.dirReloadSlots.LoadOrStore(key, &dirReloadSlot{})
@@ -52,8 +53,10 @@ func (m *Manager[T]) startFileWatcher(ctx context.Context) error {
 			reason = slot.reason
 			slot.pending = false
 			slot.mu.Unlock()
-			if err := m.requestReload(context.Background(), TriggerFile, reason, key); err != nil {
-				m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "watch: reload failed", slog.String("key", key), slog.String("reason", reason), slog.Any("err", err))
+			// reload already logs pipeline failures at Warn and reports them on
+			// Errors; ErrClosed only means the manager is shutting down.
+			if err := m.requestReload(context.Background(), TriggerFile, reason, key); err != nil && !errors.Is(err, ErrClosed) {
+				m.opts.Logger.LogAttrs(ctx, slog.LevelDebug, "watch: reload failed", slog.String("key", key), slog.String("reason", reason), slog.Any("err", err))
 			}
 			slot.mu.Lock()
 			if !slot.pending {
@@ -75,13 +78,13 @@ func (m *Manager[T]) startFileWatcher(ctx context.Context) error {
 		defer func() { _ = w.Close() }()
 		w.Run(ctx)
 	}()
-	m.opts.Logger.LogAttrs(context.Background(), slog.LevelInfo, "watch: started", slog.Any("paths", paths))
+	m.opts.Logger.LogAttrs(ctx, slog.LevelInfo, "watch: started", slog.Any("paths", paths))
 	return nil
 }
 
 // watchSourceDir runs before discovery reads a directory or its metadata.
 // The watcher deduplicates paths and tracks directory replacement.
-func (m *Manager[T]) watchSourceDir(dir string) {
+func (m *Manager[T]) watchSourceDir(ctx context.Context, dir string) {
 	if m.fileWatcher == nil {
 		return
 	}
@@ -94,7 +97,7 @@ func (m *Manager[T]) watchSourceDir(dir string) {
 		return
 	}
 	if err := m.fileWatcher.AddPath(dir); err != nil {
-		m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "watch: add source dir failed", slog.String("path", dir), slog.Any("err", err))
+		m.opts.Logger.LogAttrs(ctx, slog.LevelWarn, "watch: add source dir failed", slog.String("path", dir), slog.Any("err", err))
 	}
 }
 

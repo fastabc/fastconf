@@ -23,9 +23,9 @@ func (f Func) Observe(ctx context.Context, e fastconf.Event) { f(ctx, e) }
 
 // Multi delivers every event to each observer in order; nil entries are
 // skipped.
-func Multi(os ...fastconf.Observer) fastconf.Observer {
+func Multi(observers ...fastconf.Observer) fastconf.Observer {
 	return Func(func(ctx context.Context, e fastconf.Event) {
-		for _, o := range os {
+		for _, o := range observers {
 			if o != nil {
 				o.Observe(ctx, e)
 			}

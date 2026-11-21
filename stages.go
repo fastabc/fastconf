@@ -139,7 +139,7 @@ func runTypedHooks[T any](_ context.Context, m *Manager[T], pipeline *pipelineSt
 
 // --- decode ---
 
-func runDecode[T any](_ context.Context, m *Manager[T], pipeline *pipelineState[T]) error {
+func runDecode[T any](ctx context.Context, m *Manager[T], pipeline *pipelineState[T]) error {
 	pipeline.target = new(T)
 	mode := m.opts.UnknownFields
 	input, err := encodeBridgeInput(pipeline.merged, m.opts.YAMLBridge)
@@ -149,7 +149,7 @@ func runDecode[T any](_ context.Context, m *Manager[T], pipeline *pipelineState[
 	defer input.release()
 	err = input.decode(pipeline.target, mode != UnknownIgnore)
 	if mode == UnknownWarn && isUnknownField(err) {
-		m.warnUnknownField(err)
+		m.warnUnknownField(ctx, err)
 		pipeline.target = new(T)
 		err = input.decode(pipeline.target, false)
 	}
@@ -217,7 +217,7 @@ func runPolicy[T any](ctx context.Context, m *Manager[T], pipeline *pipelineStat
 		return nil
 	}
 	for _, w := range warns {
-		m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf policy warning", slog.String("rule", w.Rule), slog.String("path", w.Path), slog.String("msg", w.Message))
+		m.opts.Logger.LogAttrs(ctx, slog.LevelWarn, "fastconf policy warning", slog.String("rule", w.Rule), slog.String("path", w.Path), slog.String("msg", w.Message))
 	}
 	if polErr != nil {
 		return polErr

@@ -100,7 +100,7 @@ func isUnknownField(err error) bool {
 
 // warnIfYAMLOnlyTags checks top-level exported fields once per construction,
 // warning when the default JSON bridge would ignore YAML-only tags.
-func warnIfYAMLOnlyTags[T any](logger *slog.Logger) {
+func warnIfYAMLOnlyTags[T any](ctx context.Context, logger *slog.Logger) {
 	if logger == nil {
 		return
 	}
@@ -122,18 +122,18 @@ func warnIfYAMLOnlyTags[T any](logger *slog.Logger) {
 	if hasJSON || !hasYAML {
 		return
 	}
-	logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf: T has yaml tags but no json tags; the default JSON decoder ignores yaml tags. "+
+	logger.LogAttrs(ctx, slog.LevelWarn, "fastconf: T has yaml tags but no json tags; the default JSON decoder ignores yaml tags. "+
 		"Add WithDecodeFormat(YAML) or json struct tags.", slog.String("type", t.String()))
 }
 
 // warnUnknownField logs err unless it repeats the previously logged one.
-func (m *Manager[T]) warnUnknownField(err error) {
+func (m *Manager[T]) warnUnknownField(ctx context.Context, err error) {
 	msg := err.Error()
 	if prev, _ := m.lastUnknownField.Load().(string); prev == msg {
 		return
 	}
 	m.lastUnknownField.Store(msg)
-	m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf: configuration key has no matching field; ignored (WithUnknownFields(UnknownError) rejects it)", slog.String("err", msg))
+	m.opts.Logger.LogAttrs(ctx, slog.LevelWarn, "fastconf: configuration key has no matching field; ignored (WithUnknownFields(UnknownError) rejects it)", slog.String("err", msg))
 }
 
 // Defaulter supplies computed defaults after decoding, which already includes

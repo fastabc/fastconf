@@ -97,7 +97,7 @@ type subscriber[T any] func(prev, next *State[T])
 // Each callback runs synchronously inside the reload goroutine, with a
 // recover() guard so a misbehaving subscriber never poisons the writer
 // or affects other subscribers.
-func (m *Manager[T]) notifySubscribers(prev, next *State[T]) {
+func (m *Manager[T]) notifySubscribers(ctx context.Context, prev, next *State[T]) {
 	if next == nil {
 		return
 	}
@@ -117,18 +117,18 @@ func (m *Manager[T]) notifySubscribers(prev, next *State[T]) {
 	m.subscriberMu.RUnlock()
 	slices.SortFunc(subs, func(a, b keyed) int { return cmp.Compare(a.id, b.id) })
 	for _, s := range subs {
-		callSubscriberRecovering(m, s.fn, prev, next)
+		callSubscriberRecovering(ctx, m, s.fn, prev, next)
 	}
 }
 
-func callSubscriberRecovering[T any](m *Manager[T], fn func(prev, next *State[T]), prev, next *State[T]) {
+func callSubscriberRecovering[T any](ctx context.Context, m *Manager[T], fn func(prev, next *State[T]), prev, next *State[T]) {
 	defer func() {
 		r := recover()
 		if r == nil {
 			return
 		}
 		stack := debug.Stack()
-		m.opts.Logger.LogAttrs(context.Background(), slog.LevelError, "subscribe callback panic", slog.Any("panic", r), slog.String("stack", string(stack)))
+		m.opts.Logger.LogAttrs(ctx, slog.LevelError, "subscribe callback panic", slog.Any("panic", r), slog.String("stack", string(stack)))
 		// Publication already succeeded; report the panic without rolling it back.
 		// Report under the commit's trigger so failures stay attributable.
 		m.publishReloadError(next.cause.Trigger, "subscriber-panic", fmt.Errorf("subscriber panic: %v", r))

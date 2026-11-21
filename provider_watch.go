@@ -152,10 +152,10 @@ func (m *Manager[T]) consumeProviderEvents(ctx context.Context, p contracts.Prov
 				// for; changes in between may have been missed. The reload
 				// below catches up, the metric records the gap.
 				m.emit(ProviderError{Provider: p.Name(), Err: errResumeGap})
-				m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf provider resumed with a gap", slog.String("provider", p.Name()), slog.String("revision", ev.Revision))
+				m.opts.Logger.LogAttrs(ctx, slog.LevelWarn, "fastconf provider resumed with a gap", slog.String("provider", p.Name()), slog.String("revision", ev.Revision))
 			}
 			if m.eventsPaused.Load() {
-				m.opts.Logger.LogAttrs(context.Background(), slog.LevelDebug, "fastconf provider event ignored (watch paused)", slog.String("provider", p.Name()), slog.String("reason", ev.Reason))
+				m.opts.Logger.LogAttrs(ctx, slog.LevelDebug, "fastconf provider event ignored (watch paused)", slog.String("provider", p.Name()), slog.String("reason", ev.Reason))
 				continue
 			}
 			reason := "provider:" + p.Name()
@@ -180,7 +180,7 @@ func (m *Manager[T]) consumeProviderEvents(ctx context.Context, p contracts.Prov
 				default:
 				}
 				m.emit(EventDropped{Source: p.Name()})
-				m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf provider event dropped (queue full)", slog.String("provider", p.Name()), slog.String("reason", ev.Reason))
+				m.opts.Logger.LogAttrs(ctx, slog.LevelWarn, "fastconf provider event dropped (queue full)", slog.String("provider", p.Name()), slog.String("reason", ev.Reason))
 			}
 		}
 	}

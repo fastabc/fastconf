@@ -101,7 +101,7 @@ func defaultOptions() options {
 	}
 }
 
-func resolveOptions(opts []Option) (options, error) {
+func resolveOptions(ctx context.Context, opts []Option) (options, error) {
 	o := defaultOptions()
 	for _, fn := range opts {
 		if fn == nil {
@@ -117,7 +117,7 @@ func resolveOptions(opts []Option) (options, error) {
 		// logger) before allocating any state. Each error is emitted individually so operators
 		// don't have to read the join chain to spot subsequent failures.
 		for _, e := range o.OptionErrs {
-			o.Logger.LogAttrs(context.Background(), slog.LevelError, "fastconf: deferred option error", slog.Any("err", e))
+			o.Logger.LogAttrs(ctx, slog.LevelError, "fastconf: deferred option error", slog.Any("err", e))
 		}
 		return o, errors.Join(o.OptionErrs...)
 	}

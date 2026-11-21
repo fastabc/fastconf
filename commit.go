@@ -17,7 +17,7 @@ func (m *Manager[T]) commit(ctx context.Context, assembly assemblyResult, trigge
 		return err
 	}
 	if assembly.fingerprint != ([32]byte{}) && assembly.fingerprint == m.publishedFingerprint {
-		m.opts.Logger.LogAttrs(context.Background(), slog.LevelDebug, "fastconf reload skipped: identical inputs", slog.String("reason", reason))
+		m.opts.Logger.LogAttrs(ctx, slog.LevelDebug, "fastconf reload skipped: identical inputs", slog.String("reason", reason))
 		return nil
 	}
 	pipeline, hash, err := m.runPipeline(ctx, assembly, reason, false)
@@ -37,14 +37,14 @@ func (m *Manager[T]) commit(ctx context.Context, assembly assemblyResult, trigge
 	valueChanged := prev == nil || prev.Hash() != hash
 	if !valueChanged && slices.EqualFunc(prev.resolvedSecrets, pipeline.resolvedSecrets, slices.Equal[[]string]) {
 		m.publishedFingerprint = assembly.fingerprint
-		m.opts.Logger.LogAttrs(context.Background(), slog.LevelDebug, "fastconf reload skipped: identical hash", slog.String("reason", reason))
+		m.opts.Logger.LogAttrs(ctx, slog.LevelDebug, "fastconf reload skipped: identical hash", slog.String("reason", reason))
 		return nil
 	}
 	m.publishedFingerprint = assembly.fingerprint
 	next := m.newCommittedState(pipeline, hash, trigger, reason, key)
-	m.publishSnapshot(prev, next, reason)
+	m.publishSnapshot(ctx, prev, next, reason)
 	if valueChanged {
-		m.notifySubscribers(prev, next)
+		m.notifySubscribers(ctx, prev, next)
 	}
 	return nil
 }
@@ -64,7 +64,7 @@ func (m *Manager[T]) newCommittedState(pipeline *pipelineState[T], hash [32]byte
 	return m.newState(pipeline, hash, gen, cause)
 }
 
-func (m *Manager[T]) publishSnapshot(prev, next *State[T], reason string) {
+func (m *Manager[T]) publishSnapshot(ctx context.Context, prev, next *State[T], reason string) {
 	m.state.Store(next)
 	if m.history != nil {
 		m.historyMu.Lock()
@@ -73,7 +73,7 @@ func (m *Manager[T]) publishSnapshot(prev, next *State[T], reason string) {
 		}
 		m.historyMu.Unlock()
 	}
-	m.opts.Logger.LogAttrs(context.Background(), slog.LevelInfo, "fastconf reload swap", slog.String("reason", reason), slog.Uint64("generation", next.Generation()), slog.Int("layers", next.sourceCount()))
+	m.opts.Logger.LogAttrs(ctx, slog.LevelInfo, "fastconf reload swap", slog.String("reason", reason), slog.Uint64("generation", next.Generation()), slog.Int("layers", next.sourceCount()))
 	if m.hasObservers() {
 		var prevGen uint64
 		if prev != nil {

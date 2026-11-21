@@ -111,7 +111,7 @@ func (m *Manager[T]) assembleInputs(ctx context.Context, hostnameOverride string
 	var staged []stagedLayer
 	strict := m.opts.Strict
 	if !m.opts.SkipDiscovery {
-		scanOpt, discovered, err := m.resolveDiscovery(hostnameOverride)
+		scanOpt, discovered, err := m.resolveDiscovery(ctx, hostnameOverride)
 		if err != nil {
 			return assemblyResult{}, discoveryError(err)
 		}
@@ -162,7 +162,7 @@ func (m *Manager[T]) assembleInputs(ctx context.Context, hostnameOverride string
 	return result, nil
 }
 
-func (m *Manager[T]) resolveDiscovery(hostnameOverride string) (scan.Options, rootMetaSettings, error) {
+func (m *Manager[T]) resolveDiscovery(ctx context.Context, hostnameOverride string) (scan.Options, rootMetaSettings, error) {
 	scanOpt := scan.Options{
 		Strict: m.opts.Strict,
 		FS:     m.opts.FS,
@@ -208,7 +208,7 @@ func (m *Manager[T]) resolveDiscovery(hostnameOverride string) (scan.Options, ro
 	}
 	extras, axisErrs := scan.ResolveAxes(m.opts.Axes, hostFn)
 	for _, e := range axisErrs {
-		m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf: hostname resolution failed; axis skipped", slog.String("axis", e.Axis), slog.Any("err", e.Err))
+		m.opts.Logger.LogAttrs(ctx, slog.LevelWarn, "fastconf: hostname resolution failed; axis skipped", slog.String("axis", e.Axis), slog.Any("err", e.Err))
 	}
 	scanOpt.AxisOverlays = append(scanOpt.AxisOverlays, extras...)
 	return scanOpt, metaOut, nil
@@ -339,7 +339,7 @@ func (m *Manager[T]) assembleProviderLayers(ctx context.Context) ([]stagedLayer,
 		// resolved secret plaintext) would reach provider-owned state.
 		snap.Map = confmap.DeepClone(snap.Map)
 		if snap.Stale {
-			m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf provider snapshot stale", slog.String("provider", p.Name()), slog.String("revision", snap.Revision))
+			m.opts.Logger.LogAttrs(ctx, slog.LevelWarn, "fastconf provider snapshot stale", slog.String("provider", p.Name()), slog.String("revision", snap.Revision))
 		}
 		staged = append(staged, stagedLayer{
 			src: SourceRef{

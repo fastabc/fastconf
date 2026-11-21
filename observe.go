@@ -79,9 +79,9 @@ func (Committed) event()      {}
 
 // WithObserver registers observers; events reach them in registration
 // order. nil entries fail construction.
-func WithObserver(os ...Observer) Option {
+func WithObserver(observers ...Observer) Option {
 	return func(o *options) {
-		for i, ob := range os {
+		for i, ob := range observers {
 			if ob == nil {
 				o.OptionErrs = append(o.OptionErrs,
 					fmt.Errorf("%w: WithObserver: nil observer at #%d", fcerr.ErrFastConf, i))

@@ -74,13 +74,13 @@ func (r *History[T]) RollbackContext(ctx context.Context, target *State[T]) erro
 		reason:  "rollback",
 		// runReloadRequest skips requests whose context ended while queued.
 		// applyRollback does no I/O before publishing, so it needs no further check.
-		run: func(context.Context) error {
-			return m.applyRollback(target)
+		run: func(runCtx context.Context) error {
+			return m.applyRollback(runCtx, target)
 		},
 	})
 }
 
-func (m *Manager[T]) applyRollback(target *State[T]) error {
+func (m *Manager[T]) applyRollback(ctx context.Context, target *State[T]) error {
 	// Check membership on the writer, not before enqueueing: a preceding commit
 	// may have evicted the target while this request waited in the queue.
 	m.historyMu.Lock()
@@ -99,10 +99,10 @@ func (m *Manager[T]) applyRollback(target *State[T]) error {
 	next := restampState(target, m.gen.Add(1), cause)
 	// The live state no longer reflects the last reload's inputs.
 	m.publishedFingerprint = [32]byte{}
-	m.publishSnapshot(prev, next, "rollback")
-	m.notifySubscribers(prev, next)
+	m.publishSnapshot(ctx, prev, next, "rollback")
+	m.notifySubscribers(ctx, prev, next)
 	if prev != nil {
-		m.opts.Logger.LogAttrs(context.Background(), slog.LevelInfo, "fastconf rollback", slog.Uint64("from", prev.Generation()), slog.Uint64("to", next.Generation()))
+		m.opts.Logger.LogAttrs(ctx, slog.LevelInfo, "fastconf rollback", slog.Uint64("from", prev.Generation()), slog.Uint64("to", next.Generation()))
 	}
 	return nil
 }
