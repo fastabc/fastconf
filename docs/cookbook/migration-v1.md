@@ -15,6 +15,30 @@ The root now requires Go 1.25 (Go 1.24 through v1.4.0; Go 1.22 in v0.20.0).
 Optional modules can require a newer toolchain; check their `go.mod` files.
 Import paths remain under `github.com/fastabc/fastconf`.
 
+## Upgrading from v1.6.0 to v1.7.0
+
+v1.7.0 removes one tag directive and reclassifies two diagnostics. Review these
+changes before upgrading:
+
+- **`fc:"default=…"` is removed.** A field that still declares it, including one
+  inside a collection element, fails `New`, `Load` and `LoadFile` with an error
+  naming the field; `schema.JSONSchema`, `ExampleYAML` and `ExampleEnv` fail the
+  same way. Replace it with `default:"…"` when explicit false, 0 or empty strings
+  must survive, or with a `Defaults()` method when zero values must be replaced.
+  Keep the other `fc` directives. See the
+  [migration table](processing/field-meta.md#migrating-from-fc-defaults).
+- **`LoadFile` syntax errors wrap `ErrDecode`**, as in directory discovery, and no
+  longer wrap `ErrProvider`. Missing and unreadable files still wrap `ErrProvider`.
+- **The assembly failure log message is renamed** from
+  `fastconf reload shadow_failed` to `fastconf reload assemble_failed`. Update log
+  queries and alerts that match the old text.
+- `Errors()` no longer reports requests whose context ended before the writer
+  started them; their callers still receive the context error.
+- A provider Watch channel that closes before cancellation now emits
+  `ProviderError` and resubscribes with backoff that resets after 30 seconds of uptime.
+- `ReloadError` gains a `Trigger` field, so unkeyed `ReloadError{…}` literals no
+  longer compile. New APIs: `History.RollbackContext` and `ReloadCause.Trigger`.
+
 ## Upgrading from v1.5.0 to v1.6.0
 
 Update the root and optional modules together using the commands above. Public

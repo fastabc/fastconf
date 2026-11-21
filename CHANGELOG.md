@@ -7,12 +7,49 @@ historical releases.
 
 ## [Unreleased]
 
+### Removed
+
+- `fc:"default=…"` zero-value defaults. A field that still declares the directive,
+  including one inside a collection element, now fails `New`, `Load`, `LoadFile` and
+  the `schema` generators with an error naming the field. Use `default:"…"` for
+  absent keys or a `Defaults()` method for computed and zero-value defaults; see
+  the migration guide.
+
+### Added
+
+- `History.RollbackContext(ctx, target)` bounds the wait for a writer that is
+  busy with an earlier reload, such as a slow provider Load. A context that ends
+  while the request is queued skips the rollback and returns the context error.
+  `Rollback(target)` keeps its behavior and calls it with `context.Background()`.
+- `ReloadCause.Trigger` and `ReloadError.Trigger` classify every commit and `Errors()`
+  entry into a bounded `ReloadTrigger` (`initial`, `manual`, `file`, `provider`,
+  `notify`, `resync`, `rollback`, `plan`), so metrics and audit tooling no longer
+  parse free-form reasons. `observe.JSONLines` writes it as `trigger`, and fastconfd
+  adds it to `/version` and SSE causes.
+
 ### Fixed
 
 - Plan reports a diagnostic JSON encoding error when it cannot compare snapshots.
 - The HTTP provider refreshes automatically decoded documents after codec registration or extension remapping.
 - Expired file event bursts allow the watcher to keep reading while a reload runs.
 - Graceful shutdown of fastconfd closes idle SSE streams.
+- A provider Watch channel that closes before cancellation now emits `ProviderError`
+  and resubscribes with exponential backoff. The backoff resets only after 30 seconds
+  of uptime, so a provider whose stream closes immediately no longer reconnects
+  several times per second without reporting an error.
+- A Plan that selects different files, such as one using `WithPlanHostname`, no longer
+  evicts the live reload's decoded layers from the file cache.
+
+### Changed
+
+- `Errors()` no longer reports requests whose context ended, or whose manager
+  closed, before the writer started them. Their callers still receive the context
+  error, and a batch of timed-out calls can no longer evict real failures from the
+  bounded channel. Cancellation of running work is still reported.
+- `LoadFile` syntax errors wrap `ErrDecode`, as in directory discovery, instead of
+  `ErrProvider`. Missing and unreadable files still wrap `ErrProvider`.
+- The assembly failure log message is renamed from `fastconf reload shadow_failed`
+  to `fastconf reload assemble_failed`, matching `commit_failed`.
 
 ## [v1.6.0] - 2026-11-15
 
