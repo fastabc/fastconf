@@ -13,7 +13,9 @@ import (
 )
 
 // Format names a configuration encoding. State.Dump accepts all three;
-// WithDecodeFormat accepts JSON and YAML.
+// WithDecodeFormat accepts JSON and YAML. The zero value is YAML, while the
+// decode bridge defaults to JSON when WithDecodeFormat is absent, so pass a
+// Format explicitly rather than relying on a zero value.
 type Format uint8
 
 const (

@@ -65,7 +65,8 @@ func New(reg prometheus.Registerer) *Sink {
 	return s
 }
 
-// ReloadStarted is a no-op kept for v0 fastconf.MetricsSink compatibility.
+// ReloadStarted is a no-op kept for callers of earlier Sink versions.
+// observe.MetricsSink does not include it, and observe.Metrics never calls it.
 func (s *Sink) ReloadStarted() {}
 
 // ReloadFinished is called by observe.Metrics.

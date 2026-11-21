@@ -96,7 +96,7 @@ type ring[E any] struct {
 	size  int
 }
 
-// newRing returns a fresh Ring with the given capacity. cap <= 0 yields
+// newRing returns a fresh ring with the given capacity. cap <= 0 yields
 // nil so callers can treat history as a nil-safe opt-in.
 func newRing[E any](cap int) *ring[E] {
 	if cap <= 0 {
@@ -133,9 +133,9 @@ func (r *ring[E]) Snapshot() []*E {
 	return out
 }
 
-// Find returns the first item satisfying pred (oldest first). Used by
-// rollback to locate a target State by Generation without allocating a
-// snapshot slice. Returns nil when no item matches or pred is nil.
+// Find returns the first item satisfying pred (oldest first). Rollback uses
+// it to check the target's membership by pointer identity without allocating
+// a snapshot slice. Returns nil when no item matches or pred is nil.
 func (r *ring[E]) Find(pred func(*E) bool) *E {
 	if r == nil || pred == nil {
 		return nil

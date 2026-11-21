@@ -24,7 +24,11 @@ file (up to 4 MiB), skips directory/profile discovery, rejects unknown fields
 and returns a caller-owned `*T`. It uses the extension's input codec and the JSON
 struct bridge, with the same typed hooks, defaults and field metadata checks.
 It starts no workers and needs no Close. Use `Load` for configurable options and
-diagnostics, or `New` for live snapshots.
+diagnostics, or `New` for live snapshots. Because the file is loaded as a
+provider, missing, unreadable and syntactically invalid files wrap `ErrProvider`
+(oversized files also `ErrTooLarge`); unknown extensions, values that do not
+decode into `T` and unknown keys wrap `ErrDecode`. This differs from directory
+discovery, where file read and parse failures wrap `ErrDecode`.
 
 All later reloads, plans and rollbacks run on one writer goroutine. A caller's
 context controls its queued and in-flight work; manager shutdown also cancels

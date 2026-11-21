@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// Defaults for Options. Exported so callers (config.go) can reference
-// the canonical values without duplicating the numbers.
+// Defaults for Options. Exported so the root package (options.go) can
+// re-export the canonical values without duplicating the numbers.
 const (
 	DefaultQuiet    = 30 * time.Millisecond
 	DefaultMaxLag   = 250 * time.Millisecond

@@ -297,10 +297,11 @@ func (m *Manager[T]) assembleProviderLayers(ctx context.Context) ([]stagedLayer,
 		p := e.Provider
 		snap, err := p.Load(ctx)
 		if err != nil {
-			// Preserve ctx cancellation as-is so callers can
-			// errors.Is(err, context.Canceled / DeadlineExceeded)
-			// after a Reload(ctx) timeout instead of wading through
-			// fcerr.ErrProvider wrapping.
+			// Return cancellation unwrapped so a Reload(ctx) timeout is not
+			// classified as a provider failure: errors.Is(err, ErrProvider)
+			// stays false, while errors.Is(err, context.Canceled /
+			// DeadlineExceeded) works either way. Generators do not have
+			// this special case.
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
 			}

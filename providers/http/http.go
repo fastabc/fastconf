@@ -71,9 +71,9 @@ func WithHeader(k, v string) Option {
 	}
 }
 
-// New constructs an HTTP-backed Provider. name is surfaced in Snapshot().Sources and metrics
-// labels; codec decodes the response body. A nil codec selects the registered codec by response
-// Content-Type. Empty names and URLs return an error.
+// New constructs an HTTP-backed Provider. name is surfaced as the "provider://<name>" source path,
+// in reload reasons and in metrics labels; codec decodes the response body. A nil codec selects the
+// registered codec by response Content-Type. Empty names and URLs return an error.
 func New(name, url string, codec contracts.Decoder, opts ...Option) (*Provider, error) {
 	if name == "" {
 		return nil, errors.New("fastconf/http: provider name is required")
@@ -115,6 +115,8 @@ func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// Snapshots share nested values with the accepted document. A top-level
+	// copy is enough: the manager deep-clones provider maps before merging.
 	if notModified {
 		if !p.loaded || generation != p.codecGeneration {
 			return contracts.Snapshot{}, fmt.Errorf("fastconf/http: 304 without an accepted document")

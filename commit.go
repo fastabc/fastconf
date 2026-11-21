@@ -92,9 +92,13 @@ func (m *Manager[T]) publishSnapshot(prev, next *State[T], reason string) {
 // downstream tooling can trace an in-process change back to the event
 // (file change, provider push, Reload) that drove it.
 type ReloadCause struct {
-	// Reason mirrors the reloadRequest reason ("initial",
-	// "provider:vault://...", "manual", "watcher", ...). Stable string
-	// safe for log labels and metric dimensions.
+	// Reason mirrors the request reason: "initial", "load", "plan", "manual",
+	// "override", a WithReason value, "rollback", "resync", "provider:resync",
+	// "provider:<name>[:<event reason>]", "notify:<name>" or "notify[<i>]",
+	// and for file events a comma-joined "fs:<op>:<path>" / "fs-error:<msg>"
+	// list. File and provider reasons embed paths or provider-supplied text,
+	// so they are unbounded: classify by prefix before using Reason as a
+	// metric dimension.
 	Reason string
 	// At is the snapshot commit time, or the preview time for Plan.
 	At time.Time
@@ -107,7 +111,8 @@ type ReloadCause struct {
 	// Key, when non-empty, identifies the watched parent directory whose
 	// fsnotify event burst triggered this reload. Populated only for
 	// file-system driven reloads (the coalescer keys bursts by parent
-	// dir); empty for manual, provider-driven, and initial reloads.
+	// dir); empty for watcher errors ("fs-error:..."), manual,
+	// provider-driven, initial and rollback commits.
 	Key string
 }
 

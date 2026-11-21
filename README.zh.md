@@ -191,7 +191,7 @@ _ = cfg
 
 ```text
 assemble -> merge -> transform -> secret -> defaults -> typed-hooks -> decode
-         -> field-meta -> validate -> policy -> hash -> publish
+         -> field-meta -> validate -> policy -> commit (hash + publish)
 ```
 
 候选配置被拒绝时，当前快照和 generation 不变。类型值的哈希与解析得到的敏感路径均相同则跳过发布。

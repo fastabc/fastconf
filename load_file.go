@@ -16,6 +16,12 @@ import (
 // fc defaults, Defaulter and field validation run normally. It skips discovery, profiles and environment
 // overrides, starts no workers and returns a caller-owned *T. Use Load for options
 // or diagnostics and New for runtime updates.
+//
+// The file is loaded as a provider, so errors classify as follows: a missing or
+// unreadable file and a syntax error wrap ErrProvider; an oversized file wraps
+// ErrProvider and ErrTooLarge; an unknown extension, a value that does not decode
+// into T or an unknown key wraps ErrDecode; field and Defaulter checks follow the
+// normal pipeline (ErrInvalid).
 func LoadFile[T any](path string) (*T, error) {
 	file, err := os.Open(path)
 	if err != nil {

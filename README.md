@@ -205,7 +205,7 @@ _ = cfg
 
 ```text
 assemble -> merge -> transform -> secret -> defaults -> typed-hooks -> decode
-         -> field-meta -> validate -> policy -> hash -> publish
+         -> field-meta -> validate -> policy -> commit (hash + publish)
 ```
 
 A rejected candidate preserves the live snapshot and generation. Equal typed

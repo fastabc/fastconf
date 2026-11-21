@@ -42,7 +42,7 @@ defer mgr.Close()
 Example output:
 
 ```json
-{"time":"2026-05-15T12:34:56Z","level":"INFO","msg":"fastconf reload swap","reason":"watcher","generation":7,"layers":5}
+{"time":"2026-05-15T12:34:56Z","level":"INFO","msg":"fastconf reload swap","reason":"fs:WRITE:/etc/app/conf.d/base/00-app.yaml","generation":7,"layers":5}
 ```
 
 To use zerolog's default message field name, `message`, instead of `msg`:

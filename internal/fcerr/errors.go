@@ -26,9 +26,12 @@ func New(msg string) error { return newFCErr(msg) }
 var (
 	// ErrNoSources: no file, provider or generator produced a layer.
 	ErrNoSources = newFCErr("fastconf: no configuration sources discovered")
-	// ErrDecode: a file under WithDir could not be read, accepted or parsed,
-	// a provider payload failed to parse, or an unknown
-	// key was rejected by WithUnknownFields(UnknownError).
+	// ErrDecode: a file under WithDir or its metadata could not be read,
+	// accepted or parsed, a generator layer failed to parse, a WithOverride
+	// map could not be encoded, the merged tree could not be decoded into T,
+	// or an unknown key was rejected by WithUnknownFields(UnknownError).
+	// Provider Load failures, including payloads a provider cannot parse,
+	// wrap ErrProvider instead.
 	ErrDecode = newFCErr("fastconf: decode failed")
 	// ErrMerge: a strict merge type conflict or a failing RFC 6902 patch layer.
 	ErrMerge = newFCErr("fastconf: merge failed")

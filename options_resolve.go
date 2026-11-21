@@ -59,8 +59,9 @@ type options struct {
 	Policies        []anyPolicy
 	OptionErrs      []error
 	SecretResolvers []secret.Resolver
-	// Retained for the v1 API surface reached through Option. Resolution uses
-	// SecretResolvers exclusively; remove this compatibility field only in v2.
+	// Unused: resolution reads SecretResolvers only. gorelease reaches exported
+	// fields of options through Option (see RELEASING.md), so removing this one
+	// fails api-check for v1 releases; remove it only in v2.
 	SecretResolver secret.Resolver
 
 	Generators []contracts.Generator

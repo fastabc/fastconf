@@ -139,7 +139,7 @@ func (m *Manager[T]) consumeProviderEvents(ctx context.Context, p contracts.Prov
 			select {
 			case m.reloadCh <- req:
 				// Fire-and-forget: doneCh is nil for provider-triggered reloads.
-				// reloadLoop checks doneCh != nil before sending.
+				// runReloadRequest checks doneCh != nil before sending.
 			default:
 				// Coalesce dropped triggers. Taking the token before Load lets
 				// an overflow during that Load schedule another refresh.
@@ -154,8 +154,8 @@ func (m *Manager[T]) consumeProviderEvents(ctx context.Context, p contracts.Prov
 	}
 }
 
-// sleep returns false if the context is canceled. Used by
-// runProviderWatcher for backoff between resubscribe attempts.
+// sleepCtx returns false if the context is canceled. Provider watchers,
+// notifiers and periodic resync use it for backoff and interval waits.
 func sleepCtx(ctx context.Context, d time.Duration) bool {
 	t := time.NewTimer(d)
 	defer t.Stop()
