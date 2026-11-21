@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -189,5 +190,53 @@ func TestRollbackRechecksRetentionOnWriter(t *testing.T) {
 	}
 	if callbacks != 1 {
 		t.Fatalf("callbacks = %d; only the successful reload should notify", callbacks)
+	}
+}
+
+// newRollbackFixture returns a manager whose history retains target, the
+// snapshot before the live one.
+func newRollbackFixture(t *testing.T) (m *Manager[snapshotConfig], target *State[snapshotConfig]) {
+	t.Helper()
+	m, err := New[snapshotConfig](context.Background(), WithFS(emptyFS()),
+		WithProvider(source.NewBytes("base", "json", []byte(`{"name":"alpha"}`))), WithHistory(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	target = m.Snapshot()
+	if err := m.Reload(context.Background(), WithOverride(map[string]any{"name": "beta"})); err != nil {
+		t.Fatal(err)
+	}
+	return m, target
+}
+
+// blockWriter occupies the writer until the returned release is called.
+func blockWriter(t *testing.T, m *Manager[snapshotConfig]) (release func()) {
+	t.Helper()
+	started, done := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	release = func() { once.Do(func() { close(done) }) }
+	t.Cleanup(release)
+	m.reloadCh <- reloadRequest{run: func(context.Context) error {
+		close(started)
+		<-done
+		return nil
+	}}
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("writer did not start the blocking request")
+	}
+	return release
+}
+
+// drainWriter waits until the writer has processed every request queued so far.
+func drainWriter(t *testing.T, m *Manager[snapshotConfig]) {
+	t.Helper()
+	err := m.submitAndWait(context.Background(), reloadRequest{run: func(context.Context) error {
+		return nil
+	}})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

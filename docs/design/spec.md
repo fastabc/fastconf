@@ -110,6 +110,10 @@ priority and file-watch paths, including for providers without Watcher. A watche
 resume a non-empty revision marks its first event with `Gap`. The first Watch
 call receives an empty revision; reconnects receive the last non-empty
 `Event.Revision`. `Snapshot.Revision` is used for source/commit diagnostics.
+A Watch error, or a channel that closes before the manager cancels it, emits
+`ProviderError` and resubscribes with 250ms–30s exponential backoff and jitter.
+The backoff resets only after a subscription stays open for 30 seconds, so a
+Watch that returns short-lived channels cannot reconnect in a tight loop.
 
 ## Discovery limits
 
@@ -215,7 +219,9 @@ additional `ErrHistoryDisabled` and `ErrUnknownGeneration` errors.
 Subscriber panics also reach `Errors()` with reason `subscriber-panic`, after
 publication; they do not roll back the already-published snapshot. Failures
 before an operation enters the writer (such as a closed manager) may return
-directly without a channel event.
+directly without a channel event. So do requests whose context ends, or whose
+manager closes, while they are still queued: the writer skips them without
+publishing. Cancellation that reaches running work is still reported.
 
 Commit hashes the final typed value encoded in the selected decode format.
 Both encoders sort map keys. Custom `MarshalJSON` / `MarshalYAML` implementations

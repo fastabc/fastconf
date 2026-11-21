@@ -49,7 +49,7 @@ func New(reg prometheus.Registerer) *Sink {
 		}),
 		provError: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "fastconf_provider_error_total",
-			Help: "Errors observed by Watcher.Watch loops, by provider name.",
+			Help: "Provider watch failures, early-closed watch streams, resume gaps and stopped notifiers, by provider name.",
 		}, []string{"provider"}),
 		eventDropped: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "fastconf_event_dropped_total",

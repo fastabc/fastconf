@@ -22,9 +22,34 @@ func jitter(d time.Duration) time.Duration {
 	return d + time.Duration(rand.Int64N(int64(d/2)+1))
 }
 
+// Provider watch retry timing. These are variables only so tests can shorten
+// them; production code never changes them.
+var (
+	providerWatchMinDelay = 250 * time.Millisecond
+	providerWatchMaxDelay = 30 * time.Second
+	// providerWatchHealthy is how long a subscription must stay open before
+	// its end resets the backoff. It matches the notifier restart policy.
+	providerWatchHealthy = 30 * time.Second
+)
+
 // errResumeGap is the ProviderError cause for a provider that resubscribed
 // without honoring the requested revision (Event.Gap).
 var errResumeGap = errors.New("fastconf: provider resumed with a gap; changes may have been missed")
+
+// errWatchClosed is the ProviderError cause for a Watch channel that closed
+// before the manager canceled it. contracts.Watcher reserves closing for
+// cancellation, so the manager resubscribes with backoff.
+var errWatchClosed = errors.New("fastconf: provider watch channel closed before cancellation")
+
+// watchRetryDelay returns the wait before resubscribing after a stream that
+// stayed open for lived. Only streams open for providerWatchHealthy reset the
+// backoff, so a Watch that keeps returning short-lived channels cannot spin.
+func watchRetryDelay(b *providerutil.Backoff, lived time.Duration) time.Duration {
+	if lived >= providerWatchHealthy {
+		b.Reset()
+	}
+	return b.Next()
+}
 
 // revisionTable tracks the last revision observed per provider; it is passed
 // back to Watcher.Watch so a provider can pick up where it left off after
@@ -54,7 +79,9 @@ func (r *revisionTable) set(name, rev string) {
 
 // startProviderWatchers runs one subscription loop per native Watcher.
 // Triggers enter the writer queue, retaining one resync token on overflow.
-// Subscription failures retry with 250 ms–30 s exponential backoff and jitter.
+// Watch errors and channels that close before cancellation emit ProviderError
+// and resubscribe with 250 ms–30 s exponential backoff and jitter; the backoff
+// resets only after a subscription has stayed open for 30 s.
 func (m *Manager[T]) startProviderWatchers(ctx context.Context) {
 	for _, e := range m.opts.Providers {
 		watcher, ok := e.Provider.(contracts.Watcher)
@@ -68,8 +95,7 @@ func (m *Manager[T]) startProviderWatchers(ctx context.Context) {
 
 func (m *Manager[T]) runProviderWatcher(ctx context.Context, p contracts.Provider, watcher contracts.Watcher) {
 	defer m.bgWG.Done()
-	const minDelay, maxDelay = 250 * time.Millisecond, 30 * time.Second
-	backoff := providerutil.Backoff{Min: minDelay, Max: maxDelay}
+	backoff := providerutil.Backoff{Min: providerWatchMinDelay, Max: providerWatchMaxDelay}
 	for {
 		if ctx.Err() != nil {
 			return
@@ -77,7 +103,7 @@ func (m *Manager[T]) runProviderWatcher(ctx context.Context, p contracts.Provide
 		ch, err := watcher.Watch(ctx, m.providerRevisions.get(p.Name()))
 		if err != nil {
 			delay := backoff.Next()
-			m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf provider watch error", slog.String("provider", p.Name()), slog.Any("err", err), slog.Duration("retry_in", delay))
+			m.opts.Logger.LogAttrs(ctx, slog.LevelWarn, "fastconf provider watch error", slog.String("provider", p.Name()), slog.Any("err", err), slog.Duration("retry_in", delay))
 			m.emit(ProviderError{Provider: p.Name(), Err: err})
 			if !sleepCtx(ctx, jitter(delay)) {
 				return
@@ -89,15 +115,21 @@ func (m *Manager[T]) runProviderWatcher(ctx context.Context, p contracts.Provide
 			// Provider explicitly opts out of watching — exit goroutine.
 			return
 		}
-		// Reset backoff after a successful subscribe.
-		backoff.Reset()
+		// A successful subscribe does not reset the backoff by itself: a
+		// Watch that returns a channel and closes it at once would otherwise
+		// resubscribe several times per second forever.
+		started := time.Now()
 		m.consumeProviderEvents(ctx, p, ch)
 		// consumeProviderEvents returns when ch closes or ctx is canceled;
 		// loop to resubscribe with backoff if appropriate.
 		if ctx.Err() != nil {
 			return
 		}
-		if !sleepCtx(ctx, jitter(minDelay)) {
+		lived := time.Since(started)
+		delay := watchRetryDelay(&backoff, lived)
+		m.opts.Logger.LogAttrs(ctx, slog.LevelWarn, "fastconf provider watch closed", slog.String("provider", p.Name()), slog.Duration("lived", lived), slog.Duration("retry_in", delay))
+		m.emit(ProviderError{Provider: p.Name(), Err: errWatchClosed})
+		if !sleepCtx(ctx, jitter(delay)) {
 			return
 		}
 	}

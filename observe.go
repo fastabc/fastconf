@@ -15,8 +15,8 @@ import (
 // and change notifications are all observers. Reload, stage and Committed
 // events are delivered synchronously on the reload goroutine, so a slow
 // observer delays the next reload; wrap slow observers with observe.Async.
-// ProviderError and EventDropped come from provider watcher goroutines, so
-// implementations must be safe for concurrent use. ctx is canceled at
+// ProviderError and EventDropped come from provider watcher and notifier
+// goroutines, so implementations must be safe for concurrent use. ctx is canceled at
 // WithObserverTimeout or on shutdown.
 type Observer interface {
 	Observe(ctx context.Context, e Event)
@@ -47,8 +47,9 @@ type StageFinished struct {
 	Err   error
 }
 
-// ProviderError reports a provider Watch failure, a resume gap or a managed
-// notifier that stops before manager shutdown.
+// ProviderError reports a provider Watch failure, a Watch channel that closes
+// before manager shutdown, a resume gap or a managed notifier that stops
+// before manager shutdown.
 type ProviderError struct {
 	Provider string
 	Err      error

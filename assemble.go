@@ -80,17 +80,28 @@ type rootMetaSettings struct {
 	mergeKeys    map[string]string
 }
 
-// assemble loads and orders layers without publication, updating writer-owned caches.
+// assemble loads and orders layers for a preview, without publication.
 // hostnameOverride pins hostname-derived axes for Plan; empty uses the OS hostname.
 // Extra override layers sort by class/priority with declaration order breaking ties.
+// A preview may add decoded layers to the writer-owned cache but never evicts
+// entries: its hypothetical hostname or inputs can select different files, and
+// the live reload set must stay cached.
 func (m *Manager[T]) assemble(ctx context.Context, hostnameOverride string, extra ...stagedLayer) (assemblyResult, error) {
-	return m.assembleSources(ctx, hostnameOverride, nil, [32]byte{}, extra...)
+	return m.assembleInputs(ctx, hostnameOverride, nil, [32]byte{}, true, extra...)
 }
 
-// onDir is provided only for live reloads; previews must not subscribe to
-// directories chosen by their hypothetical hostname/profile inputs. unchanged
-// permits the live-input shortcut; a zero fingerprint forces decoding for Plan.
+// assembleSources assembles a live reload. onDir subscribes discovered
+// directories; unchanged permits the live-input shortcut, and a zero
+// fingerprint forces decoding. The layer cache is trimmed to this reload's files.
 func (m *Manager[T]) assembleSources(ctx context.Context, hostnameOverride string, onDir func(string), unchanged [32]byte, extra ...stagedLayer) (assemblyResult, error) {
+	return m.assembleInputs(ctx, hostnameOverride, onDir, unchanged, false, extra...)
+}
+
+// assembleInputs is shared by live reloads and previews. onDir is provided
+// only for live reloads; previews must not subscribe to directories chosen by
+// their hypothetical hostname/profile inputs. preview leaves cache eviction to
+// the next live reload.
+func (m *Manager[T]) assembleInputs(ctx context.Context, hostnameOverride string, onDir func(string), unchanged [32]byte, preview bool, extra ...stagedLayer) (assemblyResult, error) {
 	if err := ctx.Err(); err != nil {
 		return assemblyResult{}, err
 	}
@@ -136,7 +147,12 @@ func (m *Manager[T]) assembleSources(ctx context.Context, hostnameOverride strin
 		codecGeneration: generation,
 	}
 	if result.fingerprint == ([32]byte{}) || result.fingerprint != unchanged {
-		if err := m.decodeFileLayers(ctx, staged); err != nil {
+		if preview {
+			err = m.decodeStagedFiles(ctx, staged)
+		} else {
+			err = m.decodeFileLayers(ctx, staged)
+		}
+		if err != nil {
 			return result, err
 		}
 		if generation != codec.Generation() {
@@ -216,10 +232,17 @@ func (m *Manager[T]) assembleFileLayers(scanOpt scan.Options) ([]stagedLayer, er
 	return staged, nil
 }
 
-// decodeFileLayers materializes discovered bytes after the input shortcut. Plans
-// also call it, even when their inputs match the published snapshot.
+// decodeFileLayers trims the layer cache to the files of this live reload,
+// then materializes their discovered bytes after the input shortcut.
 func (m *Manager[T]) decodeFileLayers(ctx context.Context, staged []stagedLayer) error {
 	m.layerCache.retain(staged)
+	return m.decodeStagedFiles(ctx, staged)
+}
+
+// decodeStagedFiles materializes discovered file bytes through the layer cache
+// without evicting other entries. Plans call it directly, even when their
+// inputs match the published snapshot.
+func (m *Manager[T]) decodeStagedFiles(ctx context.Context, staged []stagedLayer) error {
 	for i := range staged {
 		l := &staged[i]
 		if l.fileSum == ([32]byte{}) {

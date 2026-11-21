@@ -8,7 +8,9 @@ For consumers that want to observe / react to failures, the framework exposes a 
 
 Failures processed by the writer, including Plan failures, are also reported
 as `ReloadError`. Initialization errors return from `New`/`Load`; errors before
-queue admission may return directly. The channel closes with the Manager.
+queue admission may return directly. A request whose context ends while it is
+still queued is skipped and only returns its context error; cancellation of
+running work is reported. The channel closes with the Manager.
 It is a work channel, not a broadcast: multiple consumers divide the events.
 Subscriber panics also appear after publication and do not undo the snapshot.
 

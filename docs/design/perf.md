@@ -53,8 +53,12 @@ file path/codec pairs, with a 16 MiB budget on the sum of their original source
 document sizes. This is an admission weight, not a decoded-heap or RSS limit:
 codecs can expand input, and maps add overhead. Content hash and codec registry
 generation validate a hit. Reverting a changed file decodes it again; failed
-decodes do not replace the last successful entry. Before decoding a scan, entries
-for absent paths are released. Active entries are retained; excess paths are
+decodes do not replace the last successful entry. Before decoding a live reload's
+scan, entries for absent paths are released. Plans share the cache but never
+release entries, so a preview with `WithPlanHostname` or other hypothetical
+inputs does not force the next reload to decode the live files again; entries a
+preview admits are released by the next live reload that does not use them.
+Active entries are retained; excess paths are
 decoded without admission, avoiding sequential-scan thrashing above capacity.
 An oversized successful replacement releases its obsolete entry but is not
 cached. Source bytes themselves are not retained by the cache.

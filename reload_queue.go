@@ -134,7 +134,10 @@ func (m *Manager[T]) runReloadRequest(req reloadRequest) {
 		// lifetime. Skip queued work, including context-free apply hooks.
 		err = m.lifetime.Err()
 	}
-	if err == nil {
+	// started is false when the request's context ended, or the manager
+	// closed, before the writer reached it.
+	started := err == nil
+	if started {
 		if req.run != nil {
 			err = req.run(pipeCtx)
 		} else {
@@ -143,7 +146,10 @@ func (m *Manager[T]) runReloadRequest(req reloadRequest) {
 	}
 	stop()
 	cancel()
-	if err != nil {
+	// A request that never ran is not a reload failure: its caller already
+	// receives the context error from submitAndWait, and publishing it would
+	// evict real failures from the bounded channel.
+	if err != nil && started {
 		m.publishReloadError(req.reason, err)
 	}
 	if req.doneCh != nil {
@@ -151,10 +157,13 @@ func (m *Manager[T]) runReloadRequest(req reloadRequest) {
 	}
 }
 
-// Errors reports failed reloads, plans and queued rollbacks, including errors
-// returned synchronously. Argument errors rejected before enqueueing are excluded.
-// The bounded channel evicts the oldest error on overflow and closes during Close.
-// A nil Manager returns a closed channel.
+// Errors reports failed reloads, plans and rollbacks that the writer ran,
+// including errors also returned synchronously and cancellations that reached
+// running work. Argument errors rejected before enqueueing and requests whose
+// context ended (or whose manager closed) before the writer started them are
+// excluded; their callers receive the error directly. The bounded channel
+// evicts the oldest error on overflow and closes during Close. A nil Manager
+// returns a closed channel.
 func (m *Manager[T]) Errors() <-chan ReloadError {
 	if m == nil {
 		return closedErrCh

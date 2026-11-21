@@ -52,8 +52,11 @@ See [reload failures](reload-policy.md) for the error consumer and
 ## Implementing a provider
 
 Honor `ctx` in `Load` and optional `Watch`; use context-aware client calls and
-close watcher channels when publishers stop. Bound retry loops and request
-sizes. Choose client/transport timeouts for each request shape, rather than
+close watcher channels when publishers stop after cancellation. A channel that
+closes earlier is reported as `ProviderError`; the manager resubscribes with
+exponential backoff that resets only after 30 seconds of uptime, so keep
+retrying transient upstream failures inside the stream. Bound retry loops and
+request sizes. Choose client/transport timeouts for each request shape, rather than
 assuming a reload deadline exists for background triggers.
 
 Provider implementations and tests are colocated under

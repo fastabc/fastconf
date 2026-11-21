@@ -17,8 +17,10 @@ type layerCacheKey struct {
 	path, codec string
 }
 
-// layerCache is owned by the single writer, shared by Reload and Plan. File
-// bytes are always read by discovery; mtime and size never bypass hashing.
+// layerCache is owned by the single writer, shared by Reload and Plan. Only
+// live reloads evict (retain); previews may admit entries, which the next live
+// reload drops if its own scan does not use them. File bytes are always read
+// by discovery; mtime and size never bypass hashing.
 type layerCache struct {
 	entries     map[layerCacheKey]*decodedLayer
 	sourceBytes int
@@ -36,7 +38,8 @@ type decodedLayer struct {
 
 func (l *decodedLayer) cloneTree() map[string]any { return confmap.DeepClone(l.tree) }
 
-// retain releases paths absent from this scan. During decoding, active entries
+// retain releases paths absent from this live reload's scan; previews never
+// call it. During decoding, active entries
 // are never evicted to admit another path: a sequential scan larger than the
 // cache must not evict every hit before it is visited.
 func (c *layerCache) retain(layers []stagedLayer) {
