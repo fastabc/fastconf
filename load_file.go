@@ -8,7 +8,6 @@ import (
 
 	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/providers/source"
 )
 
 // LoadFile reads one required file (at most 4 MiB), using its extension's codec
@@ -17,11 +16,10 @@ import (
 // environment overrides, starts no workers and returns a caller-owned *T. Use Load
 // for options or diagnostics and New for runtime updates.
 //
-// The file is loaded as a provider, so errors classify as follows: a missing or
-// unreadable file and a syntax error wrap ErrProvider; an oversized file wraps
-// ErrProvider and ErrTooLarge; an unknown extension, a value that does not decode
-// into T or an unknown key wraps ErrDecode; field and Defaulter checks follow the
-// normal pipeline (ErrInvalid).
+// Errors classify as follows: a missing or unreadable file wraps ErrProvider (an
+// oversized file also wraps ErrTooLarge); an unknown extension, a syntax error, a
+// value that does not decode into T or an unknown key wraps ErrDecode; field and
+// validator checks wrap ErrInvalid.
 func LoadFile[T any](path string) (*T, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -29,20 +27,45 @@ func LoadFile[T any](path string) (*T, error) {
 	}
 	defer func() { _ = file.Close() }()
 	ext := filepath.Ext(path)
-	if _, ok := codec.ByContentType(ext); !ok {
+	dec, ok := codec.ByContentType(ext)
+	if !ok {
 		return nil, fmt.Errorf("%w: %s: %w: extension %q", ErrDecode, path, codec.ErrUnknownCodec, ext)
 	}
 	data, err := contracts.ReadAllMax(file, contracts.DefaultMaxBodyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %w", ErrProvider, path, err)
 	}
+	tree := map[string]any{}
+	if len(data) > 0 {
+		decoded, err := dec.Decode(data)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s: %w", ErrDecode, path, err)
+		}
+		if decoded != nil {
+			tree = decoded
+		}
+	}
 	state, err := Load[T](context.Background(),
 		func(o *options) { o.SkipDiscovery = true },
-		WithProvider(source.NewBytes(path, ext, data)),
+		WithProvider(decodedFile{name: path, tree: tree}),
 		WithUnknownFields(UnknownError),
 	)
 	if err != nil {
 		return nil, err
 	}
 	return state.Value(), nil
+}
+
+// decodedFile is LoadFile's already-decoded document. Decoding before Load keeps
+// syntax errors classified as ErrDecode, as in directory discovery, rather than
+// as provider failures.
+type decodedFile struct {
+	name string
+	tree map[string]any
+}
+
+func (f decodedFile) Name() string { return f.name }
+
+func (f decodedFile) Load(context.Context) (contracts.Snapshot, error) {
+	return contracts.Snapshot{Map: f.tree}, nil
 }

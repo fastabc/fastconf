@@ -58,6 +58,25 @@ func TestLoadFile_Errors(t *testing.T) {
 	}
 }
 
+// A syntax error means the file must be fixed, so it is ErrDecode, as in
+// directory discovery, and not a retryable provider failure.
+func TestLoadFile_SyntaxErrorIsDecode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cfg.yaml")
+	if err := os.WriteFile(path, []byte("port: [\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	value, err := fastconf.LoadFile[loadFileConfig](path)
+	if value != nil {
+		t.Fatalf("value = %+v on error", value)
+	}
+	if !errors.Is(err, fastconf.ErrDecode) || errors.Is(err, fastconf.ErrProvider) {
+		t.Fatalf("err = %v; want ErrDecode without ErrProvider", err)
+	}
+	if !strings.Contains(err.Error(), "cfg.yaml") {
+		t.Fatalf("err = %v; want the file path", err)
+	}
+}
+
 func TestLoadFile_DefaultsAndDefaulter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cfg.yaml")
 	if err := os.WriteFile(path, []byte("{}\n"), 0600); err != nil {

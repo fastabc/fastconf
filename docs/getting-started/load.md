@@ -40,10 +40,9 @@ go run ./examples/single-file
 
 预期 `port=8080`。将键写为 `prot` 或值改成 0 会失败。文件不存在直接报错，
 不会当作可选配置跳过。未知扩展名、解析失败和超过 4 MiB 的文件也会报错。
-错误分类：文件缺失、无法读取或语法错误包装 `ErrProvider`（超限同时包装
-`ErrTooLarge`）；未知扩展名、无法解码到结构体或未知键包装 `ErrDecode`；
-字段校验失败包装 `ErrInvalid`。这与 `conf.d` 目录发现不同，后者的文件读取和
-解析失败归为 `ErrDecode`。
+错误分类：文件缺失或无法读取包装 `ErrProvider`（超限同时包装 `ErrTooLarge`）；
+未知扩展名、语法错误、无法解码到结构体或未知键包装 `ErrDecode`，与 `conf.d`
+目录发现对语法错误的分类一致；字段校验失败包装 `ErrInvalid`。
 
 ## 默认行为
 

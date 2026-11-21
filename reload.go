@@ -128,7 +128,7 @@ func (m *Manager[T]) reload(ctx context.Context, trigger ReloadTrigger, reason, 
 	if err != nil {
 		root.RecordError(err)
 		m.emitReload(reason, time.Since(start), err)
-		m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf reload shadow_failed", slog.String("reason", reason), slog.Any("err", err))
+		m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf reload assemble_failed", slog.String("reason", reason), slog.Any("err", err))
 		return err
 	}
 	_, err = m.runTimedStage(ctx, "fastconf.commit", func(ctx context.Context, _ Span) error {

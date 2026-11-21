@@ -64,7 +64,7 @@ specified in the [runtime contract](design/spec.md#reads-and-writes).
 ## Dependency direction
 
 ```text
-fastconf -> contracts, codec, confmap, policy, providers/source (LoadFile), internal/*
+fastconf -> contracts, codec, confmap, policy, internal/*
 codec -> contracts
 transform -> confmap
 providers/* (root module) -> contracts, codec, confmap, internal/*

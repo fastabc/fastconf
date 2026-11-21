@@ -445,7 +445,7 @@ func TestReload_LogMessages(t *testing.T) {
 		wantErr bool
 	}{
 		{"swap", "name: updated\n", "fastconf reload swap", false},
-		{"assemble failure", "name: [\n", "fastconf reload shadow_failed", true},
+		{"assemble failure", "name: [\n", "fastconf reload assemble_failed", true},
 		{"commit failure", "name: invalid\n", "fastconf reload commit_failed", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
