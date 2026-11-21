@@ -84,9 +84,12 @@ defer mgr.Close()
 ```
 
 The root reload span has a `reason` attribute; pipeline-stage spans use
-`fastconf.reload.reason`. Audit lines carry the same reason. Prometheus reload
-counters have only a `result` label; they do not expose reason, tenant or trace
-IDs. Correlate an incident by its time window and audit/trace context.
+`fastconf.reload.reason`. Audit lines carry the same reason plus a bounded
+`trigger` (`ReloadCause.Trigger`). Reasons can embed file paths or provider text,
+so label custom metrics with the trigger, not the reason; `ReloadError.Trigger`
+classifies `Errors()` entries the same way. Prometheus reload counters have only
+a `result` label; they do not expose reason, trigger, tenant or trace IDs.
+Correlate an incident by its time window and audit/trace context.
 
 Register the Prometheus sink once per registry and share it through an observer
 when instrumenting multiple managers. Calling `fcprom.New` twice on the same

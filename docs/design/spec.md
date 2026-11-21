@@ -307,6 +307,7 @@ overrides and custom reasons), `file`, `provider` (including the compensating
 `provider:resync`), `notify`, `resync`, `rollback` and `plan`. Use the trigger
 for metric labels and audit grouping; later minor releases may add values.
 Subscriber panics are reported under the trigger of the commit they observed.
+The sidecar exposes it as `/version.trigger` and in SSE causes.
 
 ### Event timestamps
 

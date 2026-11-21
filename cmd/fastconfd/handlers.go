@@ -52,6 +52,7 @@ func (s *server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 		"hash":       st.Hash(),
 		"loaded_at":  st.Cause().At,
 		"reason":     st.Cause().Reason,
+		"trigger":    st.Cause().Trigger,
 	})
 }
 

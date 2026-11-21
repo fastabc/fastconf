@@ -131,8 +131,8 @@ func Metrics(sink MetricsSink) fastconf.Observer {
 	})
 }
 
-// JSONLines writes one JSON object per Committed event (reason, commit
-// time, provider revisions, tenant, generations) to w. Writes are
+// JSONLines writes one JSON object per Committed event (reason, trigger,
+// commit time, provider revisions, tenant, generations) to w. Writes are
 // serialized; w must bound its own blocking.
 func JSONLines(w io.Writer) fastconf.Observer {
 	var mu sync.Mutex
@@ -146,6 +146,7 @@ func JSONLines(w io.Writer) fastconf.Observer {
 		defer mu.Unlock()
 		_ = enc.Encode(struct {
 			Reason     string            `json:"reason"`
+			Trigger    string            `json:"trigger,omitempty"`
 			At         time.Time         `json:"at"`
 			Generation uint64            `json:"generation"`
 			Previous   uint64            `json:"previous,omitempty"`
@@ -153,6 +154,7 @@ func JSONLines(w io.Writer) fastconf.Observer {
 			Tenant     string            `json:"tenant,omitempty"`
 		}{
 			Reason:     c.Cause.Reason,
+			Trigger:    string(c.Cause.Trigger),
 			At:         c.Cause.At,
 			Generation: c.Next,
 			Previous:   c.Prev,

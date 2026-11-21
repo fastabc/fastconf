@@ -36,7 +36,7 @@ cancellation. Slow callbacks delay the writer.
 | `Func(fn)` | Adapt a function |
 | `Multi(obs...)` | Fan out in order |
 | `Async(obs, capacity)` | Bounded queue with one consumer goroutine |
-| `JSONLines(w)` | One audit JSON line per commit, not per failure |
+| `JSONLines(w)` | One audit JSON line per commit, not per failure; includes `reason` and the bounded `trigger` |
 | `Metrics(sink)` | Translate lifecycle events to metric calls |
 
 ## Asynchronous external delivery

@@ -81,6 +81,9 @@ func TestServer_HealthVersionConfig(t *testing.T) {
 	if got, want := v["loaded_at"], s.mgr.Snapshot().Cause().At.Format(time.RFC3339Nano); got != want {
 		t.Fatalf("loaded_at = %v, want %q", got, want)
 	}
+	if got, want := v["trigger"], string(s.mgr.Snapshot().Cause().Trigger); got != want || want == "" {
+		t.Fatalf("trigger = %v, want non-empty %q", got, want)
+	}
 
 	req = httptest.NewRequest(http.MethodGet, "/config?path=nested.k", nil)
 	rr = httptest.NewRecorder()
@@ -205,7 +208,7 @@ func TestServer_EventsSSE(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimPrefix(scanner.Text(), "data: ")), &cause); err != nil {
 		t.Fatal(err)
 	}
-	if cause.Reason != "override" || !cause.At.Equal(s.mgr.Snapshot().Cause().At) {
+	if cause.Reason != "override" || cause.Trigger != fastconf.TriggerManual || !cause.At.Equal(s.mgr.Snapshot().Cause().At) {
 		t.Fatalf("unexpected commit cause: %+v", cause)
 	}
 	if !scanner.Scan() || scanner.Text() != "" {

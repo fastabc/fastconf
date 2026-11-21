@@ -42,13 +42,13 @@ func TestJSONLinesCommitFields(t *testing.T) {
 	o := observe.JSONLines(&b)
 	o.Observe(context.Background(), fastconf.ReloadStarted{})
 	o.Observe(context.Background(), fastconf.Committed{Prev: 2, Next: 3, Cause: fastconf.ReloadCause{
-		Reason: "manual", At: time.Unix(1, 123456789), Tenant: "tenant", Revisions: map[string]string{"remote": "rev"},
+		Reason: "manual", Trigger: fastconf.TriggerManual, At: time.Unix(1, 123456789), Tenant: "tenant", Revisions: map[string]string{"remote": "rev"},
 	}})
 	var got map[string]any
 	if err := json.Unmarshal(b.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"reason": "manual", "at": time.Unix(1, 123456789).Format(time.RFC3339Nano), "generation": float64(3), "previous": float64(2), "tenant": "tenant", "revisions": map[string]any{"remote": "rev"}}
+	want := map[string]any{"reason": "manual", "trigger": "manual", "at": time.Unix(1, 123456789).Format(time.RFC3339Nano), "generation": float64(3), "previous": float64(2), "tenant": "tenant", "revisions": map[string]any{"remote": "rev"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v", got)
 	}

@@ -41,7 +41,7 @@ fastconfd ... -secret-path 'db.dsn' -secret-path '**.credentials'
 | Method | Path                          | Notes                              |
 |--------|-------------------------------|------------------------------------|
 | GET    | `/healthz`                    | 200 once first reload OK           |
-| GET    | `/version`                    | `{version, generation, hash, loaded_at, reason}`; `loaded_at` is an RFC 3339 timestamp string |
+| GET    | `/version`                    | `{version, generation, hash, loaded_at, reason, trigger}`; `loaded_at` is an RFC 3339 timestamp string; `trigger` is the bounded `ReloadCause.Trigger` |
 | GET    | `/config`                     | Full snapshot (JSON), secrets masked, `X-Config-Token` required |
 | GET    | `/config?path=db.host`        | Dotted-path lookup (masked)        |
 | GET    | `/config?unredacted=true`     | Plaintext; also needs `X-Unredacted-Token` (`-unredacted-token`) |
