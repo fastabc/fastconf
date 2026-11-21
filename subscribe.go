@@ -130,7 +130,8 @@ func callSubscriberRecovering[T any](m *Manager[T], fn func(prev, next *State[T]
 		stack := debug.Stack()
 		m.opts.Logger.LogAttrs(context.Background(), slog.LevelError, "subscribe callback panic", slog.Any("panic", r), slog.String("stack", string(stack)))
 		// Publication already succeeded; report the panic without rolling it back.
-		m.publishReloadError("subscriber-panic", fmt.Errorf("subscriber panic: %v", r))
+		// Report under the commit's trigger so failures stay attributable.
+		m.publishReloadError(next.cause.Trigger, "subscriber-panic", fmt.Errorf("subscriber panic: %v", r))
 	}()
 	fn(prev, next)
 }

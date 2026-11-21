@@ -61,7 +61,7 @@ func (m *Manager[T]) runNotifier(ctx context.Context, n contracts.Notifier, name
 		if m.Paused() {
 			return ErrPaused
 		}
-		return m.requestReload(work, name, "")
+		return m.requestReload(work, TriggerNotify, name, "")
 	}
 	for ctx.Err() == nil {
 		started := time.Now()
@@ -107,7 +107,7 @@ func (m *Manager[T]) runResync(ctx context.Context) {
 		if m.Paused() {
 			continue
 		}
-		if err := m.requestReload(ctx, "resync", ""); errors.Is(err, ErrClosed) {
+		if err := m.requestReload(ctx, TriggerResync, "resync", ""); errors.Is(err, ErrClosed) {
 			return
 		}
 	}

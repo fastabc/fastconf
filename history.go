@@ -40,11 +40,24 @@ func (r *History[T]) List() []*State[T] {
 	return m.history.Snapshot()
 }
 
-// Rollback republishes target as a new generation. target must be one of
+// Rollback is RollbackContext with context.Background(): it waits for the
+// writer however long earlier queued work takes.
+func (r *History[T]) Rollback(target *State[T]) error {
+	return r.RollbackContext(context.Background(), target)
+}
+
+// RollbackContext republishes target as a new generation. target must be one of
 // the snapshots List returns and still be retained when the writer executes the
 // request. Concurrent commits can evict it; in that case ErrUnknownGeneration
 // is returned without publication. Rollback restores memory, not source files.
-func (r *History[T]) Rollback(target *State[T]) error {
+//
+// ctx bounds the wait for the writer, which may be busy with an earlier reload
+// such as a slow provider Load. If ctx ends before the writer starts the
+// rollback, it is not applied and ctx's error is returned. Publication itself
+// is not interruptible: once it begins it completes, as for Reload, so a
+// context error that races the end of publication does not prove the rollback
+// was skipped; compare Snapshot().Generation when that matters.
+func (r *History[T]) RollbackContext(ctx context.Context, target *State[T]) error {
 	if r == nil {
 		return ErrHistoryDisabled
 	}
@@ -52,9 +65,16 @@ func (r *History[T]) Rollback(target *State[T]) error {
 	if target == nil {
 		return fmt.Errorf("%w: nil target", ErrUnknownGeneration)
 	}
-	return m.submitAndWait(context.Background(), reloadRequest{
-		reason: "rollback",
-		run: func(_ context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return m.submitAndWait(ctx, reloadRequest{
+		ctx:     ctx,
+		trigger: TriggerRollback,
+		reason:  "rollback",
+		// runReloadRequest skips requests whose context ended while queued.
+		// applyRollback does no I/O before publishing, so it needs no further check.
+		run: func(context.Context) error {
 			return m.applyRollback(target)
 		},
 	})
@@ -66,14 +86,15 @@ func (m *Manager[T]) applyRollback(target *State[T]) error {
 	m.historyMu.Lock()
 	found := m.history.Find(func(s *State[T]) bool { return s == target })
 	m.historyMu.Unlock()
-	if target == nil || found == nil {
+	if found == nil {
 		return fmt.Errorf("%w: generation %d not in history", ErrUnknownGeneration, target.Generation())
 	}
 	prev := m.state.Load()
 	cause := ReloadCause{
-		Reason: "rollback",
-		At:     time.Now(),
-		Tenant: m.tenant,
+		Reason:  "rollback",
+		Trigger: TriggerRollback,
+		At:      time.Now(),
+		Tenant:  m.tenant,
 	}
 	next := restampState(target, m.gen.Add(1), cause)
 	// The live state no longer reflects the last reload's inputs.

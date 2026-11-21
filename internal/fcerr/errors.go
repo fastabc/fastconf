@@ -48,9 +48,15 @@ var (
 	ErrTooLarge = newFCErr("fastconf: configuration body too large")
 )
 
+// Trigger classifies what started a reload, plan or rollback. The root
+// package re-exports it as ReloadTrigger together with its constants; it
+// lives here so ReloadError can carry it.
+type Trigger string
+
 // ReloadError is one entry on the Manager.Errors() channel.
 type ReloadError struct {
-	Err    error
-	Reason string
-	At     time.Time
+	Err     error
+	Reason  string
+	Trigger Trigger // bounded classification of Reason; root ReloadTrigger
+	At      time.Time
 }

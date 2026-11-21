@@ -242,6 +242,10 @@ findings, preserving policy severity. `History().Rollback` republishes a
 retained snapshot as a new generation without rerunning validation. Membership
 is checked on the writer immediately before publication; a target evicted while
 queued returns `ErrUnknownGeneration` without modifying state.
+`History().RollbackContext(ctx, target)` bounds the wait for the writer; a
+context that ends while the request is queued skips the rollback and returns the
+context error. Publication is not interruptible once it starts. `Rollback(target)`
+is `RollbackContext` with `context.Background()`.
 Plan can return nil error with failing validator reports or error-severity policy
 findings; call `PlanResult.Err()` to aggregate rejections, and inspect the reports
 for details. Warning-only findings do not reject a preview.
@@ -292,6 +296,17 @@ view caches a JSON tree for that snapshot; history can retain these trees.
 
 The sidecar masks `/config` and `/dump` by default. Plaintext needs both
 `?unredacted=true` and `X-Unredacted-Token` matching `-unredacted-token`.
+
+### Reload triggers
+
+`ReloadCause.Reason` and `ReloadError.Reason` are free-form: file reasons embed
+paths, provider reasons embed event text, and `WithReason` sets any value.
+`ReloadCause.Trigger` and `ReloadError.Trigger` classify the same operation into
+a bounded `ReloadTrigger`: `initial` (New, Load), `manual` (Reload, including
+overrides and custom reasons), `file`, `provider` (including the compensating
+`provider:resync`), `notify`, `resync`, `rollback` and `plan`. Use the trigger
+for metric labels and audit grouping; later minor releases may add values.
+Subscriber panics are reported under the trigger of the commit they observed.
 
 ### Event timestamps
 

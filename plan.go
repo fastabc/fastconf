@@ -85,8 +85,9 @@ func (m *Manager[T]) Plan(ctx context.Context, opts ...PlanOption) (*PlanResult[
 	}
 	var res *PlanResult[T]
 	err := m.submitAndWait(ctx, reloadRequest{
-		ctx:    ctx,
-		reason: "plan",
+		ctx:     ctx,
+		trigger: TriggerPlan,
+		reason:  "plan",
 		run: func(pipeCtx context.Context) error {
 			r, err := m.runPlan(pipeCtx, cfg.hostname)
 			if err != nil {
@@ -116,7 +117,7 @@ func (m *Manager[T]) runPlan(ctx context.Context, hostname string) (*PlanResult[
 	}
 
 	now := time.Now()
-	proposed := m.newState(pipeline, hash, m.gen.Load(), ReloadCause{Reason: "plan", At: now, Tenant: m.tenant})
+	proposed := m.newState(pipeline, hash, m.gen.Load(), ReloadCause{Reason: "plan", Trigger: TriggerPlan, At: now, Tenant: m.tenant})
 
 	var diff []DiffEntry
 	if cur := m.state.Load(); cur != nil {

@@ -167,7 +167,7 @@ func (m *Manager[T]) consumeProviderEvents(ctx context.Context, p contracts.Prov
 				sb.WriteString(ev.Reason)
 				reason = sb.String()
 			}
-			req := reloadRequest{reason: reason}
+			req := reloadRequest{trigger: TriggerProvider, reason: reason}
 			select {
 			case m.reloadCh <- req:
 				// Fire-and-forget: doneCh is nil for provider-triggered reloads.

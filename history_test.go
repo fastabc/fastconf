@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -131,6 +132,9 @@ func TestHistory_Disabled(t *testing.T) {
 	if err := mgr.History().Rollback(fake); !errors.Is(err, ErrHistoryDisabled) {
 		t.Fatalf("Rollback() err=%v want ErrHistoryDisabled", err)
 	}
+	if err := mgr.History().RollbackContext(context.Background(), fake); !errors.Is(err, ErrHistoryDisabled) {
+		t.Fatalf("RollbackContext() err=%v want ErrHistoryDisabled", err)
+	}
 }
 
 func TestRollbackRechecksRetentionOnWriter(t *testing.T) {
@@ -238,5 +242,62 @@ func drainWriter(t *testing.T, m *Manager[snapshotConfig]) {
 	}})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRollbackContextTimesOutWhileWriterBusy(t *testing.T) {
+	m, target := newRollbackFixture(t)
+	before, history := m.Snapshot(), m.History().List()
+	release := blockWriter(t, m)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err := m.History().RollbackContext(ctx, target)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("RollbackContext with busy writer = %v; want context.DeadlineExceeded", err)
+	}
+	if waited := time.Since(start); waited > 2*time.Second {
+		t.Fatalf("RollbackContext returned after %v; want it bounded by ctx", waited)
+	}
+
+	// The queued request must be skipped once the writer reaches it.
+	release()
+	drainWriter(t, m)
+	if got := m.Snapshot(); got != before {
+		t.Fatalf("timed-out rollback published generation %d (%q); want unchanged generation %d",
+			got.Generation(), got.Value().Name, before.Generation())
+	}
+	if got := m.History().List(); !slices.Equal(got, history) {
+		t.Fatal("timed-out rollback changed history")
+	}
+}
+
+func TestRollbackContextCanceledBeforeCall(t *testing.T) {
+	m, target := newRollbackFixture(t)
+	before := m.Snapshot()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := m.History().RollbackContext(ctx, target); !errors.Is(err, context.Canceled) {
+		t.Fatalf("RollbackContext with canceled ctx = %v; want context.Canceled", err)
+	}
+	drainWriter(t, m)
+	if got := m.Snapshot(); got != before {
+		t.Fatalf("canceled rollback published generation %d; want %d", got.Generation(), before.Generation())
+	}
+}
+
+func TestRollbackContextSucceedsWithinDeadline(t *testing.T) {
+	m, target := newRollbackFixture(t)
+	before := m.Snapshot()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := m.History().RollbackContext(ctx, target); err != nil {
+		t.Fatalf("RollbackContext: %v", err)
+	}
+	got := m.Snapshot()
+	if got.Value().Name != "alpha" || got.Generation() != before.Generation()+1 || got.Cause().Reason != "rollback" {
+		t.Fatalf("rollback state = %q gen %d reason %q; want alpha gen %d reason rollback",
+			got.Value().Name, got.Generation(), got.Cause().Reason, before.Generation()+1)
 	}
 }

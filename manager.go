@@ -89,7 +89,7 @@ func New[T any](ctx context.Context, opts ...Option) (*Manager[T], error) {
 			return nil, err
 		}
 	}
-	if err := m.reload(ctx, "initial", ""); err != nil {
+	if err := m.reload(ctx, TriggerInitial, "initial", ""); err != nil {
 		_ = m.Close()
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func Load[T any](ctx context.Context, opts ...Option) (*State[T], error) {
 		return nil, err
 	}
 	defer m.lifetimeCancel()
-	if err := m.reload(ctx, "load", ""); err != nil {
+	if err := m.reload(ctx, TriggerInitial, "load", ""); err != nil {
 		return nil, err
 	}
 	return m.Snapshot(), nil

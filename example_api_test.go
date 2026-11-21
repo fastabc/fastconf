@@ -170,6 +170,40 @@ func ExampleHistory_Rollback() {
 	// :9090 :8080
 }
 
+// ExampleHistory_RollbackContext bounds the wait for the writer, which can be
+// busy with an earlier reload during an incident.
+func ExampleHistory_RollbackContext() {
+	files := fstest.MapFS{
+		"conf.d/base/00-app.yaml": &fstest.MapFile{Data: []byte("server: {addr: ':8080'}\n")},
+	}
+	mgr, err := fastconf.New[apiExampleConfig](context.Background(),
+		fastconf.WithFS(files),
+		fastconf.WithHistory(2),
+	)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer func() { _ = mgr.Close() }()
+
+	files["conf.d/base/00-app.yaml"].Data = []byte("server: {addr: ':9090'}\n")
+	if err := mgr.Reload(context.Background()); err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	history := mgr.History().List()
+	if err := mgr.History().RollbackContext(ctx, history[0]); err != nil {
+		fmt.Println(err) // context.DeadlineExceeded if the writer stayed busy.
+		return
+	}
+	fmt.Println(mgr.Get().Server.Addr)
+	// Output:
+	// :8080
+}
+
 // ExampleLoad_profiles demonstrates a one-shot load with a profile overlay.
 func ExampleLoad_profiles() {
 	type Config struct {

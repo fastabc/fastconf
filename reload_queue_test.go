@@ -21,9 +21,9 @@ func assertNoReloadError[T any](t *testing.T, m *Manager[T]) {
 // A request whose caller gave up while it was queued never runs. The caller
 // gets the context error directly, so Errors must not also carry it.
 func TestQueuedCanceledRequestsSkipErrors(t *testing.T) {
-	for _, op := range []string{"reload", "plan"} {
+	for _, op := range []string{"reload", "plan", "rollback"} {
 		t.Run(op, func(t *testing.T) {
-			m, _ := newRollbackFixture(t)
+			m, target := newRollbackFixture(t)
 			before := m.Snapshot()
 			release := blockWriter(t, m)
 
@@ -35,6 +35,8 @@ func TestQueuedCanceledRequestsSkipErrors(t *testing.T) {
 				err = m.Reload(ctx)
 			case "plan":
 				_, err = m.Plan(ctx)
+			case "rollback":
+				err = m.History().RollbackContext(ctx, target)
 			}
 			if !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("%s with busy writer = %v; want context.DeadlineExceeded", op, err)

@@ -74,7 +74,7 @@ Run them with `go test . -run '^Example' -v` from the repository root:
 | `ExampleNew` / `ExampleLoad_profiles` | Live typed reads and one-shot profile overlay loading |
 | `ExampleWithProvider` | Inline documents combined with a structured provider |
 | `ExampleSubscribe` / `ExampleManager_Errors` | Change callbacks and reload failures |
-| `ExampleManager_Plan` / `ExampleHistory_Rollback` | Preview and recovery |
+| `ExampleManager_Plan` / `ExampleHistory_Rollback` / `ExampleHistory_RollbackContext` | Preview and recovery |
 
 ## Transport reference implementations
 

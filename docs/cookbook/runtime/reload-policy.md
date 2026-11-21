@@ -34,9 +34,10 @@ go func() {
 
 ```go
 type ReloadError struct {
-    Err    error      // pipeline, cancellation, or subscriber error; inspect with errors.Is
-    Reason string     // "manual" / "watcher" / "provider:vault" / "override" / ...
-    At     time.Time  // wall-clock when the reload attempt completed
+    Err     error         // pipeline, cancellation, or subscriber error; inspect with errors.Is
+    Reason  string        // "manual" / "override" / "plan" / "provider:vault" / "fs:WRITE:..." / ...
+    Trigger ReloadTrigger // bounded: initial, manual, file, provider, notify, resync, rollback, plan
+    At      time.Time     // wall-clock when the reload attempt completed
 }
 ```
 

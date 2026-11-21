@@ -52,7 +52,7 @@ func (m *Manager[T]) startFileWatcher(ctx context.Context) error {
 			reason = slot.reason
 			slot.pending = false
 			slot.mu.Unlock()
-			if err := m.requestReload(context.Background(), reason, key); err != nil {
+			if err := m.requestReload(context.Background(), TriggerFile, reason, key); err != nil {
 				m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "watch: reload failed", slog.String("key", key), slog.String("reason", reason), slog.Any("err", err))
 			}
 			slot.mu.Lock()

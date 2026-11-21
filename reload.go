@@ -28,13 +28,14 @@ func (m *Manager[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 		// so the Errors() channel keeps a single writer.
 		optErr := cfg.err
 		return m.submitAndWait(ctx, reloadRequest{
-			ctx:    ctx,
-			reason: overrideReloadReason(cfg.reason),
-			run:    func(context.Context) error { return optErr },
+			ctx:     ctx,
+			trigger: TriggerManual,
+			reason:  overrideReloadReason(cfg.reason),
+			run:     func(context.Context) error { return optErr },
 		})
 	}
 	if cfg.override == nil {
-		return m.requestReload(ctx, cfg.reason, "")
+		return m.requestReload(ctx, TriggerManual, cfg.reason, "")
 	}
 	extra := stagedLayer{
 		src: SourceRef{
@@ -47,10 +48,11 @@ func (m *Manager[T]) Reload(ctx context.Context, opts ...ReloadOption) error {
 	}
 	reason := overrideReloadReason(cfg.reason)
 	return m.submitAndWait(ctx, reloadRequest{
-		ctx:    ctx,
-		reason: reason,
+		ctx:     ctx,
+		trigger: TriggerManual,
+		reason:  reason,
 		run: func(pipeCtx context.Context) error {
-			return m.reload(pipeCtx, reason, "", extra)
+			return m.reload(pipeCtx, TriggerManual, reason, "", extra)
 		},
 	})
 }
@@ -96,9 +98,10 @@ func overrideReloadReason(reason string) string {
 	return reason
 }
 
-// reload runs one pipeline with reload and stage observation. key identifies
-// the watched directory, if any; extra layers join the normal priority order.
-func (m *Manager[T]) reload(ctx context.Context, reason, key string, extra ...stagedLayer) error {
+// reload runs one pipeline with reload and stage observation. trigger and
+// reason are stamped on a published cause; key identifies the watched
+// directory, if any; extra layers join the normal priority order.
+func (m *Manager[T]) reload(ctx context.Context, trigger ReloadTrigger, reason, key string, extra ...stagedLayer) error {
 	start := time.Now()
 	if m.hasObservers() {
 		m.emit(ReloadStarted{Reason: reason})
@@ -128,7 +131,9 @@ func (m *Manager[T]) reload(ctx context.Context, reason, key string, extra ...st
 		m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf reload shadow_failed", slog.String("reason", reason), slog.Any("err", err))
 		return err
 	}
-	_, err = m.runTimedStage(ctx, "fastconf.commit", func(ctx context.Context, _ Span) error { return m.commit(ctx, assembly, reason, key) })
+	_, err = m.runTimedStage(ctx, "fastconf.commit", func(ctx context.Context, _ Span) error {
+		return m.commit(ctx, assembly, trigger, reason, key)
+	})
 	if err != nil {
 		root.RecordError(err)
 		m.opts.Logger.LogAttrs(context.Background(), slog.LevelWarn, "fastconf reload commit_failed", slog.String("reason", reason), slog.Any("err", err))

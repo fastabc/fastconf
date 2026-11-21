@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/fastabc/fastconf/codec"
+	"github.com/fastabc/fastconf/internal/fcerr"
 )
 
 // commit publishes a changed typed value or resolved-secret path set. key is the
 // watched directory for file-triggered reloads and is empty for other callers.
-func (m *Manager[T]) commit(ctx context.Context, assembly assemblyResult, reason, key string) error {
+func (m *Manager[T]) commit(ctx context.Context, assembly assemblyResult, trigger ReloadTrigger, reason, key string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -40,7 +41,7 @@ func (m *Manager[T]) commit(ctx context.Context, assembly assemblyResult, reason
 		return nil
 	}
 	m.publishedFingerprint = assembly.fingerprint
-	next := m.newCommittedState(pipeline, hash, reason, key)
+	next := m.newCommittedState(pipeline, hash, trigger, reason, key)
 	m.publishSnapshot(prev, next, reason)
 	if valueChanged {
 		m.notifySubscribers(prev, next)
@@ -48,12 +49,13 @@ func (m *Manager[T]) commit(ctx context.Context, assembly assemblyResult, reason
 	return nil
 }
 
-func (m *Manager[T]) newCommittedState(pipeline *pipelineState[T], hash [32]byte, reason, key string) *State[T] {
+func (m *Manager[T]) newCommittedState(pipeline *pipelineState[T], hash [32]byte, trigger ReloadTrigger, reason, key string) *State[T] {
 	gen := m.gen.Add(1)
 	// Cause.At is the snapshot's commit time; rollback stamps its own.
 	now := time.Now()
 	cause := ReloadCause{
 		Reason:    reason,
+		Trigger:   trigger,
 		At:        now,
 		Revisions: collectProviderRevisions(pipeline.sources),
 		Tenant:    m.tenant,
@@ -87,6 +89,35 @@ func (m *Manager[T]) publishSnapshot(prev, next *State[T], reason string) {
 	}
 }
 
+// ReloadTrigger is a bounded classification of what started a reload, plan or
+// rollback. Unlike ReloadCause.Reason, which can embed file paths, provider
+// event text or a WithReason value, it takes only the Trigger* values below
+// (new values may be added in later minor releases), so it is safe as a metric
+// label or audit dimension.
+type ReloadTrigger = fcerr.Trigger
+
+// ReloadTrigger values.
+const (
+	// TriggerInitial is the first load performed by New or Load.
+	TriggerInitial ReloadTrigger = "initial"
+	// TriggerManual is Manager.Reload, with or without WithOverride or WithReason.
+	TriggerManual ReloadTrigger = "manual"
+	// TriggerFile is a coalesced file-watcher event or watcher error.
+	TriggerFile ReloadTrigger = "file"
+	// TriggerProvider is a provider Watch event, or the compensating refresh
+	// after provider events were dropped ("provider:resync").
+	TriggerProvider ReloadTrigger = "provider"
+	// TriggerNotify is a refresh requested by a WithNotifier consumer.
+	TriggerNotify ReloadTrigger = "notify"
+	// TriggerResync is the periodic reconciliation configured by WithResync.
+	TriggerResync ReloadTrigger = "resync"
+	// TriggerRollback is History.Rollback or History.RollbackContext.
+	TriggerRollback ReloadTrigger = "rollback"
+	// TriggerPlan is Manager.Plan. It appears on PlanResult.Proposed and on
+	// Errors entries for failed plans; plans never publish.
+	TriggerPlan ReloadTrigger = "plan"
+)
+
 // ReloadCause is the audit-friendly explanation of a successful commit.
 // It is carried by the Committed observer event and surfaced on State[T].Cause so
 // downstream tooling can trace an in-process change back to the event
@@ -97,9 +128,11 @@ type ReloadCause struct {
 	// "provider:<name>[:<event reason>]", "notify:<name>" or "notify[<i>]",
 	// and for file events a comma-joined "fs:<op>:<path>" / "fs-error:<msg>"
 	// list. File and provider reasons embed paths or provider-supplied text,
-	// so they are unbounded: classify by prefix before using Reason as a
-	// metric dimension.
+	// so they are unbounded: use Trigger as a metric dimension instead.
 	Reason string
+	// Trigger classifies Reason into a bounded set of values; see
+	// ReloadTrigger. It is empty only for hand-built causes.
+	Trigger ReloadTrigger
 	// At is the snapshot commit time, or the preview time for Plan.
 	At time.Time
 	// Revisions captures every provider's reported revision at the time

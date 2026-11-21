@@ -126,14 +126,19 @@ than replacing the original layer history.
 
 Configure `WithHistory(4)` before creating a manager. `mgr.History()` is nil
 when history is disabled; `List()` returns retained previous snapshots, oldest
-first, excluding the live snapshot. Pass a retained snapshot to `Rollback`:
+first, excluding the live snapshot. Pass a retained snapshot to
+`RollbackContext`, which bounds the wait for a writer that may still be busy
+with an earlier reload. `Rollback(target)` is the same call without a deadline.
+This fragment imports `context` and `time`:
 
 ```go
 history := mgr.History()
 if history != nil {
     states := history.List()
     if len(states) > 0 {
-        if err := history.Rollback(states[len(states)-1]); err != nil {
+        rollbackCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+        defer cancel()
+        if err := history.RollbackContext(rollbackCtx, states[len(states)-1]); err != nil {
             return err
         }
     }
@@ -143,3 +148,6 @@ if history != nil {
 Rollback publishes a new generation with a new cause timestamp and reason
 `rollback`; it does not rerun validation or edit source files. A later reload
 reads the sources again. See the complete [reload example](../../../examples/reload/README.md).
+If the context ends while the request is still queued, the rollback is skipped
+and the context error is returned. Publication itself is not interrupted, so
+after a context error compare `Snapshot().Generation()` before retrying.

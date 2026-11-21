@@ -40,7 +40,8 @@ var (
 	ErrTooLarge = fcerr.ErrTooLarge
 )
 
-// ReloadError is one entry on Manager.Errors: the failure, the reload reason and its time.
+// ReloadError is one entry on Manager.Errors: the failure, the free-form reload
+// reason, its bounded Trigger (see ReloadTrigger) and its time.
 type ReloadError = fcerr.ReloadError
 
 // PolicyError aggregates the violations that aborted a reload.

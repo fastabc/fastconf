@@ -14,18 +14,21 @@ const reloadChanCap = 16
 // reloadRequest carries caller cancellation through the writer and pipeline.
 // A nil ctx from watcher triggers uses the manager lifetime; hooks without a
 // context must return before the writer can finish.
+// trigger is the bounded classification of reason; every non-test producer
+// sets it (see ReloadTrigger).
 type reloadRequest struct {
-	ctx    context.Context
-	reason string
-	key    string                      // optional: parent dir for fs-driven reloads (audit dim)
-	run    func(context.Context) error // if non-nil, called instead of m.reload (e.g. rollback)
-	doneCh chan error
+	ctx     context.Context
+	trigger ReloadTrigger
+	reason  string
+	key     string                      // optional: parent dir for fs-driven reloads (audit dim)
+	run     func(context.Context) error // if non-nil, called instead of m.reload (e.g. rollback)
+	doneCh  chan error
 }
 
 // requestReload queues work with the caller's context and waits for its result,
 // ErrClosed, or cancellation. Cancellation also reaches the in-flight pipeline.
-func (m *Manager[T]) requestReload(ctx context.Context, reason, key string) error {
-	return m.submitAndWait(ctx, reloadRequest{reason: reason, key: key})
+func (m *Manager[T]) requestReload(ctx context.Context, trigger ReloadTrigger, reason, key string) error {
+	return m.submitAndWait(ctx, reloadRequest{trigger: trigger, reason: reason, key: key})
 }
 
 func (m *Manager[T]) submitAndWait(ctx context.Context, req reloadRequest) error {
@@ -117,7 +120,7 @@ func (m *Manager[T]) runOverflowResync() {
 	if m.eventsPaused.Load() || m.lifetime.Err() != nil {
 		return
 	}
-	m.runReloadRequest(reloadRequest{reason: "provider:resync"})
+	m.runReloadRequest(reloadRequest{trigger: TriggerProvider, reason: "provider:resync"})
 }
 
 func (m *Manager[T]) runReloadRequest(req reloadRequest) {
@@ -141,7 +144,7 @@ func (m *Manager[T]) runReloadRequest(req reloadRequest) {
 		if req.run != nil {
 			err = req.run(pipeCtx)
 		} else {
-			err = m.reload(pipeCtx, req.reason, req.key)
+			err = m.reload(pipeCtx, req.trigger, req.reason, req.key)
 		}
 	}
 	stop()
@@ -150,7 +153,7 @@ func (m *Manager[T]) runReloadRequest(req reloadRequest) {
 	// receives the context error from submitAndWait, and publishing it would
 	// evict real failures from the bounded channel.
 	if err != nil && started {
-		m.publishReloadError(req.reason, err)
+		m.publishReloadError(req.trigger, req.reason, err)
 	}
 	if req.doneCh != nil {
 		req.doneCh <- err
@@ -171,13 +174,13 @@ func (m *Manager[T]) Errors() <-chan ReloadError {
 	return m.errorsCh
 }
 
-func (m *Manager[T]) publishReloadError(reason string, err error) {
+func (m *Manager[T]) publishReloadError(trigger ReloadTrigger, reason string, err error) {
 	if err == nil {
 		return
 	}
 	// Only the reload goroutine (reloadLoop, and subscriber callbacks it
 	// runs) publishes, so no send can race Close's close(errorsCh).
-	re := fcerr.ReloadError{Err: err, Reason: reason, At: time.Now()}
+	re := fcerr.ReloadError{Err: err, Reason: reason, Trigger: trigger, At: time.Now()}
 	for {
 		select {
 		case m.errorsCh <- re:
