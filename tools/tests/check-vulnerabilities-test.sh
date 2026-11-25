@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Scanner failures must survive tee, retain diagnostics and continue the inventory.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/repo/tools" "$TMP/repo/sub" "$TMP/bin"

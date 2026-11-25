@@ -1,4 +1,4 @@
-# Generate schemas and examples from structs (v1.6.0)
+# Generate schemas and examples from structs
 
 `github.com/fastabc/fastconf/schema` provides three functions. Inside a generator
 function returning `error`, import `reflect` and `schema` and use:
@@ -16,10 +16,10 @@ if err != nil { return err }
 
 Input must be a struct or a pointer to one. Field names follow JSON tags and
 embedding rules. `desc:"…"` takes precedence over `fc:"desc=…"`; defaults come
-from `default:"…"` only. A field that still declares the removed `fc:"default=…"`
-makes `JSONSchema`, `ExampleYAML` and `ExampleEnv` return an error, as manager
-construction does. Reflection cannot read source comments, so supply
-descriptions with `desc` tags.
+from `default:"…"` in v1.7.0. All three generators check for removed
+`fc:"default=…"` declarations before generating output. As with manager
+construction, a declaration on a skipped field or inside a collection is an error.
+Use `desc` tags for descriptions because reflection cannot read source comments.
 
 Schemas support primitive scalars, durations (strings with a pattern), `[]byte`
 (base64), lists, string-keyed maps and nested structs. `TextUnmarshaler` becomes a

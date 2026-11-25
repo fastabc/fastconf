@@ -114,28 +114,13 @@ func (p *Provider) loadMap(_ context.Context) (map[string]any, error) {
 			return nil, fmt.Errorf("dotenv provider: parse %q: %w", path, err)
 		}
 		for _, pair := range pairs {
-			k, v := pair.key, pair.value
-			// Actual env vars take precedence: skip keys already present in
-			// the process environment, even when their value is explicitly
-			// empty. Check k directly — it is the full raw key from the .env
-			// file (e.g. APP_PORT) and is not yet prefix-stripped.
+			// Look up the original key so even an empty process value wins.
 			if p.lookup != nil {
-				if _, ok := p.lookup(k); ok {
+				if _, ok := p.lookup(pair.key); ok {
 					continue
 				}
 			}
-			if p.prefix != "" && !strings.HasPrefix(k, p.prefix) {
-				continue
-			}
-			k = strings.TrimPrefix(k, p.prefix)
-			if k == "" {
-				continue
-			}
-			dotted := p.replacer.Replace(k)
-			if dotted == "" {
-				continue
-			}
-			confmap.Set(inner, strings.Split(dotted, "."), providerutil.MaybeCoerce(v, p.coerce))
+			providerutil.SetEnvValue(inner, pair.key, pair.value, p.prefix, p.replacer, p.coerce)
 		}
 	}
 	return providerutil.GraftAt(inner, p.root), nil

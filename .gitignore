@@ -13,11 +13,11 @@
 
 # ---- AI / graph tools -------------------------------------------
 .claude/
+/.superpowers/
 .code-review-graph*
 .github/copilot*.md
 .graphify-out/
 graphify-out/
-pkg/graphify-out/
 .mcp.json
 .codegraph/
 
@@ -63,21 +63,22 @@ go.work.sum
 # Build & local artifacts
 /bin/
 /dist/
-/docs/graph/
 
 # Tooling caches
 .golangci-cache/
 
 # Logs
 /logs
-logs/CHANGELOG.md
 
-# Docs
-/docs/archive
-/docs/superpowers
-/docs/plans
-/docs/reviews
+# Local documentation, plans and generated graphs
+/docs/archive/
+/docs/graph/
+/docs/plan/
+/docs/plans/
+/docs/reviews/
+/docs/superpowers/
 
+# Built CLI binaries at the repository root
 /fastconfd
 /fastconfgen
 /fastconfctl

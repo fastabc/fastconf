@@ -1,8 +1,8 @@
 # FastConf Runtime Contract
 
-This document defines the FastConf v1.6.0 runtime contract.
-For another release, use this document at its installed tag. Release changes
-are recorded in the [changelog](../../CHANGELOG.md#v160---2026-11-15).
+This document describes the runtime behavior of the current checkout. For a
+released version, read this file at the corresponding tag. Changes since v1.6.0
+are recorded in the [changelog](../../CHANGELOG.md#unreleased).
 The root module requires Go 1.25; independent modules declare their own
 minimum versions. See [architecture.md](../architecture.md) for package
 ownership and [RELEASING.md](../../RELEASING.md) for release checks.
@@ -13,8 +13,9 @@ ownership and [RELEASING.md](../../RELEASING.md) for release checks.
 `Get()` is a lock-free, zero-allocation read. Callers must treat its `*T`
 (and values reachable through it) as read-only.
 
-`New(ctx, opts...)` performs the first load synchronously, then starts the
-reload loop and configured watchers. Its context bounds initialization;
+With file watching enabled, `New(ctx, opts...)` starts the file watcher before
+the first synchronous load. After that load succeeds, it starts the reload loop,
+provider watchers and configured notifiers. Its context bounds initialization;
 background work retains context values and runs until `Close` or `Shutdown`.
 `Load` shares option resolution, typed-hook setup and the initial pipeline
 with `New`, without starting background workers.

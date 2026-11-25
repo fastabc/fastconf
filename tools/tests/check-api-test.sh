@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Exercise the real gorelease against published versions in a local fixture proxy.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'chmod -R u+w "$TMP"; rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/repo/tools" "$TMP/bin" "$TMP/tool"

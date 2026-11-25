@@ -27,13 +27,18 @@ Keep checksum verification enabled. Candidate checks prepend their temporary
 | `make check` | Formatting, local Markdown file links, dependency boundaries, tidy metadata and tooling regression tests |
 | `make lint` | Every module, including benchmarks, in an isolated candidate checkout; uses the Makefile-pinned golangci-lint |
 | `make fmt-check` | gofmt and goimports across all Go files, including build-tagged examples |
-| `make tools-check` | Requires shellcheck and actionlint |
+| `make test-tools` | Run the Shell and Python regression suites under `tools/tests/` |
+| `make tools-check` | Lint shell scripts (including tests) with ShellCheck and GitHub Actions workflows with actionlint |
 | `make bench` / `make bench-guard` | Benchmarks / hot-read budget |
 | `make cover` / `make example` | Root coverage / godoc, scenario tests and optional provider/notifier programs |
 | `make soak` | 10-second resource soak test; `FASTCONF_SOAK_DURATION=5m` for an extended run |
 | `make tidy` | Update dependency metadata in the root and all submodules, including benchmarks |
 | `make tidy-check` | Tidy the same modules in isolation; report metadata drift without editing source files |
 | `make module-matrix` | CI JSON from discovered submodule Go floors |
+
+`make check` includes `make test-tools`. To run a single suite, use
+`bash tools/tests/modules-test.sh` or `python3 tools/tests/test_tools.py ReleaseNotesTest`.
+The published-baseline negative test has a separate command under [Release validation](#release-validation).
 
 Use `MODULES=". cue"` with `test-all`, `test-workspace`, `test-candidate`, `lint`, `tidy` or `tidy-check` to
 select modules. `bash tools/modules.sh exec COMMAND ...` runs a command from the
@@ -132,7 +137,7 @@ an explicit API target, and preserves major/minor compatibility rules.
 No release or tag is created.
 Baseline download failures fail the check; never use `BASE=none` as a fallback.
 
-`BASE=v1.2.0 bash tools/check-candidate.sh --api bash tools/check-api-negative.sh`
+`BASE=v1.2.0 bash tools/check-candidate.sh --api bash tools/tests/check-api-negative.sh`
 verifies the real gorelease gate rejects removed root and pflag exports in
 disposable copies, including before the candidate version is published. It needs
 network access to the fixed v1.2.0 baseline and does not change the working tree.

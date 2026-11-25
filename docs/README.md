@@ -1,8 +1,8 @@
 # Documentation
 
-These pages document v1.6.0, including the additions in the
-[release notes](../CHANGELOG.md#v160---2026-11-15). Read the same path at your
-installed tag for release-specific behavior. Commands run from the repository
+These pages describe the current checkout, including the
+[unreleased changes](../CHANGELOG.md#unreleased) planned for v1.7.0. Read the
+same path at your installed tag for release-specific behavior. Commands run from the repository
 root unless stated otherwise.
 
 ## Start here
@@ -17,6 +17,7 @@ root unless stated otherwise.
 | Generate JSON Schema, YAML and env examples | [Schema and examples](cookbook/processing/schema.md); added in v1.6.0 |
 | Find a task-specific recipe | [Cookbook by function](cookbook/README.md) |
 | Upgrade from v0.20.0 | [Migration guide](cookbook/migration-v1.md#constructors-and-options) |
+| Prepare to upgrade from v1.6.0 | [v1.7.0 upgrade notes](cookbook/migration-v1.md#upgrading-from-v160-to-v170) |
 | Upgrade from v1.5.0 | [v1.6.0 upgrade notes](cookbook/migration-v1.md#upgrading-from-v150-to-v160) |
 | Upgrade from v1.4.0 | [v1.5.0 upgrade notes](cookbook/migration-v1.md#upgrading-from-v140-to-v150) |
 | Upgrade from v1.3.0 | [v1.4.0 upgrade notes](cookbook/migration-v1.md#upgrading-from-v130-to-v140) |

@@ -6,6 +6,7 @@ package providerutil
 
 import (
 	"maps"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,6 +63,17 @@ func GraftAt(inner map[string]any, root []string) map[string]any {
 	out := map[string]any{}
 	confmap.Set(out, root, inner)
 	return out
+}
+
+// SetEnvValue writes a matching environment key to the path chosen by replacer.
+func SetEnvValue(dst map[string]any, key, value, prefix string, replacer interface{ Replace(string) string }, coerce bool) {
+	key, ok := strings.CutPrefix(key, prefix)
+	if !ok || key == "" {
+		return
+	}
+	if path := replacer.Replace(key); path != "" {
+		confmap.SetDotted(dst, path, MaybeCoerce(value, coerce))
+	}
 }
 
 // MaybeCoerce converts scalar strings only when enabled.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Candidate sums must be isolated without dropping unrelated dependency checks.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'chmod -R u+w "$TMP"; rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/repo/tools" "$TMP/repo/sub"

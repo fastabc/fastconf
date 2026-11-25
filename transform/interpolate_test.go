@@ -3,6 +3,7 @@ package transform
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -73,5 +74,30 @@ func TestInterpolate_EnvValueNotReexpanded(t *testing.T) {
 		if root["b"] != "${B}" {
 			t.Fatal(root)
 		}
+	}
+}
+
+func TestInterpolate_ReusedAcrossRoots(t *testing.T) {
+	expand := Interpolate(InterpolateOptions{Refs: true})
+	for _, host := range []string{"first", "second"} {
+		root := map[string]any{"server": map[string]any{"host": host}, "url": "https://${server.host}"}
+		if err := expand(root); err != nil {
+			t.Fatal(err)
+		}
+		if got := root["url"]; got != "https://"+host {
+			t.Fatalf("url = %q for host %q", got, host)
+		}
+	}
+}
+
+func TestInterpolate_ErrorPreservesInput(t *testing.T) {
+	items := []any{"$${HOST}", "${missing.field}"}
+	root := map[string]any{"items": items}
+	if err := Interpolate(InterpolateOptions{Refs: true})(root); err == nil || !strings.Contains(err.Error(), "interpolate items.1:") {
+		t.Fatalf("expected an error at items.1, got %v", err)
+	}
+	want := []any{"$${HOST}", "${missing.field}"}
+	if !slices.Equal(root["items"].([]any), want) || !slices.Equal(items, want) {
+		t.Fatalf("failed interpolation changed the input: root = %v, items = %v", root, items)
 	}
 }

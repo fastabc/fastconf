@@ -17,7 +17,7 @@ BINS := fastconfd fastconfctl fastconfgen
 ALL_TARGETS := $(sort $(TARGETS) $(EXTRA_TARGETS))
 
 .PHONY: all help build test test-jsonv2 race test-all test-workspace test-candidate \
-        vulnerabilities api-check lint fmt-check deps-check tools-check check tidy tidy-check \
+        vulnerabilities api-check lint fmt-check deps-check tools-check test-tools check tidy tidy-check \
         bench bench-guard cover example example-optional module-matrix versions soak \
         dist dist-clean dist-verify $(addprefix dist-,$(BINS)) FORCE
 
@@ -63,21 +63,18 @@ deps-check:
 	bash tools/check-repo.sh deps
 
 tools-check:
-	shellcheck tools/*.sh
+	shellcheck tools/*.sh tools/tests/*.sh
 	actionlint
 
-check: fmt-check deps-check tidy-check
+test-tools:
+	@set -e; for script in tools/tests/*-test.sh; do \
+		echo "Running $$script"; \
+		bash "$$script"; \
+	done
+	python3 tools/tests/test_tools.py
+
+check: fmt-check deps-check tidy-check test-tools
 	bash tools/check-repo.sh docs
-	python3 tools/check-doc-links-test.py
-	python3 tools/release-notes-test.py
-	bash tools/check-repo-test.sh
-	bash tools/modules-test.sh
-	bash tools/check-candidate-test.sh
-	bash tools/check-api-test.sh
-	bash tools/check-vulnerabilities-test.sh
-	python3 tools/tidy-candidate-test.py
-	bash tools/tag-release-test.sh
-	bash tools/bench-guard-test.sh
 
 tidy:
 	VERSION=$(VERSION) bash tools/modules.sh tidy $(MODULES)

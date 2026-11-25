@@ -131,18 +131,7 @@ func (p *Provider) loadMap(_ context.Context) (map[string]any, error) {
 		if !ok {
 			continue
 		}
-		if p.prefix != "" && !strings.HasPrefix(k, p.prefix) {
-			continue
-		}
-		k = strings.TrimPrefix(k, p.prefix)
-		if k == "" {
-			continue
-		}
-		dotted := p.replacer.Replace(k)
-		if dotted == "" {
-			continue
-		}
-		confmap.Set(inner, strings.Split(dotted, "."), providerutil.MaybeCoerce(v, p.coerce))
+		providerutil.SetEnvValue(inner, k, v, p.prefix, p.replacer, p.coerce)
 	}
 	return providerutil.GraftAt(inner, p.root), nil
 }

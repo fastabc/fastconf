@@ -66,7 +66,7 @@ commits remain in its disposable checkout. This verifies a source combination
 without publishing it. To test one candidate module:
 
 ```sh
-VERSION=v1.6.0 bash tools/check-candidate.sh bash tools/modules.sh test providers/s3
+make test-candidate MODULES=providers/s3 VERSION=v1.7.0
 ```
 
 After publication, `make test-all` checks independent resolution of the published
@@ -138,11 +138,11 @@ bash tools/check-candidate.sh env GOOS=windows GOARCH=amd64 \
 
 ## Tagging
 
-Preview and publish the complete module tag set from a clean release commit:
+After preparing the v1.7.0 release commit and changelog section, preview and publish its module tags from a clean checkout:
 
 ```sh
-bash tools/tag-release.sh v1.6.0 --dry-run
-bash tools/tag-release.sh v1.6.0 --push
+bash tools/tag-release.sh v1.7.0 --dry-run
+bash tools/tag-release.sh v1.7.0 --push
 ```
 
 The script validates the exact changelog section and all version pins before creating tags at one commit. It
@@ -169,7 +169,7 @@ the binary, LICENSE and README.md. Builds disable CGO, use `-trimpath`, and embe
 the tag through `-X main.version=<tag>`.
 
 ```sh
-make dist VERSION=v1.6.0
+make dist VERSION=v1.7.0
 make dist-verify
 ```
 

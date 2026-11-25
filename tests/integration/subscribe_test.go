@@ -3,10 +3,10 @@ package integration_test
 import (
 	"context"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
-	"time"
 
 	"github.com/fastabc/fastconf"
 )
@@ -146,17 +146,10 @@ func TestSubscribe_WithEqual_EveryCommit(t *testing.T) {
 	}
 }
 
-// TestSubscribe_WithEqual_NotInvokedForNilTransition — nil ↔ non-nil
-// transitions bypass equal entirely (per the API contract).
 func TestSubscribe_WithEqual_NotInvokedForNilTransition(t *testing.T) {
-	base := "db:\n  dsn: postgres://v1\n  pool: 5\n"
-	mgr := newSubMgr(t, base)
-
-	var equalCalls atomic.Int32
-	var firedWithNilOld atomic.Bool
-
-	// extract returns nil when DSN is empty (simulates a "missing slice"
-	// configuration that flips between present and absent).
+	mgr := newSubMgr(t, "db: {dsn: v1}")
+	type transition struct{ oldNil, newNil bool }
+	var got []transition
 	cancel := fastconf.Subscribe(mgr,
 		func(c *subCfg) *subCfgDB {
 			if c.DB.DSN == "" {
@@ -164,83 +157,55 @@ func TestSubscribe_WithEqual_NotInvokedForNilTransition(t *testing.T) {
 			}
 			return &c.DB
 		},
-		func(old, new *subCfgDB) {
-			if old == nil {
-				firedWithNilOld.Store(true)
-			}
-		},
-		fastconf.WithEqual(func(a, b *subCfgDB) bool {
-			equalCalls.Add(1)
+		func(old, next *subCfgDB) { got = append(got, transition{old == nil, next == nil}) },
+		fastconf.WithEqual(func(_, _ *subCfgDB) bool {
+			t.Error("comparator called on a nil transition")
 			return false
 		}),
 	)
 	defer cancel()
 
-	// Initial state has DSN=v1 (non-nil). Reload with empty DSN → extract
-	// returns nil → non-nil → nil transition → equal MUST NOT be called.
-	if err := mgr.Reload(context.Background(), fastconf.WithOverride(map[string]any{
-		"db": map[string]any{"dsn": "", "pool": 0},
-	})); err != nil {
-		t.Fatal(err)
+	for _, dsn := range []string{"", "v2"} {
+		if err := mgr.Reload(context.Background(), fastconf.WithOverride(map[string]any{
+			"db": map[string]any{"dsn": dsn},
+		})); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if c := equalCalls.Load(); c != 0 {
-		t.Errorf("equal must not be invoked on nil transition, got %d calls", c)
-	}
-
-	// Reload back to non-nil → nil → non-nil transition → still no equal call.
-	if err := mgr.Reload(context.Background(), fastconf.WithOverride(map[string]any{
-		"db": map[string]any{"dsn": "postgres://v2", "pool": 5},
-	})); err != nil {
-		t.Fatal(err)
-	}
-	if c := equalCalls.Load(); c != 0 {
-		t.Errorf("equal must not be invoked on nil transition, got %d calls", c)
-	}
-	if !firedWithNilOld.Load() {
-		t.Errorf("nil → non-nil transition should fire callback with old == nil")
+	want := []transition{{newNil: true}, {oldNil: true}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("nil transitions = %+v, want %+v", got, want)
 	}
 }
 
-// TestSubscribe_PanicInEqualIsRecovered — a panic from a WithEqual
-// comparator must not crash the writer; it is recovered like a panic
-// from fn itself and surfaced on the Errors channel.
-func TestSubscribe_PanicInEqualIsRecovered(t *testing.T) {
-	base := "db:\n  dsn: postgres://v1\n  pool: 5\n"
-	mgr := newSubMgr(t, base)
+func TestSubscribe_PanicIsolated(t *testing.T) {
+	extract := func(c *subCfg) *string { return &c.DB.DSN }
+	for _, tc := range []struct {
+		name string
+		opts []fastconf.SubscribeOption[string]
+	}{
+		{"callback", nil},
+		{"comparator", []fastconf.SubscribeOption[string]{fastconf.WithEqual(func(_, _ *string) bool { panic("comparator") })}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr := newSubMgr(t, "db: {dsn: v1}")
+			fastconf.Subscribe(mgr, extract, func(_, _ *string) { panic("callback") }, tc.opts...)
+			goodCalls := 0
+			fastconf.Subscribe(mgr, extract, func(_, _ *string) { goodCalls++ })
 
-	var goodCalls atomic.Int32
-	cancelBad := fastconf.Subscribe(mgr,
-		func(c *subCfg) *subCfgDB { return &c.DB },
-		func(old, new *subCfgDB) { /* unreachable when equal panics */ },
-		fastconf.WithEqual(func(a, b *subCfgDB) bool { panic("equal-boom") }),
-	)
-	defer cancelBad()
-	cancelGood := fastconf.Subscribe(mgr,
-		func(c *subCfg) *subCfgDB { return &c.DB },
-		func(old, new *subCfgDB) { goodCalls.Add(1) },
-	)
-	defer cancelGood()
-
-	if err := mgr.Reload(context.Background(), fastconf.WithOverride(map[string]any{
-		"db": map[string]any{"dsn": "postgres://v2", "pool": 5},
-	})); err != nil {
-		t.Fatalf("Reload must not propagate subscriber panic: %v", err)
-	}
-
-	// The good subscriber observes the DSN change; the bad one's panic is
-	// isolated.
-	if got := goodCalls.Load(); got != 1 {
-		t.Errorf("good subscriber: want 1, got %d", got)
-	}
-
-	// The panic surfaces on Errors() — drain non-blockingly.
-	select {
-	case re := <-mgr.Errors():
-		if re.Reason == "" || re.Err == nil {
-			t.Errorf("expected non-empty reason and err on subscriber panic, got %+v", re)
-		}
-	case <-time.After(200 * time.Millisecond):
-		t.Errorf("expected subscriber panic to surface on Errors() within 200ms")
+			if err := mgr.Reload(context.Background(), fastconf.WithOverride(map[string]any{
+				"db": map[string]any{"dsn": "v2"},
+			})); err != nil {
+				t.Fatal(err)
+			}
+			if goodCalls != 1 {
+				t.Errorf("later subscriber called %d times, want 1", goodCalls)
+			}
+			re := await(t, mgr.Errors())
+			if re.Reason != "subscriber-panic" || re.Err == nil || !strings.Contains(re.Err.Error(), tc.name) {
+				t.Errorf("reported error = %+v, want subscriber-panic from %s", re, tc.name)
+			}
+		})
 	}
 }
 
@@ -265,36 +230,6 @@ func TestSubscribe_RegistrationOrder(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("callbacks = %v, want %v", got, want)
 		}
-	}
-}
-
-func TestSubscribe_PanicIsolated(t *testing.T) {
-	mfs := newFS(nil)
-	mgr, err := fastconf.New[appCfg](context.Background(),
-		fastconf.WithFS(mfs), fastconf.WithDir("conf.d"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = mgr.Close() }()
-
-	var goodCalls atomic.Int64
-	fastconf.Subscribe(mgr, func(c *appCfg) *string { return &c.Server.Addr }, func(_, _ *string) { panic("boom") })
-	fastconf.Subscribe(mgr, func(c *appCfg) *string { return &c.Server.Addr }, func(_, _ *string) { goodCalls.Add(1) })
-
-	mfs["conf.d/base/00-app.yaml"] = &fstest.MapFile{Data: []byte("server:\n  addr: \":9090\"\nfeatures: [a, b]\n")}
-	if err := mgr.Reload(context.Background()); err != nil {
-		t.Fatalf("reload should not bubble subscriber panic: %v", err)
-	}
-	if got := goodCalls.Load(); got != 1 {
-		t.Errorf("good subscriber should still fire: got %d", got)
-	}
-	select {
-	case re := <-mgr.Errors():
-		if re.Reason != "subscriber-panic" || re.Err == nil {
-			t.Errorf("subscriber panic error = %+v, want reason subscriber-panic with err", re)
-		}
-	case <-time.After(200 * time.Millisecond):
-		t.Error("expected subscriber panic to surface on Errors()")
 	}
 }
 

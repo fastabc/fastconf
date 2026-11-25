@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Check boundary values and preserve failed Go command diagnostics.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 cat > "$TMP/go" <<'MOCK'

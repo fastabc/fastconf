@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prove the real compatibility gate rejects removed exports in disposable copies.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BASE="${BASE:-v1.2.0}"
 VERSION="${VERSION:-v1.2.1-api-check}"
 TMP="$(mktemp -d)"

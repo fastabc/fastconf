@@ -70,7 +70,8 @@ The default format is JSON (use `--format=yaml` for the deterministic YAML form)
 
 `fastconfctl diff -to prod` compares base-only configuration with prod. An empty
 `-from` ignores `APP_PROFILE` and metadata profile defaults, including overlays
-with negated match expressions. Pass `-from dev` to compare two profiles.
+with negated match expressions. Use `fastconfctl diff -from dev -to prod` to
+compare two profiles. Starting in v1.7.0, passing `-profile` to `diff` returns an error.
 
 ### Sidecar `/dump` endpoint
 

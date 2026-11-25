@@ -1,6 +1,6 @@
 # Cookbook
 
-Recipes target the current v1.6.0 API; version-specific additions are noted explicitly.
+Recipes describe the current checkout, including changes planned for v1.7.0.
 For a released dependency, read the recipe at its installed tag. Start with the
 [loading guides](../README.md#start-here) or [complete examples](../../examples/README.md).
 

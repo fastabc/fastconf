@@ -1,8 +1,8 @@
-# Migration to v1.6.0
+# FastConf v1 migration guide
 
 The tables document the API migration from v0.20.0 to v1.1.0. These changes
 also apply when upgrading directly to v1.6.0; intermediate development APIs
-are not migration steps. Install the current root and optional modules together:
+are not migration steps. The install commands below use the published v1.6.0 tags for the root and optional modules.
 
 ```sh
 go get github.com/fastabc/fastconf@v1.6.0
@@ -17,16 +17,17 @@ Import paths remain under `github.com/fastabc/fastconf`.
 
 ## Upgrading from v1.6.0 to v1.7.0
 
-v1.7.0 removes one tag directive and reclassifies two diagnostics. Review these
-changes before upgrading:
+The following changes are in the development branch for v1.7.0.
 
 - **`fc:"default=…"` is removed.** A field that still declares it, including one
-  inside a collection element, fails `New`, `Load` and `LoadFile` with an error
+  inside a collection element or on a field skipped by the decoder, fails `New`, `Load` and `LoadFile` with an error
   naming the field; `schema.JSONSchema`, `ExampleYAML` and `ExampleEnv` fail the
   same way. Replace it with `default:"…"` when explicit false, 0 or empty strings
   must survive, or with a `Defaults()` method when zero values must be replaced.
   Keep the other `fc` directives. See the
   [migration table](processing/field-meta.md#migrating-from-fc-defaults).
+- `fastconfctl diff` now rejects `-profile`, which earlier versions silently ignored.
+  Pass `-from dev -to prod` to compare profiles, or `-to prod` to compare base with prod.
 - **`LoadFile` syntax errors wrap `ErrDecode`**, as in directory discovery, and no
   longer wrap `ErrProvider`. Missing and unreadable files still wrap `ErrProvider`.
 - **The assembly failure log message is renamed** from
@@ -97,7 +98,8 @@ needed and runtime behavior is unchanged.
 v1.4.0 establishes a new API compatibility baseline. Fields of the unexported
 option struct, which `gorelease` reaches through `Option`, were renamed, so
 tooling that compares v1.4.0 with v1.3.0 reports incompatible changes even
-though applications cannot name those fields. Compare later releases with v1.4.0.
+though applications cannot name those fields. The current baseline is documented in the
+[release guide](../../RELEASING.md#api-compatibility).
 
 ## Upgrading from v1.2.0 to v1.3.0
 

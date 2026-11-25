@@ -12,53 +12,6 @@ import (
 	"github.com/fastabc/fastconf/providers/source"
 )
 
-type removedDefaultsCfg struct {
-	Host   string `json:"host" fc:"default=localhost"`
-	Nested struct {
-		Quota int `json:"quota" fc:"min=1,default=42"`
-	} `json:"nested"`
-	Items []struct {
-		Port int `json:"port" fc:"default=8080"`
-	} `json:"items"`
-}
-
-// fc:"default=…" was removed in v1.7.0. Any remaining declaration, including
-// one inside a collection element, must fail construction instead of being
-// ignored silently.
-func TestStructDefaults_RemovedFCDefaultFailsConstruction(t *testing.T) {
-	type top struct {
-		Host string `json:"host" fc:"default=localhost"`
-	}
-	type element struct {
-		Items []struct {
-			Port int `json:"port" fc:"default=8080"`
-		} `json:"items"`
-	}
-	for name, err := range map[string]error{
-		"top":     newRemovedDefault[top](),
-		"element": newRemovedDefault[element](),
-		"mixed":   newRemovedDefault[removedDefaultsCfg](),
-	} {
-		if !errors.Is(err, fastconf.ErrFastConf) || !strings.Contains(err.Error(), `fc:"default=…" was removed`) {
-			t.Errorf("%s: err = %v; want removed fc default", name, err)
-		}
-	}
-	_, err := fastconf.Load[top](context.Background(), fastconf.WithFS(fstest.MapFS{}),
-		fastconf.WithProvider(source.NewBytes("over", "yaml", []byte("host: x\n"))))
-	if err == nil || !strings.Contains(err.Error(), "host") {
-		t.Fatalf("Load error should name the field: %v", err)
-	}
-}
-
-func newRemovedDefault[T any]() error {
-	m, err := fastconf.New[T](context.Background(), fastconf.WithFS(fstest.MapFS{}),
-		fastconf.WithProvider(source.NewBytes("over", "yaml", []byte("{}\n"))))
-	if m != nil {
-		_ = m.Close()
-	}
-	return err
-}
-
 type defaulterFuncCfg struct {
 	Seed    string `json:"seed" default:"seed"`
 	Derived string `json:"derived"`

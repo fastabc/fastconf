@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Lint must discover modules, preserve command arguments and propagate failures.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/repo/tools" "$TMP/repo/providers/new" "$TMP/repo/benchmarks/compare"

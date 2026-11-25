@@ -11,11 +11,11 @@ Failed reloads keep the application on its last valid configuration.
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-This README documents v1.6.0; see the [release notes](CHANGELOG.md#v160---2026-11-15).
-Read the documentation at your installed tag for release-specific behavior.
-For v0.20.0 upgrades, see the
-[migration guide](docs/cookbook/migration-v1.md); for v1.5.0, see the
-[v1.6.0 upgrade notes](docs/cookbook/migration-v1.md#upgrading-from-v150-to-v160).
+The installation command below uses the published v1.6.0 release. This checkout also
+documents changes planned for v1.7.0. See the [v1.6.0 release notes](CHANGELOG.md#v160---2026-11-15)
+and the [v1.7.0 upgrade notes](docs/cookbook/migration-v1.md#upgrading-from-v160-to-v170).
+For earlier upgrades, see the [v0.20.0 migration table](docs/cookbook/migration-v1.md#constructors-and-options)
+or the [v1.5.0 to v1.6.0 guide](docs/cookbook/migration-v1.md#upgrading-from-v150-to-v160).
 
 ## Why FastConf
 
@@ -481,6 +481,7 @@ including metadata; see [discovery limits](docs/design/spec.md#discovery-limits)
 ```sh
 make build       # root module and fastconfgen
 make test        # root race tests
+make test-tools  # shell and Python tooling regression tests
 make example     # executable examples, including optional integrations
 make check       # repository checks; see tools/README.md
 ```

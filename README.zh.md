@@ -10,10 +10,11 @@ FastConf 将文件、环境变量与云端配置统一为强类型 Go 配置。�
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-本 README 介绍 v1.6.0，见[版本说明](CHANGELOG.md#v160---2026-11-15)。
-版本行为请以所安装 tag 的文档为准。
-从 v0.20.0 升级见[迁移指南](docs/cookbook/migration-v1.md)；从 v1.5.0 升级见
-[v1.6.0 升级说明](docs/cookbook/migration-v1.md#upgrading-from-v150-to-v160)。
+下方安装命令使用已发布的 v1.6.0。本分支也记录计划在 v1.7.0 中发布的变更。
+详见 [v1.6.0 版本说明](CHANGELOG.md#v160---2026-11-15) 和
+[v1.7.0 升级说明](docs/cookbook/migration-v1.md#upgrading-from-v160-to-v170)。
+从较早版本升级，可参考 [v0.20.0 迁移对照表](docs/cookbook/migration-v1.md#constructors-and-options)
+和 [v1.5.0 至 v1.6.0 升级指南](docs/cookbook/migration-v1.md#upgrading-from-v150-to-v160)。
 
 ## 为什么选择 FastConf
 
@@ -441,6 +442,7 @@ conf.d 发现层仅接受普通文件（跟随符号链接），单文件及元�
 ```sh
 make build       # Root module and fastconfgen
 make test        # Root-module race tests
+make test-tools  # 工具脚本的 Shell 和 Python 回归测试
 make example     # Executable examples, including optional integrations
 make check       # Repository checks; see tools/README.md
 ```

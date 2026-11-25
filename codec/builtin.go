@@ -138,6 +138,21 @@ func (jsonDecoder) Decode(data []byte) (map[string]any, error) {
 	if len(data) == 0 {
 		return map[string]any{}, nil
 	}
+	raw, err := decodeSingleJSONDocument(data)
+	if err != nil {
+		return nil, err
+	}
+	if raw == nil {
+		return map[string]any{}, nil
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("json: top-level must be an object, got %T", raw)
+	}
+	return m, nil
+}
+
+func decodeSingleJSONDocument(data []byte) (any, error) {
 	var raw any
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
@@ -151,14 +166,7 @@ func (jsonDecoder) Decode(data []byte) (map[string]any, error) {
 		}
 		return nil, fmt.Errorf("json: trailing content: %w", err)
 	}
-	if raw == nil {
-		return map[string]any{}, nil
-	}
-	m, ok := raw.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("json: top-level must be an object, got %T", raw)
-	}
-	return m, nil
+	return raw, nil
 }
 
 // tomlDecoder parses TOML bytes into the canonical map[string]any intermediate representation.

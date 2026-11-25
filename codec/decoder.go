@@ -5,10 +5,8 @@ package codec
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/fastabc/fastconf/contracts"
@@ -36,29 +34,13 @@ func DecodeAny(codec string, data []byte) (any, error) {
 	}
 	switch strings.ToLower(codec) {
 	case "yaml", "yml":
-		// Same contract as the json branch below: a patch file holding more
-		// than one content document must fail rather than apply only its
-		// first document. decodeSingleYAMLDocument lives in builtin.go.
 		raw, err := decodeSingleYAMLDocument(data)
 		if err != nil {
 			return nil, err
 		}
 		return normalizeValue(raw), nil
 	case "json":
-		var raw any
-		dec := json.NewDecoder(bytes.NewReader(data))
-		dec.UseNumber()
-		if err := dec.Decode(&raw); err != nil {
-			return nil, fmt.Errorf("json: %w", err)
-		}
-		var extra any
-		if err := dec.Decode(&extra); err != io.EOF {
-			if err == nil {
-				return nil, fmt.Errorf("json: multiple documents")
-			}
-			return nil, fmt.Errorf("json: trailing content: %w", err)
-		}
-		return raw, nil
+		return decodeSingleJSONDocument(data)
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnknownCodec, codec)
 	}

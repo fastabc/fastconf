@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Exercise discovery and immutable, coordinated tags in a disposable repository.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir "$TMP/repo"

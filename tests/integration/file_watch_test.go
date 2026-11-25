@@ -43,24 +43,27 @@ func TestFileWatch_ChurnDoesNotBuildBacklog(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = mgr.Close() }()
-	manual := make(chan error, 1)
-	started := time.Now()
-	requested := false
-	for time.Since(started) < time.Second {
-		writeFile(t, path, "v: changing\n")
-		if !requested && time.Since(started) > 600*time.Millisecond {
-			requested = true
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
-				defer cancel()
-				manual <- mgr.Reload(ctx)
-			}()
+	writeFile(t, path, "v: changing\n")
+	// Load 1 is construction. Wait for the watcher to start load 2 before
+	// building up file events and placing a manual reload behind them.
+	waitFor(t, func() bool { return p.loads.Load() >= 2 }, "first file-triggered reload")
+	churn := func(writes int) {
+		for range writes {
+			writeFile(t, path, "v: changing\n")
+			time.Sleep(10 * time.Millisecond)
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
+	churn(60)
+	manual := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+		defer cancel()
+		manual <- mgr.Reload(ctx)
+	}()
+	churn(40)
 	stoppedAt := p.loads.Load()
 	writeFile(t, path, "v: last\n")
-	if err := <-manual; err != nil {
+	if err := await(t, manual); err != nil {
 		t.Errorf("manual reload starved during file churn: %v", err)
 	}
 	time.Sleep(1500 * time.Millisecond)

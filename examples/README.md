@@ -7,7 +7,7 @@ provide source/fixture links, expected output and verification commands.
 
 ## Current API coverage (v1.6.0)
 
-These examples target the v1.6.0 API in this checkout. Optional modules are
+These examples exercise features introduced in v1.6.0 against the current checkout. Optional modules are
 validated against local sources through the temporary workspace commands below.
 
 | Feature / API | Runnable example |

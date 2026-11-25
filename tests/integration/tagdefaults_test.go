@@ -75,38 +75,72 @@ func TestTagDefaults_NestedAndPointer(t *testing.T) {
 		}
 	}
 }
+
 func TestTagDefaults_InvalidDeclarations(t *testing.T) {
-	type Conflict struct {
-		X int `default:"1" fc:"default=2"`
-	}
-	type Invalid struct {
+	type invalid struct {
 		X int `default:"abc"`
 	}
-	type Collection struct {
+	type collection struct {
 		Items []struct {
 			X int `default:"1"`
 		}
 	}
-	type Object struct {
+	type object struct {
 		X struct{ V int } `default:"x"`
 	}
-	for _, err := range []error{newTagDefaults[Conflict](), newTagDefaults[Invalid](), newTagDefaults[Collection](), newTagDefaults[Object]()} {
-		if !errors.Is(err, fastconf.ErrFastConf) || !strings.Contains(err.Error(), "default tag") {
-			t.Fatalf("%v", err)
+	type removed struct {
+		Port int `json:"port" fc:"default=80"`
+	}
+	type nested struct {
+		DB struct {
+			Quota int `fc:"min=1,default=42"`
 		}
 	}
-	// The removed fc default is reported as such, not as a conflict.
-	if err := newTagDefaults[Conflict](); !strings.Contains(err.Error(), `fc:"default=…" was removed`) {
-		t.Fatalf("conflict error = %v; want removed fc default", err)
+	type element struct{ Items []removed }
+	type both struct {
+		Port int `default:"80" fc:"default=80"`
 	}
+
+	// v1.7.0 rejects the legacy fc default wherever it appears in the type.
+	const removedMessage = `fc:"default=…" was removed in v1.7.0`
+	for _, tc := range []struct {
+		name      string
+		construct func() error
+		want      string
+	}{
+		{"invalid integer", newTagDefaults[invalid], "default tag"},
+		{"collection element", newTagDefaults[collection], "default tag"},
+		{"object", newTagDefaults[object], "default tag"},
+		{"removed at top level", newTagDefaults[removed], removedMessage},
+		{"removed alongside nested validation", newTagDefaults[nested], removedMessage},
+		{"removed in collection element", newTagDefaults[element], removedMessage},
+		{"removed alongside default tag", newTagDefaults[both], removedMessage},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.construct(); !errors.Is(err, fastconf.ErrFastConf) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("New error = %v, want ErrFastConf containing %q", err, tc.want)
+			}
+		})
+	}
+
+	t.Run("explicit value with removed tag", func(t *testing.T) {
+		fs := fstest.MapFS{"conf.d/base/app.yaml": {Data: []byte("port: 443")}}
+		_, err := fastconf.Load[removed](context.Background(), fastconf.WithFS(fs))
+		if !errors.Is(err, fastconf.ErrFastConf) || !strings.Contains(err.Error(), removedMessage) || !strings.Contains(err.Error(), "port") {
+			t.Fatalf("Load error = %v, want removed fc default naming port", err)
+		}
+	})
 }
+
 func newTagDefaults[T any]() error {
-	m, err := fastconf.New[T](context.Background())
+	fs := fstest.MapFS{"conf.d/base/app.yaml": {Data: []byte("{}")}}
+	m, err := fastconf.New[T](context.Background(), fastconf.WithFS(fs))
 	if m != nil {
 		_ = m.Close()
 	}
 	return err
 }
+
 func TestTagDefaults_YAMLBridge(t *testing.T) {
 	type C struct {
 		MaxConns int `yaml:"max_conns" default:"5"`

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"slices"
@@ -123,25 +124,6 @@ func TestWithTransform_FuncsRunInOrder(t *testing.T) {
 	}
 	if s.Value().Port != 5 || !slices.Equal(order, []string{"a", "b"}) {
 		t.Fatalf("port=%d order=%v; want 5 [a b]", s.Value().Port, order)
-	}
-}
-
-// TestWithValidate_BlocksInvalid verifies that a later validator can reject
-// a configuration accepted by an earlier validator.
-func TestWithValidate_BlocksInvalid(t *testing.T) {
-	_, err := fastconf.Load[portCfg](context.Background(),
-		fastconf.WithFS(fstest.MapFS{"conf.d/base/0.yaml": {Data: []byte("port: 0\n")}}),
-		fastconf.WithValidate(
-			func(*portCfg) error { return nil },
-			func(c *portCfg) error {
-				if c.Port == 0 {
-					return errors.New("port required")
-				}
-				return nil
-			},
-		))
-	if err == nil || !strings.Contains(err.Error(), "port required") {
-		t.Fatalf("err = %v; want the second validator's failure", err)
 	}
 }
 
@@ -347,22 +329,26 @@ func TestOptions_NilEntries(t *testing.T) {
 }
 
 func TestWithValidate_Result(t *testing.T) {
+	fs := fstest.MapFS{"conf.d/base/00.yaml": {Data: []byte("port: 8080")}}
 	rejected := errors.New("port rejected")
+	accept := func(c *portCfg) error {
+		if c.Port != 8080 {
+			return fmt.Errorf("validator saw port %d, want 8080", c.Port)
+		}
+		return nil
+	}
+	reject := func(*portCfg) error { return rejected }
 	for _, tc := range []struct {
-		name     string
-		validate func(*portCfg) error
-		want     error
+		name       string
+		validators []func(*portCfg) error
+		want       error
 	}{
-		{"accepted", func(c *portCfg) error {
-			if c.Port != 8080 {
-				t.Errorf("validator saw port %d", c.Port)
-			}
-			return nil
-		}, nil},
-		{"rejected", func(*portCfg) error { return rejected }, rejected},
+		{"accepted", []func(*portCfg) error{accept}, nil},
+		{"rejected", []func(*portCfg) error{reject}, rejected},
+		{"rejected by second validator", []func(*portCfg) error{accept, reject}, rejected},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s, err := fastconf.Load[portCfg](context.Background(), fastconf.WithFS(fstest.MapFS{"conf.d/base/00.yaml": {Data: []byte("port: 8080\n")}}), fastconf.WithValidate(tc.validate))
+			s, err := fastconf.Load[portCfg](context.Background(), fastconf.WithFS(fs), fastconf.WithValidate(tc.validators...))
 			if tc.want != nil {
 				if s != nil || !errors.Is(err, tc.want) || !errors.Is(err, fastconf.ErrInvalid) {
 					t.Fatalf("Load = %v, %v; want nil and classified validation cause", s, err)

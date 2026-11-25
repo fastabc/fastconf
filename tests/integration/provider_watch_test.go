@@ -10,24 +10,19 @@ import (
 
 	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/contracts"
-	"github.com/fastabc/fastconf/internal/testutil"
 )
 
-// fakeWatcherProvider emits a stream of events on demand to test the
-// Provider Watch wiring: events drive reloads through the serialized
-// reloadCh, with bounded queue and drop-on-overflow semantics.
+// Each load produces a different port so the test can observe a committed reload.
 type fakeWatcherProvider struct {
-	name     string
-	priority int
-	loadCnt  atomic.Int64
-	ch       chan contracts.Event
-	once     sync.Once
+	name    string
+	loadCnt atomic.Int64
+	ch      chan contracts.Event
 }
 
 func (f *fakeWatcherProvider) Name() string { return f.name }
 
 func (f *fakeWatcherProvider) Describe() contracts.ProviderInfo {
-	return contracts.ProviderInfo{Priority: f.priority}
+	return contracts.ProviderInfo{Priority: contracts.PriorityKV}
 }
 
 func (f *fakeWatcherProvider) Load(_ context.Context) (contracts.Snapshot, error) {
@@ -35,12 +30,7 @@ func (f *fakeWatcherProvider) Load(_ context.Context) (contracts.Snapshot, error
 	return contracts.Snapshot{Map: map[string]any{"server": map[string]any{"port": int(8000 + n)}}}, nil
 }
 
-func (f *fakeWatcherProvider) Watch(ctx context.Context, _ string) (<-chan contracts.Event, error) {
-	f.once.Do(func() {
-		if f.ch == nil {
-			f.ch = make(chan contracts.Event, 4)
-		}
-	})
+func (f *fakeWatcherProvider) Watch(context.Context, string) (<-chan contracts.Event, error) {
 	return f.ch, nil
 }
 
@@ -70,7 +60,6 @@ type blockingWatcherProvider struct {
 	ch                chan contracts.Event
 	secondLoadStarted chan struct{}
 	releaseSecondLoad chan struct{}
-	startOnce         sync.Once
 }
 
 func (p *blockingWatcherProvider) Name() string { return p.name }
@@ -82,7 +71,7 @@ func (p *blockingWatcherProvider) Describe() contracts.ProviderInfo {
 func (p *blockingWatcherProvider) Load(ctx context.Context) (contracts.Snapshot, error) {
 	n := p.loadCnt.Add(1)
 	if n == 2 {
-		p.startOnce.Do(func() { close(p.secondLoadStarted) })
+		close(p.secondLoadStarted)
 		select {
 		case <-p.releaseSecondLoad:
 		case <-ctx.Done():
@@ -97,54 +86,37 @@ func (p *blockingWatcherProvider) Watch(context.Context, string) (<-chan contrac
 }
 
 func TestProviderWatch_TriggersReload(t *testing.T) {
-	mfs := fstest.MapFS{
-		"conf.d/base/00-app.yaml": &fstest.MapFile{Data: []byte("server: {port: 7777}")},
-	}
-	p := &fakeWatcherProvider{name: "pw", priority: contracts.PriorityKV, ch: make(chan contracts.Event, 4)}
-	cfg, err := fastconf.New[pwCfg](context.Background(),
-		fastconf.WithFS(mfs),
-		fastconf.WithDir("conf.d"),
-		fastconf.WithProvider(p),
-		fastconf.WithWatch(fastconf.Watch{}),
-	)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	defer func() { _ = cfg.Close() }()
+	for _, tc := range []struct {
+		name      string
+		fileWatch bool
+	}{
+		{"with file watch", true},
+		{"without file watch", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// MapFS isolates provider events from filesystem notifications.
+			fs := fstest.MapFS{"conf.d/base/00-app.yaml": {Data: []byte("server: {port: 7777}")}}
+			p := &fakeWatcherProvider{name: "pw", ch: make(chan contracts.Event)}
+			opts := []fastconf.Option{fastconf.WithFS(fs), fastconf.WithProvider(p)}
+			if tc.fileWatch {
+				opts = append(opts, fastconf.WithWatch(fastconf.Watch{}))
+			}
+			cfg, err := fastconf.New[pwCfg](context.Background(), opts...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = cfg.Close() }()
 
-	// After initial load (loadCnt == 1) the port should be 8001.
-	gen0 := cfg.Snapshot().Generation()
-	if got := cfg.Get().Server.Port; got != 8001 {
-		t.Fatalf("initial port: got %d want 8001", got)
-	}
-
-	// Emit an event — Load() now returns port=8002.
-	p.ch <- contracts.Event{Source: "pw", Reason: "tick", At: time.Now()}
-
-	waitFor(t, func() bool { return cfg.Snapshot().Generation() > gen0 }, "provider event reload")
-
-	if got := cfg.Get().Server.Port; got != 8002 {
-		t.Fatalf("after event port: got %d want 8002", got)
-	}
-}
-
-// TestProviderWatch_RunsWithoutFileWatch verifies that provider Watch is its own
-// opt-in, so a provider event reloads even when WithWatch is not set.
-func TestProviderWatch_RunsWithoutFileWatch(t *testing.T) {
-	mfs := fstest.MapFS{
-		"conf.d/base/00-app.yaml": &fstest.MapFile{Data: []byte("server: {port: 7777}")},
-	}
-	p := &fakeWatcherProvider{name: "pw", priority: contracts.PriorityKV, ch: make(chan contracts.Event, 4)}
-	cfg, err := fastconf.New[pwCfg](context.Background(), fastconf.WithFS(mfs), fastconf.WithProvider(p))
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	defer func() { _ = cfg.Close() }()
-	p.ch <- contracts.Event{Source: "pw", Reason: "tick", At: time.Now()}
-	waitFor(t, func() bool { return cfg.Get().Server.Port == 8002 }, "provider event without file watching")
-
-	if got := cfg.Get().Server.Port; got != 8002 {
-		t.Fatalf("provider event without WithWatch: port %d; want 8002", got)
+			before := cfg.Snapshot().Generation()
+			if got := cfg.Get().Server.Port; got != 8001 {
+				t.Fatalf("initial port = %d, want 8001", got)
+			}
+			sendProviderEvent(t, p.ch, contracts.Event{Source: p.name, Reason: "tick"})
+			waitFor(t, func() bool { return cfg.Snapshot().Generation() > before }, "provider event reload")
+			if got := cfg.Get().Server.Port; got != 8002 {
+				t.Fatalf("port after event = %d, want 8002", got)
+			}
+		})
 	}
 }
 
@@ -152,7 +124,7 @@ func TestProviderWatch_PauseSkipsProviderReload(t *testing.T) {
 	mfs := fstest.MapFS{
 		"conf.d/base/00-app.yaml": &fstest.MapFile{Data: []byte("server: {port: 1}")},
 	}
-	p := &fakeWatcherProvider{name: "paused", priority: contracts.PriorityKV, ch: make(chan contracts.Event)}
+	p := &fakeWatcherProvider{name: "paused", ch: make(chan contracts.Event)}
 	cfg, err := fastconf.New[pwCfg](context.Background(),
 		fastconf.WithFS(mfs),
 		fastconf.WithDir("conf.d"),
@@ -182,47 +154,7 @@ func TestProviderWatch_PauseSkipsProviderReload(t *testing.T) {
 
 	cfg.Resume()
 	sendProviderEvent(t, p.ch, contracts.Event{Source: "paused", Reason: "resumed"})
-	waitForProviderWatch(t, 2*time.Second, "provider reload after resume", func() bool {
-		return cfg.Snapshot().Generation() > gen0
-	})
-}
-
-func TestProviderWatch_BurstDoesNotBlock(t *testing.T) {
-	mfs := fstest.MapFS{
-		"conf.d/base/00-app.yaml": &fstest.MapFile{Data: []byte("server: {port: 1}")},
-	}
-	p := &fakeWatcherProvider{name: "burst", priority: contracts.PriorityKV, ch: make(chan contracts.Event, 4)}
-	cfg, err := fastconf.New[pwCfg](context.Background(),
-		fastconf.WithFS(mfs),
-		fastconf.WithDir("conf.d"),
-		fastconf.WithProvider(p),
-		fastconf.WithWatch(fastconf.Watch{}),
-	)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	defer func() { _ = cfg.Close() }()
-	// Send 100 events in rapid succession; we don't care how many reloads
-	// fire — only that the test completes (no deadlock) and at least one
-	// reload above gen0 happens.
-	gen0 := cfg.Snapshot().Generation()
-	done := make(chan struct{})
-	go func() {
-		for i := 0; i < 100; i++ {
-			select {
-			case p.ch <- contracts.Event{Source: "burst", Reason: "spam"}:
-			default:
-				// drop is fine — channel-side or reloadCh-side overflow
-			}
-		}
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("event producer blocked")
-	}
-	waitFor(t, func() bool { return cfg.Snapshot().Generation() > gen0 }, "provider event burst reload")
+	waitFor(t, func() bool { return cfg.Snapshot().Generation() > gen0 }, "provider reload after resume")
 }
 
 func TestProviderWatch_EventDroppedWhenReloadQueueFull(t *testing.T) {
@@ -232,7 +164,7 @@ func TestProviderWatch_EventDroppedWhenReloadQueueFull(t *testing.T) {
 	metrics := &recordingProviderMetrics{}
 	p := &blockingWatcherProvider{
 		name:              "blocking",
-		ch:                make(chan contracts.Event, 128),
+		ch:                make(chan contracts.Event),
 		secondLoadStarted: make(chan struct{}),
 		releaseSecondLoad: make(chan struct{}),
 	}
@@ -246,27 +178,27 @@ func TestProviderWatch_EventDroppedWhenReloadQueueFull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer func() {
-		close(p.releaseSecondLoad)
-		_ = cfg.Close()
-	}()
+	defer func() { _ = cfg.Close() }()
+	release := sync.OnceFunc(func() { close(p.releaseSecondLoad) })
+	defer release()
 
-	p.ch <- contracts.Event{Source: p.name, Reason: "block"}
+	before := cfg.Snapshot().Generation()
+	sendProviderEvent(t, p.ch, contracts.Event{Source: p.name, Reason: "block"})
 	select {
 	case <-p.secondLoadStarted:
 	case <-time.After(2 * time.Second):
 		t.Fatal("second load never started")
 	}
 
-	for i := 0; i < 64; i++ {
-		p.ch <- contracts.Event{Source: p.name, Reason: "spam"}
+	// The unbuffered channel requires the watcher to consume the entire burst
+	// while the blocked load keeps the reload queue from draining.
+	for range 64 {
+		sendProviderEvent(t, p.ch, contracts.Event{Source: p.name, Reason: "burst"})
 	}
 	waitFor(t, func() bool { return metrics.dropped.Load() > 0 }, "reload queue overflow event")
-}
 
-func waitForProviderWatch(t *testing.T, timeout time.Duration, what string, cond func() bool) {
-	t.Helper()
-	testutil.WaitFor(t, cond, timeout, what)
+	release()
+	waitFor(t, func() bool { return cfg.Snapshot().Generation() >= before+2 }, "commit from queued burst after blocked load")
 }
 
 func sendProviderEvent(t *testing.T, ch chan contracts.Event, ev contracts.Event) {

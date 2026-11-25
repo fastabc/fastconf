@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Formatting checks must handle file moves before staging and inspect new files.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/repo/tools"
