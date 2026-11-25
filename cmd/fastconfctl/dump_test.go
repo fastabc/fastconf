@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func TestDumpCommandPreservesInteger(t *testing.T) {
+func TestCLICommands(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "base"), 0755); err != nil {
 		t.Fatal(err)
@@ -28,6 +28,12 @@ func TestDumpCommandPreservesInteger(t *testing.T) {
 	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
+	t.Run("diff rejects profile", func(t *testing.T) {
+		out, err := exec.CommandContext(ctx, binary, "diff", "-profile=prod", "-to=prod").CombinedOutput()
+		if err == nil || !strings.Contains(string(out), "diff uses -from and -to") {
+			t.Fatalf("diff: %v\n%s", err, out)
+		}
+	})
 	for _, format := range []string{"json", "yaml"} {
 		t.Run(format, func(t *testing.T) {
 			cmd := exec.CommandContext(ctx, binary, "dump", "-dir", dir, "-format", format)

@@ -1,7 +1,7 @@
 # Releasing FastConf
 
-FastConf v1.4.0 is the API compatibility baseline; earlier releases are not
-compared. The public v1.0.0 proxy content conflicts with its immutable Go
+The API gate compares the candidate with the previous stable release, currently v1.6.0.
+The public v1.0.0 proxy content conflicts with its immutable Go
 checksum record, so that version cannot be corrected. Optional integrations live in separate Go modules; all
 modules use the same release version. Discover modules and minimum Go versions
 directly from their manifests:
@@ -25,8 +25,8 @@ is needed. Its minimum Go version is 1.26; the root module remains at Go 1.25.
 ## Prepare and verify
 
 The dependency candidate defaults to `VERSION=v1.6.0`, matching current internal
-pins. API checks compare against `BASE=v1.4.0` and target `API_VERSION=v1.6.0`
-for the v1.6.0 release. Prepare and verify a release as follows:
+pins. API checks compare against `BASE=v1.6.0` and target `API_VERSION=v1.7.0`.
+Prepare and verify a release as follows:
 
 1. Update the changelog and any relevant migration notes. Add a non-empty
    `## [vX.Y.Z]` section for the exact tag, including any prerelease suffix.
@@ -38,18 +38,18 @@ for the v1.6.0 release. Prepare and verify a release as follows:
    The standalone benchmark module is excluded from release inventory.
 3. Run the checks against the final source, then merge the reviewed release
    commit before tagging. The commands below assume step 2 has aligned pins
-   for the planned v1.6.0 release.
+   for the planned v1.7.0 release.
 
 ```sh
 export GOPROXY=direct
 export GOTOOLCHAIN=go1.26.11
-make tidy VERSION=v1.6.0
-make check VERSION=v1.6.0
-make lint VERSION=v1.6.0
+make tidy VERSION=v1.7.0
+make check VERSION=v1.7.0
+make lint VERSION=v1.7.0
 make test-workspace
-make test-candidate VERSION=v1.6.0
-make api-check VERSION=v1.6.0 API_VERSION=v1.6.0 BASE=v1.4.0
-VERSION=v1.6.0 bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
+make test-candidate VERSION=v1.7.0
+make api-check VERSION=v1.7.0 API_VERSION=v1.7.0 BASE=v1.6.0
+VERSION=v1.7.0 bash tools/check-candidate.sh bash tools/check-vulnerabilities.sh
 ```
 
 Tidy uses the isolated candidate proxy for internal dependencies at `VERSION`,
@@ -84,11 +84,12 @@ path and migration notes. Tests and review must also cover behavioral changes.
 establishes a new baseline because public v1.0.0 proxy content conflicts with its
 immutable checksum record. The v1.4.0 release establishes another baseline:
 fields of the unexported option struct, which gorelease reaches through
-`Option`, were renamed. v1.4.0 was checked with `BASE=none`; later releases,
-including v1.6.0, compare against `BASE=v1.4.0`:
+`Option`, were renamed. v1.4.0 was checked with `BASE=none`.
+Advance `BASE` to the latest stable tag when preparing the next release so that
+newer modules and exports are also checked. During v1.7 development run:
 
 ```sh
-make api-check BASE=v1.4.0 VERSION=v1.6.0 API_VERSION=v1.6.0
+make api-check BASE=v1.6.0 VERSION=v1.6.0 API_VERSION=v1.7.0
 ```
 
 `VERSION` controls candidate dependency pins; `API_VERSION` controls gorelease's
@@ -100,7 +101,7 @@ API checks use a reserved prerelease of the next patch (`v1.6.1-api-check` for
 archives and matching internal dependency pins use that version, so the baseline
 resolves to published code even when `BASE` equals `VERSION`. Existing release
 tags do not make reruns fail. The same conversion is applied independently to
-`API_VERSION` (defaulting to `VERSION`) before passing it to gorelease, preserving
+`API_VERSION` before passing it to gorelease, preserving
 the intended major/minor compatibility rules without rejecting an already-published
 version. Source manifests stay unchanged. Never publish these check versions.
 

@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'chmod -R u+w "$TMP"; rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/repo/tools" "$TMP/repo/sub"
-cp "$ROOT/tools/check-candidate.sh" "$ROOT/tools/modules.sh" "$TMP/repo/tools/"
+cp "$ROOT/tools/check-candidate.sh" "$ROOT/tools/build-candidate-proxy.py" "$ROOT/tools/modules.sh" "$TMP/repo/tools/"
 cd "$TMP/repo"
 git init -q
 printf 'module github.com/fastabc/fastconf\n\ngo 1.24.0\n' > go.mod

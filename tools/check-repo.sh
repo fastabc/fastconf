@@ -24,6 +24,7 @@ case "${1:-}" in
   docs) python3 "$ROOT/tools/check-doc-links.py" ;;
   deps)
     # Released submodules may import only their own or frozen root internals.
+    inventory="$(bash tools/modules.sh list)"
     while IFS= read -r module; do
       [[ "$module" != . ]] || continue
       while IFS= read -r imported; do
@@ -32,7 +33,7 @@ case "${1:-}" in
           *) printf '%s imports unfrozen cross-module internal: %s\n' "$module" "$imported" >&2; exit 1 ;;
         esac
       done < <(git grep --untracked -h -o '"github.com/fastabc/fastconf/[^"]*internal/[^"]*"' -- "$module" ':!*_test.go' | tr -d '"' | sort -u)
-    done < <(bash tools/modules.sh list)
+    done <<< "$inventory"
     for package in ./internal/coalesce ./integrations/log/internal/...; do
       deps="$(go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' "$package")"
       prefix="github.com/fastabc/fastconf/${package#./}"

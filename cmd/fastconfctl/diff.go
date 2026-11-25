@@ -13,7 +13,10 @@ import (
 func runDiff(args []string) error {
 	fs := flag.NewFlagSet("diff", flag.ExitOnError)
 	var f cli.Flags
-	cli.RegisterFlags(fs, &f) // -dir / -profile / -provider available; -profile reused as "from"
+	cli.RegisterSourceFlags(fs, &f)
+	fs.Func("profile", "use -from to select the source profile", func(string) error {
+		return fmt.Errorf("diff uses -from and -to to select profiles")
+	})
 	from := fs.String("from", "", "source profile (empty = base only)")
 	to := fs.String("to", "", "target profile")
 	jsonOut := fs.Bool("json", false, "output structured JSON diff instead of text")

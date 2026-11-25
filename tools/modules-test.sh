@@ -7,6 +7,9 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/repo/tools" "$TMP/repo/providers/new" "$TMP/repo/benchmarks/compare"
 cp "$ROOT/tools/modules.sh" "$TMP/repo/tools/"
 cd "$TMP/repo"
+if bash tools/modules.sh matrix > "$TMP/output" 2>&1; then
+  echo 'matrix accepted failed Git discovery' >&2; exit 1
+fi
 git init -q
 for module in . providers/new benchmarks/compare; do
   printf 'module example.com/test\n\ngo 1.24\n' > "$module/go.mod"

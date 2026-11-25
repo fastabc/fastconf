@@ -63,10 +63,7 @@ func exampleNode(t reflect.Type, meta typeinfo.Meta, stack map[reflect.Type]bool
 	case reflect.Struct:
 		n := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 		for _, f := range fields(t, true) {
-			meta, err := fieldMeta(f.Field)
-			if err != nil {
-				return nil, err
-			}
+			meta := typeinfo.FieldMeta(f.Field)
 			child, err := exampleNode(f.Field.Type, meta, stack)
 			if err != nil {
 				return nil, fmt.Errorf("schema: %s: %w", f.Name, err)
@@ -130,10 +127,7 @@ func ExampleEnv(t reflect.Type, prefix, sep string) ([]byte, error) {
 				fmt.Fprintf(&b, "# %s: not addressable with separator %q; use %q\n", strings.Join(keys, "."), sep, sep+sep)
 				continue
 			}
-			meta, err := fieldMeta(f.Field)
-			if err != nil {
-				return err
-			}
+			meta := typeinfo.FieldMeta(f.Field)
 			ft := baseType(f.Field.Type)
 			if ft.Kind() == reflect.Struct && !scalarType(ft) && !meta.HasDefault {
 				if err := walk(ft, keys); err != nil {

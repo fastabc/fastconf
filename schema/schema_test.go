@@ -101,14 +101,22 @@ func TestSchema_RejectsRemovedFCDefault(t *testing.T) {
 	type cfg struct {
 		Port int `json:"port" fc:"default=8080"`
 	}
-	typ := reflect.TypeFor[cfg]()
-	for name, run := range map[string]func() error{
-		"JSONSchema":  func() error { _, err := schema.JSONSchema(typ); return err },
-		"ExampleYAML": func() error { _, err := schema.ExampleYAML(typ); return err },
-		"ExampleEnv":  func() error { _, err := schema.ExampleEnv(typ, "APP_", "__"); return err },
+	for _, typ := range []reflect.Type{
+		reflect.TypeFor[cfg](),
+		reflect.TypeFor[struct{ Items []cfg }](),
+		reflect.TypeFor[struct{ Items map[string]*cfg }](),
+		reflect.TypeFor[struct {
+			Skipped cfg `json:"-"`
+		}](),
 	} {
-		if err := run(); err == nil || !strings.Contains(err.Error(), `fc:"default=…" was removed`) {
-			t.Errorf("%s: err = %v; want removed fc default", name, err)
+		for name, run := range map[string]func() error{
+			"JSONSchema":  func() error { _, err := schema.JSONSchema(typ); return err },
+			"ExampleYAML": func() error { _, err := schema.ExampleYAML(typ); return err },
+			"ExampleEnv":  func() error { _, err := schema.ExampleEnv(typ, "APP_", "__"); return err },
+		} {
+			if err := run(); err == nil || !strings.Contains(err.Error(), `fc:"default=…" was removed`) {
+				t.Errorf("%s(%v): err = %v; want removed fc default", name, typ, err)
+			}
 		}
 	}
 }

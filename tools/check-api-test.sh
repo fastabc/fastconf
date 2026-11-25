@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'chmod -R u+w "$TMP"; rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/repo/tools" "$TMP/bin" "$TMP/tool"
-cp "$ROOT/tools/check-api.sh" "$ROOT/tools/check-candidate.sh" "$ROOT/tools/modules.sh" "$TMP/repo/tools/"
+cp "$ROOT/tools/check-api.sh" "$ROOT/tools/check-candidate.sh" "$ROOT/tools/build-candidate-proxy.py" "$ROOT/tools/modules.sh" "$TMP/repo/tools/"
 GOBIN="$TMP/tool" GOWORK=off go install golang.org/x/exp/cmd/gorelease@v0.0.0-20260908205506-85c1c2202aba
 
 # Reuse the real binary while keeping fixture modules and downloads offline.
@@ -128,12 +128,14 @@ BASE=v1.0.1 check_failure 'v1.0.1'
 # A published target must not mask removed exports in root or satellite APIs.
 printf 'package fixture\n' > api.go
 printf 'package fixture\n' > sub/api.go
+printf 'package fixture\n' > new/api.go
 git add .
 git commit -qm incompatible
 check_failure 'Kept: removed'
 [[ "$(grep -c 'Kept: removed' "$TMP/result")" == 2 ]]
+# The later baseline also protects the previously new module.
 BASE=v1.2.0 check_failure 'Kept: removed'
-[[ "$(grep -c 'Kept: removed' "$TMP/result")" == 2 ]]
+[[ "$(grep -c 'Kept: removed' "$TMP/result")" == 3 ]]
 API_VERSION=v1.3.0 check_failure 'Kept: removed'
 [[ "$(grep -c 'Kept: removed' "$TMP/result")" == 2 ]]
 echo 'check-api: OK'

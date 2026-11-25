@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+
+	"github.com/fastabc/fastconf/internal/typeinfo"
 )
 
 type schemaNode struct {
@@ -117,10 +119,7 @@ func buildSchema(t reflect.Type, stack map[reflect.Type]bool) (*schemaNode, erro
 			if e != nil {
 				return nil, e
 			}
-			meta, e := fieldMeta(f.Field)
-			if e != nil {
-				return nil, e
-			}
+			meta := typeinfo.FieldMeta(f.Field)
 			child.Description = meta.Desc
 			child.WriteOnly = meta.Secret
 			if child.Type == "integer" || child.Type == "number" {

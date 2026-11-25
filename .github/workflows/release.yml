@@ -46,8 +46,8 @@ jobs:
         run: make check
       - name: Extract release notes from changelog
         run: python3 tools/release-notes.py "$VERSION" > "$RUNNER_TEMP/release-notes.md"
-      - name: Check compatibility with v1.4.0
-        run: make api-check BASE=v1.4.0
+      - name: Check released API compatibility
+        run: make api-check API_VERSION="$VERSION"
       - name: Test candidate modules
         run: make test-candidate
       - name: Build release archives

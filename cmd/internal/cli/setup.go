@@ -59,33 +59,17 @@ func (p *ProviderFlags) Set(v string) error {
 // FlagSet. Defaults are pulled from the fastconf package so any future
 // change to e.g. DefaultDir propagates to every CLI binary automatically.
 func RegisterFlags(fs *flag.FlagSet, f *Flags) {
-	fs.StringVar(&f.Dir, "dir", fastconf.DefaultDir, "configuration root directory")
+	RegisterSourceFlags(fs, f)
 	fs.StringVar(&f.Profile, "profile", "", "overlay profile (empty = base only or via $APP_PROFILE)")
+}
+
+// RegisterSourceFlags leaves profile selection to the command.
+func RegisterSourceFlags(fs *flag.FlagSet, f *Flags) {
+	fs.StringVar(&f.Dir, "dir", fastconf.DefaultDir, "configuration root directory")
 	fs.BoolVar(&f.Strict, "strict", false, "strict overlay/merge: unknown file extensions and merge type conflicts fail (does not reject misspelled config keys)")
 	fs.BoolVar(&f.Watch, "watch", false, "enable fsnotify file-system watcher")
 	fs.BoolVar(&f.Unredacted, "unredacted", false, "show plaintext secrets in fastconfctl output")
 	fs.Var(&f.Providers, "provider", "name=value provider spec (repeatable; value may be JSON)")
-}
-
-// ChangedValues projects explicitly set flags through build, preserving lower-priority
-// configuration for unset flags. A nil build records flat name/string-value pairs.
-func ChangedValues(fs *flag.FlagSet, build func(name, value string, out map[string]any) error) (map[string]any, error) {
-	out := map[string]any{}
-	var firstErr error
-	fs.Visit(func(f *flag.Flag) {
-		if firstErr != nil {
-			return
-		}
-		if build == nil {
-			out[f.Name] = f.Value.String()
-			return
-		}
-		firstErr = build(f.Name, f.Value.String(), out)
-	})
-	if firstErr != nil {
-		return nil, firstErr
-	}
-	return out, nil
 }
 
 // NewManager starts a fastconf.Manager[T] from f plus extra options.

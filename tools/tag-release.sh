@@ -31,6 +31,7 @@ python3 "$ROOT/tools/release-notes.py" "$VERSION" >/dev/null
 TAGS=()
 MODULE_PATH="$(awk '$1 == "module" {print $2}' go.mod)"
 # Validate the entire plan before creating any tag.
+inventory="$(bash tools/modules.sh list)"
 while IFS= read -r module; do
   while read -r dep version; do
     if [[ "$dep" == "$MODULE_PATH" || "$dep" == "$MODULE_PATH/"* ]]; then
@@ -45,7 +46,7 @@ while IFS= read -r module; do
     echo "$tag already points to a different commit; release a new version" >&2; exit 1
   fi
   TAGS+=("$tag")
-done < <(bash tools/modules.sh list)
+done <<< "$inventory"
 printf '%s\n' "${TAGS[@]}"
 $DRYRUN && exit 0
 for tag in "${TAGS[@]}"; do

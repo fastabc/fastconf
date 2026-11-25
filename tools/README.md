@@ -85,7 +85,7 @@ archives with `go mod download all`; tests, lint and scanners fetch external
 dependencies as needed and verify their checksums normally.
 
 - `make test-candidate VERSION=vX.Y.Z`: test candidate modules.
-- `make api-check`: compare APIs against `BASE=v1.4.0`, targeting `API_VERSION=v1.6.0`
+- `make api-check`: compare APIs against `BASE=v1.6.0`, targeting `API_VERSION=v1.7.0`
   for this release. `VERSION=v1.6.0` identifies the
   in-repository dependency pins served by the disposable candidate proxy.
   Set `API_VERSION` to the intended release for other comparisons; a patch target
@@ -93,7 +93,7 @@ dependencies as needed and verify their checksums normally.
   Use `BASE=none` only when intentionally establishing a new stable API baseline:
   v1.1.0 does so because public v1.0.0 proxy content conflicts with its immutable
   checksum record, and v1.4.0 because option fields reached through `Option` were
-  renamed. Current checks default to `BASE=v1.4.0`.
+  renamed. Advance the baseline after each stable release.
 - `make vulnerabilities`: scan declared dependencies with pinned govulncheck.
 - `python3 tools/release-notes.py vX.Y.Z`: preview the exact changelog section
   used as the GitHub Release Note; missing, empty or duplicate versions fail.
@@ -122,7 +122,7 @@ version and runs the root module on Linux, macOS and Windows. The release workfl
 verifies that every module tag exists at the same commit, tests candidates, then
 builds and publishes archives. Resource soak remains a separate manual workflow.
 
-CI compares the Makefile candidate (currently `VERSION=v1.6.0`) against `BASE=v1.4.0`.
+CI compares the Makefile candidate (currently `VERSION=v1.6.0`) against `BASE=v1.6.0`.
 API checks use a reserved prerelease of the next patch (`v1.6.1-api-check`), or
 append `.api-check` to an existing prerelease. The disposable candidate's archives
 and internal dependency pins use this version; `API_VERSION` is converted

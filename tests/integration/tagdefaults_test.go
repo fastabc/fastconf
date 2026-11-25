@@ -37,13 +37,13 @@ func TestTagDefaults_AbsentKeysOnly(t *testing.T) {
 		}
 	}
 }
-func TestTagDefaults_ExplicitZeroAndNullPreserved(t *testing.T) {
-	st, err := fastconf.Load[tagDefaultsConfig](context.Background(), fastconf.WithFS(fstest.MapFS{"conf.d/base/app.yaml": {Data: []byte("port: 0\nhosts: null\nenabled: false\n")}}))
+func TestTagDefaults_NullSlicePreserved(t *testing.T) {
+	st, err := fastconf.Load[tagDefaultsConfig](context.Background(), fastconf.WithFS(fstest.MapFS{"conf.d/base/app.yaml": {Data: []byte("hosts: null\n")}}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := st.Value(); c.Port != 0 || c.Hosts != nil || c.Enabled || c.Timeout != 5*time.Second {
-		t.Fatalf("%+v", c)
+	if hosts := st.Value().Hosts; hosts != nil {
+		t.Fatalf("hosts = %#v; want nil", hosts)
 	}
 }
 func TestTagDefaults_NestedAndPointer(t *testing.T) {

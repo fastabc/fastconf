@@ -5,6 +5,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 COMMAND="${1:-list}"
 [[ $# == 0 ]] || shift
+# Capture discovery before iterating so Git failures reach CI and release callers.
+manifests="$(git ls-files --cached --others --exclude-standard -- 'go.mod' '**/go.mod' | LC_ALL=C sort -u)"
 MODULES=()
 while IFS= read -r file; do
   # Benchmark modules need lint/tidy, but never enter the release inventory.
@@ -15,7 +17,8 @@ while IFS= read -r file; do
   module="${file%/go.mod}"
   [[ "$file" != go.mod ]] || module=.
   MODULES+=("$module")
-done < <(git ls-files --cached --others --exclude-standard -- 'go.mod' '**/go.mod' | LC_ALL=C sort -u)
+done <<< "$manifests"
+[[ ${#MODULES[@]} -gt 0 ]] || { echo "no Go modules discovered" >&2; exit 1; }
 case "$COMMAND" in
   list) printf '%s\n' "${MODULES[@]}"; exit ;;
   matrix)

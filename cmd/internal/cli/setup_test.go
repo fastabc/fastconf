@@ -82,60 +82,6 @@ func TestRegisterFlags_ParseAll(t *testing.T) {
 	}
 }
 
-func TestChangedValues_ExcludesDefaults(t *testing.T) {
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	fs.Int("port", 8080, "")
-	fs.Bool("strict", false, "")
-	if err := fs.Parse(nil); err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	got, err := cli.ChangedValues(fs, nil)
-	if err != nil {
-		t.Fatalf("ChangedValues: %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("changed values = %#v want empty", got)
-	}
-}
-
-func TestChangedValues_IncludesExplicitZeroValue(t *testing.T) {
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	fs.Int("port", 8080, "")
-	fs.String("profile", "prod", "")
-	if err := fs.Parse([]string{"-port=0", "-profile="}); err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	got, err := cli.ChangedValues(fs, nil)
-	if err != nil {
-		t.Fatalf("ChangedValues: %v", err)
-	}
-	if got["port"] != "0" {
-		t.Errorf("port = %v want 0", got["port"])
-	}
-	if got["profile"] != "" {
-		t.Errorf("profile = %v want empty string", got["profile"])
-	}
-}
-
-func TestChangedValues_UsesBuilder(t *testing.T) {
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	fs.String("database.dsn", "base", "")
-	if err := fs.Parse([]string{"-database.dsn=from-cli"}); err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	got, err := cli.ChangedValues(fs, func(name, value string, out map[string]any) error {
-		out["database"] = map[string]any{"dsn": value}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("ChangedValues: %v", err)
-	}
-	db, _ := got["database"].(map[string]any)
-	if db["dsn"] != "from-cli" {
-		t.Errorf("database.dsn = %v want from-cli", db["dsn"])
-	}
-}
-
 func TestLoadConfig_WithDir(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "base", "10-app.yaml"), "name: testapp\nport: 8080\n")

@@ -29,6 +29,9 @@ historical releases.
 
 ### Fixed
 
+- All schema generators now reject removed `fc:"default=…"` declarations inside
+  collections and skipped fields, consistent with manager construction.
+- `fastconfctl diff` reports an error for `-profile` and directs callers to `-from` and `-to`.
 - Plan reports a diagnostic JSON encoding error when it cannot compare snapshots.
 - The HTTP provider refreshes automatically decoded documents after codec registration or extension remapping.
 - Expired file event bursts allow the watcher to keep reading while a reload runs.

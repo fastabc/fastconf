@@ -70,9 +70,6 @@ func TagDefaultsFor(t reflect.Type, yamlBridge bool) ([]TagDefault, error) {
 				path.jsonFields = append(append([][]JSONField(nil), parent.jsonFields...), fields)
 				path.Path = strings.Join(path.Keys, ".")
 				path.foldNames = !yamlBridge
-				if HasRemovedFCDefault(f.Tag.Get(TagKey)) {
-					return nilDefaultError(path.Path, ErrRemovedFCDefault)
-				}
 				raw, has := f.Tag.Lookup(DefaultTagKey)
 				if has {
 					if collection {
@@ -96,26 +93,36 @@ func TagDefaultsFor(t reflect.Type, yamlBridge bool) ([]TagDefault, error) {
 		return nil
 	}
 	if t != nil {
-		if err := visit(t, TagDefault{}, false); err != nil {
+		if err := CheckRemovedFCDefaults(t); err != nil {
 			return nil, err
 		}
-		if err := rejectSkippedFCDefaults(t); err != nil {
+		if err := visit(t, TagDefault{}, false); err != nil {
 			return nil, err
 		}
 	}
 	return defs, nil
 }
 
-// rejectSkippedFCDefaults walks the fields v1.6.0 filled from fc:"default=…",
-// which include fields the decode bridge skips (json:"-"); the decoded-field
-// walk never visits those, so a leftover token there would stop applying silently.
-func rejectSkippedFCDefaults(t reflect.Type) error {
+// CheckRemovedFCDefaults checks declarations independently of rendering and field
+// selection. A skipped field or an empty collection can still carry a legacy tag.
+func CheckRemovedFCDefaults(t reflect.Type) error {
 	var err error
-	Walk(t, func(path string, _ []int, f reflect.StructField) bool {
-		if err == nil && HasRemovedFCDefault(f.Tag.Get(TagKey)) {
-			err = nilDefaultError(path, ErrRemovedFCDefault)
+	Reaches(t, func(typ reflect.Type) bool {
+		if typ.Kind() != reflect.Struct {
+			return false
 		}
-		return err == nil
+		for i := 0; i < typ.NumField(); i++ {
+			f := typ.Field(i)
+			if (f.IsExported() || f.Anonymous) && HasRemovedFCDefault(f.Tag.Get(TagKey)) {
+				name := FieldNamesOf(f).Primary
+				if name == "" {
+					name = f.Name
+				}
+				err = nilDefaultError(name, ErrRemovedFCDefault)
+				return true
+			}
+		}
+		return false
 	})
 	return err
 }

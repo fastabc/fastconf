@@ -7,8 +7,8 @@ SHELL := /bin/bash
 export GOWORK := off
 export GOFLAGS := $(GOFLAGS) -mod=readonly
 VERSION ?= v1.6.0
-API_VERSION ?= v1.6.0
-BASE ?= v1.4.0
+API_VERSION ?= v1.7.0
+BASE ?= v1.6.0
 GOLANGCI_LINT ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 MODULES ?=
 TARGETS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64

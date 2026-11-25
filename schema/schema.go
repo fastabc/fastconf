@@ -43,17 +43,10 @@ func checkType(t reflect.Type) error {
 	if baseType(t).Kind() != reflect.Struct {
 		return fmt.Errorf("schema: expected struct type")
 	}
-	return nil
-}
-
-// fieldMeta reads generation metadata and rejects the removed fc default=
-// token, matching manager construction, so generated documents never omit a
-// default that the application believes it declared.
-func fieldMeta(f reflect.StructField) (typeinfo.Meta, error) {
-	if typeinfo.HasRemovedFCDefault(f.Tag.Get(typeinfo.TagKey)) {
-		return typeinfo.Meta{}, fmt.Errorf("schema: %s: %s", f.Name, typeinfo.ErrRemovedFCDefault)
+	if err := typeinfo.CheckRemovedFCDefaults(t); err != nil {
+		return fmt.Errorf("schema: %w", err)
 	}
-	return typeinfo.FieldMeta(f), nil
+	return nil
 }
 
 // defaultValue converts literal tag values into their schema/example wire form.
