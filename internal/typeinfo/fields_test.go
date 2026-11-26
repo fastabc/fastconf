@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/fastabc/fastconf/internal/typeinfo"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestYAMLInline(t *testing.T) {

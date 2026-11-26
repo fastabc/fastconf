@@ -164,9 +164,9 @@ change can therefore publish a new snapshot with an empty diagnostic diff.
 Compare Hash as well as Diff: differing hashes with an empty diff mean content
 changed outside the visible JSON view. Show that fact without exposing hidden
 values. Prefer matching JSON/YAML names; use fc:"secret" for masked diagnostics.
-The YAML bridge decodes with `gopkg.in/yaml.v3` and calls only node hooks that
+The YAML bridge decodes with `go.yaml.in/yaml/v3` and calls only node hooks that
 take its `*yaml.Node`. A reachable `UnmarshalYAML(*Node)` built on another YAML
-library, such as `go.yaml.in/yaml/v3`, fails construction with an error naming
+library, such as `gopkg.in/yaml.v3`, fails construction with an error naming
 the field, because the bridge would otherwise skip it silently.
 Map trees are also public through
 provider snapshots, transforms and `State.Map`; they are not solely internal.

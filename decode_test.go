@@ -9,8 +9,7 @@ import (
 	"testing/fstest"
 
 	"github.com/fastabc/fastconf/providers/source"
-
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestYAMLBridge_FieldNamedInlineKeepsTypedHooks(t *testing.T) {

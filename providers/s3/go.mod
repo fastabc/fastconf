@@ -21,8 +21,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.6 // indirect
-	github.com/kr/text v0.2.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	gopkg.in/ini.v1 v1.68.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

@@ -12,7 +12,7 @@ import (
 	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/internal/provenance"
 	"github.com/fastabc/fastconf/internal/secret"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // State is an immutable snapshot of the configuration at a point in time.

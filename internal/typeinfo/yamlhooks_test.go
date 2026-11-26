@@ -4,13 +4,16 @@ import (
 	"reflect"
 	"testing"
 
-	goyaml "go.yaml.in/yaml/v3"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
+
+// Node stands in for another YAML library's node type, such as the one in
+// gopkg.in/yaml.v3; only its name and package path matter.
+type Node struct{}
 
 type foreignHook struct{}
 
-func (*foreignHook) UnmarshalYAML(*goyaml.Node) error { return nil }
+func (*foreignHook) UnmarshalYAML(*Node) error { return nil }
 
 type bridgeHook struct {
 	// Fields below a bridge hook are decoded by the hook, not the bridge.
@@ -60,7 +63,7 @@ func TestForeignYAMLNodeHook(t *testing.T) {
 			if ok != (tc.wantPath != "") || path != tc.wantPath {
 				t.Fatalf("ForeignYAMLNodeHook = %q, %q, %v; want path %q", path, pkg, ok, tc.wantPath)
 			}
-			if ok && pkg != "go.yaml.in/yaml/v3" {
+			if ok && pkg != reflect.TypeFor[Node]().PkgPath() {
 				t.Fatalf("pkg = %q", pkg)
 			}
 		})

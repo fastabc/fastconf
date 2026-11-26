@@ -7,7 +7,7 @@ import (
 
 // BridgeYAMLPkg is the YAML library the typed bridge decodes with. Node hooks
 // must take its *yaml.Node; the bridge never calls a hook built on another one.
-const BridgeYAMLPkg = "gopkg.in/yaml.v3"
+const BridgeYAMLPkg = "go.yaml.in/yaml/v3"
 
 // YAMLNodeHookPkg returns the package of the Node type t (or *t) accepts in
 // UnmarshalYAML(*Node) error, or "" when t has no node-based hook.

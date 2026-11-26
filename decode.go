@@ -12,7 +12,7 @@ import (
 	"sync"
 
 	"github.com/fastabc/fastconf/internal/typeinfo"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // jsonBufPool reuses bridge buffers up to 64 KiB; larger buffers are left to GC

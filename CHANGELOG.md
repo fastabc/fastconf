@@ -52,7 +52,7 @@ and [upgrading from v1.6.0 to v1.7.0](docs/cookbook/migration-v1.md#upgrading-fr
 - Plan reports a diagnostic JSON encoding error when it cannot compare snapshots.
 - The HTTP provider refreshes automatically decoded documents after codec registration or extension remapping.
 - `WithDecodeFormat(YAML)` rejects a reachable `UnmarshalYAML(*Node)` built on a YAML
-  library other than `gopkg.in/yaml.v3`, such as `go.yaml.in/yaml/v3`, naming the
+  library other than `go.yaml.in/yaml/v3`, such as `gopkg.in/yaml.v3`, naming the
   field. The bridge never called such hooks and decoded those fields one by one
   without error. YAML hooks from any library now disable the file input shortcut.
 - A generator that fails with a context error (a `Reload(ctx)` timeout or
@@ -78,9 +78,12 @@ and [upgrading from v1.6.0 to v1.7.0](docs/cookbook/migration-v1.md#upgrading-fr
 
 ### Changed
 
-- YAML documents, discovery metadata and generated examples use the maintained
-  `go.yaml.in/yaml/v3` parser (v3.0.6). The typed YAML bridge continues to use
-  `gopkg.in/yaml.v3` for compatibility with existing `*yaml.Node` hooks.
+- YAML documents, discovery metadata, generated examples, `State.Dump` and the
+  typed YAML bridge use the maintained `go.yaml.in/yaml/v3` parser (v3.0.6);
+  fastconf no longer depends on `gopkg.in/yaml.v3`. Node hooks for
+  `WithDecodeFormat(YAML)` must take a `go.yaml.in/yaml/v3` `*yaml.Node`, and
+  types that skip `default` tags or emit YAML nodes are recognized only through
+  that library's `Unmarshaler` and `Marshaler`.
 - Updated INI to v1.68.0, CUE to v0.18.0, OPA to v1.22.4, pflag to v1.1.0,
   go-playground/validator to v10.30.6 and the Pub/Sub adapter's Protobuf to v1.36.12.
 - Checking an explicit leaf with a `default` tag avoids sorting the input object on each reload.

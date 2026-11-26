@@ -22,7 +22,7 @@ type yamlCodec struct{}
 
 // Decode is a no-frills YAML codec for tests; we re-use the framework's
 // public yaml codec by importing through a tiny adapter to avoid pulling
-// gopkg.in/yaml.v3 into this package's test surface.
+// a YAML library into this package's test surface.
 func (yamlCodec) Decode(data []byte) (map[string]any, error) {
 	// Tiny "key: value" line parser is enough for these tests.
 	out := map[string]any{}

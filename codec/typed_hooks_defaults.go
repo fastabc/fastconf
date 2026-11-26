@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // NamedPrimitiveHook is a fallback for named numeric and boolean types without

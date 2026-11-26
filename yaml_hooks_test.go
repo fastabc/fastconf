@@ -9,15 +9,18 @@ import (
 	"testing/fstest"
 
 	"github.com/fastabc/fastconf/providers/source"
-	goyaml "go.yaml.in/yaml/v3"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
-// foreignNodeHook implements the node hook of go.yaml.in/yaml/v3, which the
-// bridge (gopkg.in/yaml.v3) never calls.
+// Node stands in for another YAML library's node type, such as the one in
+// gopkg.in/yaml.v3; only its name and package path matter.
+type Node struct{}
+
+// foreignNodeHook implements a node hook from another library, which the
+// bridge (go.yaml.in/yaml/v3) never calls.
 type foreignNodeHook struct{ Host string }
 
-func (h *foreignNodeHook) UnmarshalYAML(n *goyaml.Node) error { return n.Decode(&h.Host) }
+func (h *foreignNodeHook) UnmarshalYAML(*Node) error { h.Host = "hook"; return nil }
 
 // bridgeNodeHook implements the node hook the bridge does call.
 type bridgeNodeHook struct{ Host string }
@@ -38,7 +41,7 @@ func TestYAMLBridgeRejectsForeignNodeHooks(t *testing.T) {
 	if !errors.Is(err, ErrFastConf) {
 		t.Fatalf("Load = %v; want construction error", err)
 	}
-	for _, want := range []string{"db.addr", "go.yaml.in/yaml/v3", "gopkg.in/yaml.v3"} {
+	for _, want := range []string{"db.addr", reflect.TypeFor[Node]().PkgPath(), "go.yaml.in/yaml/v3"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %q", err, want)
 		}

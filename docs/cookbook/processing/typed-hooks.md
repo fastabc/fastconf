@@ -89,9 +89,9 @@ Standalone `codec.BuildTypedHookPlan` retains its legacy exact input aliases;
 pass `codec.WithJSONFields()` to select only JSON decoder fields, as Manager does.
 
 A type's own `UnmarshalYAML(*yaml.Node) error` method runs during the
-`WithDecodeFormat(YAML)` decode, after typed hooks. Import `gopkg.in/yaml.v3` for
+`WithDecodeFormat(YAML)` decode, after typed hooks. Import `go.yaml.in/yaml/v3` for
 its `*yaml.Node`: the bridge uses that library and skips a hook built on
-`go.yaml.in/yaml/v3` or another YAML module. `New`, `Load` and `LoadFile` reject
+`gopkg.in/yaml.v3` or another YAML module. `New`, `Load` and `LoadFile` reject
 such a hook with an error naming the field instead of decoding it field by field.
 
 ## URL / IP / Regex

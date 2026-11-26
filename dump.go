@@ -9,7 +9,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/fastabc/fastconf/internal/secret"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // Format names a configuration encoding. State.Dump accepts all three;
