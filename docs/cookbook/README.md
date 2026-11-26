@@ -1,6 +1,6 @@
 # Cookbook
 
-Recipes describe the current checkout, including changes planned for v1.7.0.
+Recipes describe the current checkout, including the v1.7.0 changes.
 For a released dependency, read the recipe at its installed tag. Start with the
 [loading guides](../README.md#start-here) or [complete examples](../../examples/README.md).
 

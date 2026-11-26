@@ -4,8 +4,8 @@ Independent optional module; Go 1.26 or newer. The root module has no age depend
 
 This module was added in v1.6.0 and is not included in the root module archive.
 Its release tag is `secrets/age/vX.Y.Z`, coordinated with the root `vX.Y.Z` tag.
-After publication, install it with `go get github.com/fastabc/fastconf/secrets/age@v1.6.0`.
-Before publication, run the [local example](../../examples/age/README.md) through
+Install v1.7.0 with `go get github.com/fastabc/fastconf/secrets/age@v1.7.0`.
+From a checkout, run the [local example](../../examples/age/README.md) through
 the repository's temporary workspace.
 
 ```go

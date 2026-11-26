@@ -43,7 +43,9 @@ failures reject the login; displayed errors omit response values while
 `errors.Is` / `errors.As` preserve the underlying cause.
 
 The Vault provider polls the KV-v2 metadata endpoint and emits a reload
-event whenever `current_version` changes. It does not currently expose a
+event when `current_version` changes. A version stays pending while its load is
+in flight. If the read fails, a later poll announces that version again.
+The provider does not currently expose a
 resumable revision cursor; if you need disconnect resume semantics, wrap
 Vault in a custom provider whose `Watch(ctx, from)` honors the revision.
 Reading a KV secret does not mark its paths sensitive; configure `fc:"secret"`

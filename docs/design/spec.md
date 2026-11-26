@@ -2,7 +2,7 @@
 
 This document describes the runtime behavior of the current checkout. For a
 released version, read this file at the corresponding tag. Changes since v1.6.0
-are recorded in the [changelog](../../CHANGELOG.md#unreleased).
+are recorded in the [changelog](../../CHANGELOG.md#v170).
 The root module requires Go 1.25; independent modules declare their own
 minimum versions. See [architecture.md](../architecture.md) for package
 ownership and [RELEASING.md](../../RELEASING.md) for release checks.

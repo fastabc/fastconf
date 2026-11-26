@@ -8,7 +8,7 @@ import (
 	"io"
 
 	"github.com/BurntSushi/toml"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // builtin.go consolidates the YAML, JSON, and TOML decoder implementations. The registry init() in

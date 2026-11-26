@@ -15,7 +15,7 @@ import (
 	"github.com/fastabc/fastconf/confmap"
 	"github.com/fastabc/fastconf/internal/fcerr"
 	"github.com/fastabc/fastconf/internal/scan"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // Diagnostic rank offsets for non-file layers. Precedence is determined by

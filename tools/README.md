@@ -77,7 +77,7 @@ to include local ignored plans.
 
 ## Release validation
 
-`VERSION` defaults to `v1.6.0`. Candidate checks copy current tracked and unignored
+`VERSION` defaults to `v1.7.0`. Candidate checks copy current tracked and unignored
 files into a disposable repository and serve that version through a local Go
 module proxy. Dependencies and generated sums stay in the disposable copy.
 Only checksum entries for discovered modules at the candidate version are
@@ -91,7 +91,7 @@ dependencies as needed and verify their checksums normally.
 
 - `make test-candidate VERSION=vX.Y.Z`: test candidate modules.
 - `make api-check`: compare APIs against `BASE=v1.6.0`, targeting `API_VERSION=v1.7.0`
-  for this release. `VERSION=v1.6.0` identifies the
+  for this release. `VERSION=v1.7.0` identifies the
   in-repository dependency pins served by the disposable candidate proxy.
   Set `API_VERSION` to the intended release for other comparisons; a patch target
   still rejects additions and a minor target still rejects incompatible changes.
@@ -127,8 +127,8 @@ version and runs the root module on Linux, macOS and Windows. The release workfl
 verifies that every module tag exists at the same commit, tests candidates, then
 builds and publishes archives. Resource soak remains a separate manual workflow.
 
-CI compares the Makefile candidate (currently `VERSION=v1.6.0`) against `BASE=v1.6.0`.
-API checks use a reserved prerelease of the next patch (`v1.6.1-api-check`), or
+CI compares the Makefile candidate (currently `VERSION=v1.7.0`) against `BASE=v1.6.0`.
+API checks use a reserved prerelease of the next patch (`v1.7.1-api-check`), or
 append `.api-check` to an existing prerelease. The disposable candidate's archives
 and internal dependency pins use this version; `API_VERSION` is converted
 independently by the same rule before invoking gorelease. This keeps the published

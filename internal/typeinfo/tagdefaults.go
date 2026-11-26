@@ -145,30 +145,23 @@ func defaultUnmarshaler(t reflect.Type) bool {
 func InjectTagDefaults(root map[string]any, defs []TagDefault, force bool, record func(path, raw string)) {
 	for _, d := range defs {
 		nodes := []map[string]any{root}
-		for i, key := range d.Keys {
+		for i, key := range d.Keys[:len(d.Keys)-1] {
 			var values []any
 			for _, node := range nodes {
 				// JSON decodes these maps in lexical key order. Several aliases
 				// may contribute to the same object; inspect them all before
 				// adding a default that could overwrite an explicit child.
 				for _, actual := range slices.Sorted(maps.Keys(node)) {
-					if actual == key || (d.foldNames && defaultJSONName(d.jsonFields[i], actual) == key) {
+					if actual == key || d.matchesFolded(i, actual) {
 						values = append(values, node[actual])
 					}
 				}
 			}
 			node := nodes[len(nodes)-1]
-			if i == len(d.Keys)-1 {
-				if len(values) == 0 {
-					node[key] = d.Raw
-					if record != nil {
-						record(d.Path, d.Raw)
-					}
-				}
-				break
-			}
+
 			if len(values) == 0 {
 				if d.Optional[i] && !force {
+					nodes = nil
 					break
 				}
 				child := map[string]any{}
@@ -189,7 +182,38 @@ func InjectTagDefaults(root map[string]any, defs []TagDefault, force bool, recor
 				break
 			}
 		}
+		if len(nodes) == 0 || d.leafPresent(nodes) {
+			continue
+		}
+		nodes[len(nodes)-1][d.Keys[len(d.Keys)-1]] = d.Raw
+		if record != nil {
+			record(d.Path, d.Raw)
+		}
 	}
+}
+
+// Parent aliases must be merged in decode order, but leaf presence is an
+// existence check. An exact key (including a null value) settles it immediately.
+func (d *TagDefault) leafPresent(nodes []map[string]any) bool {
+	i := len(d.Keys) - 1
+	for _, node := range nodes {
+		if _, ok := node[d.Keys[i]]; ok {
+			return true
+		}
+		if d.foldNames {
+			for actual := range node {
+				if d.matchesFolded(i, actual) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (d *TagDefault) matchesFolded(i int, actual string) bool {
+	key := d.Keys[i]
+	return d.foldNames && strings.EqualFold(actual, key) && defaultJSONName(d.jsonFields[i], actual) == key
 }
 
 // JSON prefers an exact field name, then the first declared folded match.

@@ -40,7 +40,7 @@ conversions; named custom scalar types may require a custom hook.
 | UTF-8 BOM and CRLF | Accepted |
 | `a,b`, `${NAME}`, `%(name)s` | Literal strings; no automatic lists, environment expansion or interpolation |
 
-Parsing uses [go-ini](https://github.com/go-ini/ini/tree/v1.67.3). FastConf takes
+Parsing uses [go-ini](https://github.com/go-ini/ini/tree/v1.68.0). FastConf takes
 each section's own keys and their raw parsed values, avoiding its interpolation,
 inheritance and type-conversion helpers. Malformed sections, missing delimiters
 and other parser errors abort loading. Standard struct `json` tags apply by

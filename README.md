@@ -11,8 +11,8 @@ Failed reloads keep the application on its last valid configuration.
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-The installation command below uses the published v1.6.0 release. This checkout also
-documents changes planned for v1.7.0. See the [v1.6.0 release notes](CHANGELOG.md#v160---2026-11-15)
+v1.7.0 removes `fc:"default=…"`. Use `default:"…"` for absent keys or `Defaults()` for
+computed defaults. See the [release notes](CHANGELOG.md#v170)
 and the [v1.7.0 upgrade notes](docs/cookbook/migration-v1.md#upgrading-from-v160-to-v170).
 For earlier upgrades, see the [v0.20.0 migration table](docs/cookbook/migration-v1.md#constructors-and-options)
 or the [v1.5.0 to v1.6.0 guide](docs/cookbook/migration-v1.md#upgrading-from-v150-to-v160).
@@ -40,7 +40,7 @@ The root module requires Go 1.25+. Optional modules declare their own minimum
 Go version; install only the adapters you use.
 
 ```sh
-go get github.com/fastabc/fastconf@v1.6.0
+go get github.com/fastabc/fastconf@v1.7.0
 ```
 
 ## Quick start
@@ -452,9 +452,9 @@ Install from source at a matching version, or use binaries from
 [GitHub Releases](https://github.com/fastabc/fastconf/releases):
 
 ```sh
-go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.6.0
-go install github.com/fastabc/fastconf/cmd/fastconfd@v1.6.0
-go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.6.0
+go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.7.0
+go install github.com/fastabc/fastconf/cmd/fastconfd@v1.7.0
+go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.7.0
 fastconfctl dump -dir conf.d -profile prod -format yaml
 fastconfctl diff -dir conf.d -from dev -to prod -json
 fastconfctl validate -dir conf.d -profile prod

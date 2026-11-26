@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/fastabc/fastconf/internal/typeinfo"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // ExampleYAML returns an annotated YAML example in struct declaration order.

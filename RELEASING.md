@@ -24,7 +24,7 @@ is needed. Its minimum Go version is 1.26; the root module remains at Go 1.25.
 
 ## Prepare and verify
 
-The dependency candidate defaults to `VERSION=v1.6.0`, matching current internal
+The dependency candidate defaults to `VERSION=v1.7.0`, matching current internal
 pins. API checks compare against `BASE=v1.6.0` and target `API_VERSION=v1.7.0`.
 Prepare and verify a release as follows:
 
@@ -86,18 +86,18 @@ immutable checksum record. The v1.4.0 release establishes another baseline:
 fields of the unexported option struct, which gorelease reaches through
 `Option`, were renamed. v1.4.0 was checked with `BASE=none`.
 Advance `BASE` to the latest stable tag when preparing the next release so that
-newer modules and exports are also checked. During v1.7 development run:
+newer modules and exports are also checked. For v1.7.0 run:
 
 ```sh
-make api-check BASE=v1.6.0 VERSION=v1.6.0 API_VERSION=v1.7.0
+make api-check BASE=v1.6.0 VERSION=v1.7.0 API_VERSION=v1.7.0
 ```
 
 `VERSION` controls candidate dependency pins; `API_VERSION` controls gorelease's
 release-version validation. CI uses the Makefile defaults for both. A baseline
 download failure must fail the check; use `BASE=none` only to establish a
 deliberate new baseline, never as a fallback. API checks do not replace behavior regression tests.
-API checks use a reserved prerelease of the next patch (`v1.6.1-api-check` for
-`VERSION=v1.6.0`), or append `.api-check` to an existing prerelease. The temporary
+API checks use a reserved prerelease of the next patch (`v1.7.1-api-check` for
+`VERSION=v1.7.0`), or append `.api-check` to an existing prerelease. The temporary
 archives and matching internal dependency pins use that version, so the baseline
 resolves to published code even when `BASE` equals `VERSION`. Existing release
 tags do not make reruns fail. The same conversion is applied independently to
@@ -116,7 +116,7 @@ The root module requires Go 1.25. Satellite modules declare their own minimums;
 CI tests each at that floor. Use `tools/modules.sh matrix` rather than maintaining
 a separate version table.
 
-Build and scan v1.6.0 with Go 1.26.11 or a newer patched toolchain: Go 1.26.10
+Build and scan v1.7.0 with Go 1.26.11 or a newer patched toolchain: Go 1.26.10
 is affected by GO-2026-6859 in net/http. For local commands, set
 `GOTOOLCHAIN=go1.26.11`; the library module Go minimums stay unchanged.
 

@@ -40,8 +40,8 @@ type Provider struct {
 	client       Doer
 
 	// version is the last version Load read successfully; notified is the
-	// version Watch last announced and is cleared by every Load attempt, so
-	// a failed or stale read is announced again on the next poll.
+	// version Watch last announced. Load keeps it pending throughout the read
+	// so polls can retry a failed or stale read after the attempt completes.
 	mu       sync.Mutex
 	version  int
 	notified int
@@ -125,31 +125,24 @@ func (p *Provider) Describe() contracts.ProviderInfo {
 
 // Load implements contracts.Provider.
 func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
-	m, err := p.loadMap(ctx)
+	p.mu.Lock()
+	announced := p.notified
+	p.mu.Unlock()
+
+	data, version, err := p.readData(ctx)
+	p.mu.Lock()
+	if err == nil {
+		p.version = version
+	}
+	if p.notified == announced {
+		// Leave any newer notification that arrived during the read pending.
+		p.notified = 0
+	}
+	p.mu.Unlock()
 	if err != nil {
 		return contracts.Snapshot{}, contracts.SafeError("vault: load failed", err)
 	}
-	return contracts.Snapshot{Map: m}, nil
-}
-
-// A single GET against the KV v2 data endpoint returns the
-// secret payload and current version; the version is recorded so Watch can detect future
-// rotations.
-func (p *Provider) loadMap(ctx context.Context) (map[string]any, error) {
-	p.mu.Lock()
-	p.notified = 0
-	p.mu.Unlock()
-	if err := p.ensureToken(ctx); err != nil {
-		return nil, err
-	}
-	data, version, err := p.readData(ctx)
-	if err != nil {
-		return nil, err
-	}
-	p.mu.Lock()
-	p.version = version
-	p.mu.Unlock()
-	return p.expand(data), nil
+	return contracts.Snapshot{Map: p.expand(data)}, nil
 }
 
 // Watch starts an independent polling/renewal session and closes its event channel after
@@ -197,7 +190,7 @@ func (p *Provider) watchLoop(ctx context.Context, out chan<- contracts.Event) {
 			continue
 		}
 		// Only successful Load advances version. Mark notified before sending so
-		// a racing Load always clears duplicate suppression afterwards.
+		// the Load triggered by this event observes the pending version.
 		p.mu.Lock()
 		skip := v == p.version || v == p.notified
 		if !skip {
@@ -242,6 +235,9 @@ func (p *Provider) loadToken() string {
 }
 
 func (p *Provider) readData(ctx context.Context) (map[string]any, int, error) {
+	if err := p.ensureToken(ctx); err != nil {
+		return nil, 0, err
+	}
 	return p.readDataAt(ctx, p.path)
 }
 

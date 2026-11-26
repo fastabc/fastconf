@@ -66,6 +66,7 @@ type Coalescer struct {
 type burst struct {
 	timer    *time.Timer
 	deadline time.Time
+	fireAt   time.Time
 	reasons  []string
 	swapSeen bool
 }
@@ -109,34 +110,22 @@ func (c *Coalescer) Push(key, reason string, swapCommit bool) {
 	}
 
 	if !ok {
-		nb := &burst{
-			deadline: now.Add(c.opts.MaxLag),
-			reasons:  []string{reason},
-			swapSeen: swapCommit,
-		}
-		c.bursts[key] = nb
+		b = &burst{deadline: now.Add(c.opts.MaxLag)}
+		c.bursts[key] = b
+	}
+	b.reasons = append(b.reasons, reason)
+	if !b.swapSeen || swapCommit {
 		window := c.opts.Quiet
 		if swapCommit {
+			b.swapSeen = true
 			window = c.opts.SwapHint
 		}
-		window = min(window, c.opts.MaxLag)
-		k := key
-		nb.timer = time.AfterFunc(window, func() { c.flush(k, nb) })
-	} else {
-		b.reasons = append(b.reasons, reason)
-		switch {
-		case swapCommit:
-			b.swapSeen = true
-			b.timer.Reset(min(c.opts.SwapHint, time.Until(b.deadline)))
-		case b.swapSeen:
-			// Swap window already running; do not extend.
-		default:
-			window := min(c.opts.Quiet, time.Until(b.deadline))
-			if window > 0 {
-				b.timer.Reset(window)
-			}
-			// window <= 0 is impossible here given the !Before(deadline)
-			// check above evicted such bursts already.
+		b.fireAt = now.Add(min(window, b.deadline.Sub(now)))
+		delay := time.Until(b.fireAt)
+		if b.timer == nil {
+			b.timer = time.AfterFunc(delay, func() { c.flush(key, b) })
+		} else {
+			b.timer.Reset(delay)
 		}
 	}
 
@@ -151,7 +140,9 @@ func (c *Coalescer) Push(key, reason string, swapCommit bool) {
 func (c *Coalescer) flush(key string, self *burst) {
 	c.mu.Lock()
 	b, ok := c.bursts[key]
-	if !ok || b != self || c.stopped {
+	// Reset can schedule a new callback while the previous one waits for mu.
+	// The later timer owns the dispatch if its quiet window is still open.
+	if !ok || b != self || c.stopped || time.Now().Before(b.fireAt) {
 		c.mu.Unlock()
 		return
 	}

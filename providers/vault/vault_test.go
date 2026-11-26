@@ -275,6 +275,7 @@ func TestProvider_WatchLoopRetriesAfterBackpressure(t *testing.T) {
 func TestProvider_WatchRetriesAfterFailedLoad(t *testing.T) {
 	var version atomic.Int64
 	version.Store(1)
+	polled := make(chan struct{})
 	var failNext atomic.Bool
 	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		v := int(version.Load())
@@ -284,8 +285,24 @@ func TestProvider_WatchRetriesAfterFailedLoad(t *testing.T) {
 				w.WriteHeader(500)
 				return
 			}
+			if v == 2 {
+				// Hold the retry open across two metadata requests. The watch loop
+				// must have processed the first poll before it starts the second.
+				for range 2 {
+					select {
+					case <-polled:
+					case <-time.After(time.Second):
+						nethttp.Error(w, "metadata poll timed out", nethttp.StatusServiceUnavailable)
+						return
+					}
+				}
+			}
 			_, _ = w.Write(dataResponse(v, map[string]any{"v": v}))
 		case "/v1/secret/metadata/cfg":
+			select {
+			case polled <- struct{}{}:
+			default:
+			}
 			_, _ = w.Write(metadataResponse(v))
 		default:
 			w.WriteHeader(404)

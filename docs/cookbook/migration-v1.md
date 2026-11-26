@@ -1,13 +1,13 @@
 # FastConf v1 migration guide
 
 The tables document the API migration from v0.20.0 to v1.1.0. These changes
-also apply when upgrading directly to v1.6.0; intermediate development APIs
-are not migration steps. The install commands below use the published v1.6.0 tags for the root and optional modules.
+also apply when upgrading directly to v1.7.0; intermediate development APIs
+are not migration steps. The install commands below target v1.7.0 for the root and optional modules.
 
 ```sh
-go get github.com/fastabc/fastconf@v1.6.0
+go get github.com/fastabc/fastconf@v1.7.0
 # Example optional module; update the adapters your application imports.
-go get github.com/fastabc/fastconf/providers/s3@v1.6.0
+go get github.com/fastabc/fastconf/providers/s3@v1.7.0
 go mod tidy
 ```
 
@@ -17,8 +17,9 @@ Import paths remain under `github.com/fastabc/fastconf`.
 
 ## Upgrading from v1.6.0 to v1.7.0
 
-The following changes are in the development branch for v1.7.0.
-
+- YAML document parsing now uses `go.yaml.in/yaml/v3`. Application types that
+  implement node-based hooks for `WithDecodeFormat(YAML)` should keep importing
+  `gopkg.in/yaml.v3` for their `*yaml.Node` parameter or result.
 - **`fc:"default=…"` is removed.** A field that still declares it, including one
   inside a collection element or on a field skipped by the decoder, fails `New`, `Load` and `LoadFile` with an error
   naming the field; `schema.JSONSchema`, `ExampleYAML` and `ExampleEnv` fail the

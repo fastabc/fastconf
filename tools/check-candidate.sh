@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'chmod -R u+w "$TMP"; rm -rf "$TMP"' EXIT
-SOURCE_VERSION="${VERSION:-v1.6.0}"
+SOURCE_VERSION="${VERSION:-v1.7.0}"
 if [[ "${1:-}" == --api ]]; then
   shift
   # Keep the published baseline distinct from local candidate archives. A

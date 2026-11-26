@@ -2,6 +2,7 @@ package typeinfo
 
 import (
 	"reflect"
+	"strconv"
 	"testing"
 )
 
@@ -32,5 +33,30 @@ func TestInjectTagDefaults_IgnoresOtherBridgeAlias(t *testing.T) {
 	InjectTagDefaults(m, defs, false, nil)
 	if len(m) != 2 || m["max_conns"] != 7 || m["maxConns"] != "5" {
 		t.Fatalf("%v", m)
+	}
+}
+
+func BenchmarkInjectTagDefaultsPresent(b *testing.B) {
+	type config struct {
+		Port int `json:"port" yaml:"port" default:"80"`
+	}
+	for _, tc := range []struct {
+		name string
+		yaml bool
+	}{{"JSON", false}, {"YAML", true}} {
+		b.Run(tc.name, func(b *testing.B) {
+			defs, err := TagDefaultsFor(reflect.TypeFor[config](), tc.yaml)
+			if err != nil {
+				b.Fatal(err)
+			}
+			tree := map[string]any{"port": 0}
+			for i := range 64 {
+				tree["setting"+strconv.Itoa(i)] = i
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				InjectTagDefaults(tree, defs, false, nil)
+			}
+		})
 	}
 }

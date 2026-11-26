@@ -10,8 +10,8 @@ FastConf 将文件、环境变量与云端配置统一为强类型 Go 配置。�
 [![CI](https://github.com/fastabc/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/fastabc/fastconf/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fastabc/fastconf)](https://github.com/fastabc/fastconf/releases)
 
-下方安装命令使用已发布的 v1.6.0。本分支也记录计划在 v1.7.0 中发布的变更。
-详见 [v1.6.0 版本说明](CHANGELOG.md#v160---2026-11-15) 和
+v1.7.0 移除了 `fc:"default=…"`。缺少配置键时用 `default:"…"` 填值，计算默认值用 `Defaults()`。
+详见 [v1.7.0 版本说明](CHANGELOG.md#v170) 和
 [v1.7.0 升级说明](docs/cookbook/migration-v1.md#upgrading-from-v160-to-v170)。
 从较早版本升级，可参考 [v0.20.0 迁移对照表](docs/cookbook/migration-v1.md#constructors-and-options)
 和 [v1.5.0 至 v1.6.0 升级指南](docs/cookbook/migration-v1.md#upgrading-from-v150-to-v160)。
@@ -38,7 +38,7 @@ FastConf 将文件、环境变量与云端配置统一为强类型 Go 配置。�
 根模块要求 Go 1.25+。可选模块的最低 Go 版本以各自的 `go.mod` 为准，按需安装。
 
 ```sh
-go get github.com/fastabc/fastconf@v1.6.0
+go get github.com/fastabc/fastconf@v1.7.0
 ```
 
 ## 快速上手
@@ -416,9 +416,9 @@ v1.6.0 新增特性的 API、可运行示例与验证命令，统一列在
 中的二进制：
 
 ```sh
-go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.6.0
-go install github.com/fastabc/fastconf/cmd/fastconfd@v1.6.0
-go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.6.0
+go install github.com/fastabc/fastconf/cmd/fastconfctl@v1.7.0
+go install github.com/fastabc/fastconf/cmd/fastconfd@v1.7.0
+go install github.com/fastabc/fastconf/cmd/fastconfgen@v1.7.0
 fastconfctl dump -dir conf.d -profile prod -format yaml
 fastconfctl diff -dir conf.d -from dev -to prod -json
 fastconfctl validate -dir conf.d -profile prod

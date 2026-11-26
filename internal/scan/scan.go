@@ -17,7 +17,7 @@ import (
 
 	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/contracts"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // Kind describes the merge semantics of a discovered layer. It maps one-to-one to

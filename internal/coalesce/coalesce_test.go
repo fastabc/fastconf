@@ -334,6 +334,7 @@ func TestPush_ExpiredBurstAndStaleTimer(t *testing.T) {
 	}
 	c.mu.Lock()
 	current := c.bursts["key"]
+	current.fireAt = time.Now() // simulate the current timer reaching its due time
 	c.mu.Unlock()
 	defer current.timer.Stop()
 	c.flush("key", old)
@@ -344,6 +345,21 @@ func TestPush_ExpiredBurstAndStaleTimer(t *testing.T) {
 	calls = r.snapshot()
 	if len(calls) != 2 || calls[1].reason != "new" {
 		t.Fatalf("current burst=%v; want new reason", calls)
+	}
+}
+
+// A timer callback can already be waiting on the mutex when Push rearms
+// the same burst. It must honor the quiet window set by the later event.
+func TestCoalesce_RearmedBurstIgnoresEarlyCallback(t *testing.T) {
+	r := newRecorder()
+	c := New(Options{Quiet: time.Hour, MaxLag: 2 * time.Hour}, r.fn)
+	defer c.Stop()
+	c.Push("key", "first", false)
+	b := c.bursts["key"]
+	c.Push("key", "second", false)
+	c.flush("key", b)
+	if r.count() != 0 {
+		t.Fatal("earlier callback dispatched the rearmed burst")
 	}
 }
 

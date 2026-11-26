@@ -1,9 +1,11 @@
 # Changelog
 
 The [migration guide](docs/cookbook/migration-v1.md) covers published v1 releases
-and [upgrading from v1.6.0 to the planned v1.7.0](docs/cookbook/migration-v1.md#upgrading-from-v160-to-v170).
+and [upgrading from v1.6.0 to v1.7.0](docs/cookbook/migration-v1.md#upgrading-from-v160-to-v170).
 
 ## [Unreleased]
+
+## [v1.7.0]
 
 ### Removed
 
@@ -27,11 +29,16 @@ and [upgrading from v1.6.0 to the planned v1.7.0](docs/cookbook/migration-v1.md#
 
 ### Fixed
 
+- Vault metadata polling suppresses duplicate notifications for a version while its load is in flight
+  and retries after a failed read.
+- The Pub/Sub notifier and the GCS and Secret Manager providers now use OpenTelemetry v1.47.0,
+  which fixes GO-2026-6974 and GO-2026-6975.
 - All schema generators now reject removed `fc:"default=…"` declarations inside
   collections and skipped fields, consistent with manager construction.
 - `fastconfctl diff` reports an error for `-profile` and directs callers to `-from` and `-to`.
 - Plan reports a diagnostic JSON encoding error when it cannot compare snapshots.
 - The HTTP provider refreshes automatically decoded documents after codec registration or extension remapping.
+- File events that rearm a pending timer now get their full coalescing window, bounded by MaxLag.
 - Expired file event bursts allow the watcher to keep reading while a reload runs.
 - Graceful shutdown of fastconfd closes idle SSE streams.
 - A provider Watch channel that closes before cancellation now emits `ProviderError`
@@ -43,6 +50,12 @@ and [upgrading from v1.6.0 to the planned v1.7.0](docs/cookbook/migration-v1.md#
 
 ### Changed
 
+- YAML documents, discovery metadata and generated examples use the maintained
+  `go.yaml.in/yaml/v3` parser (v3.0.6). The typed YAML bridge continues to use
+  `gopkg.in/yaml.v3` for compatibility with existing `*yaml.Node` hooks.
+- Updated INI to v1.68.0, CUE to v0.18.0, OPA to v1.22.4, pflag to v1.1.0,
+  go-playground/validator to v10.30.6 and the Pub/Sub adapter's Protobuf to v1.36.12.
+- Checking an explicit leaf with a `default` tag avoids sorting the input object on each reload.
 - `Errors()` no longer reports requests whose context ended, or whose manager
   closed, before the writer started them. Their callers still receive the context
   error, and a batch of timed-out calls can no longer evict real failures from the
