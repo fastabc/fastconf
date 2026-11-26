@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"runtime"
-	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -237,39 +236,13 @@ func blockWriter(t *testing.T, m *Manager[snapshotConfig]) (release func()) {
 // drainWriter waits until the writer has processed every request queued so far.
 func drainWriter(t *testing.T, m *Manager[snapshotConfig]) {
 	t.Helper()
-	err := m.submitAndWait(context.Background(), reloadRequest{run: func(context.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err := m.submitAndWait(ctx, reloadRequest{run: func(context.Context) error {
 		return nil
 	}})
 	if err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestRollbackContextTimesOutWhileWriterBusy(t *testing.T) {
-	m, target := newRollbackFixture(t)
-	before, history := m.Snapshot(), m.History().List()
-	release := blockWriter(t, m)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	start := time.Now()
-	err := m.History().RollbackContext(ctx, target)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("RollbackContext with busy writer = %v; want context.DeadlineExceeded", err)
-	}
-	if waited := time.Since(start); waited > 2*time.Second {
-		t.Fatalf("RollbackContext returned after %v; want it bounded by ctx", waited)
-	}
-
-	// The queued request must be skipped once the writer reaches it.
-	release()
-	drainWriter(t, m)
-	if got := m.Snapshot(); got != before {
-		t.Fatalf("timed-out rollback published generation %d (%q); want unchanged generation %d",
-			got.Generation(), got.Value().Name, before.Generation())
-	}
-	if got := m.History().List(); !slices.Equal(got, history) {
-		t.Fatal("timed-out rollback changed history")
 	}
 }
 

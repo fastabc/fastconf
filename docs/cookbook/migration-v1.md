@@ -42,8 +42,9 @@ Import paths remain under `github.com/fastabc/fastconf`.
   started them; their callers still receive the context error.
 - A provider Watch channel that closes before cancellation now emits
   `ProviderError` and resubscribes with backoff that resets after 30 seconds of uptime.
-- `ReloadError` gains a `Trigger` field, so unkeyed `ReloadError{…}` literals no
-  longer compile. New APIs: `History.RollbackContext` and `ReloadCause.Trigger`.
+- Use keyed literals for `ReloadError`, `ReloadCause`, `ReloadStarted`,
+  `ReloadFinished` and `StageFinished`, which now include a `Trigger` field.
+  `History.RollbackContext` adds a context-aware rollback.
 
 ## Upgrading from v1.5.0 to v1.6.0
 

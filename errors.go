@@ -16,7 +16,8 @@ var (
 	// ErrNoSources: no file, provider or generator produced a layer.
 	ErrNoSources = fcerr.ErrNoSources
 	// ErrDecode: a file under WithDir or its metadata could not be read,
-	// accepted or parsed, a generator layer failed to parse, a WithOverride
+	// accepted or parsed, a LoadFile extension or document was invalid,
+	// a generator layer failed to parse, a WithOverride
 	// map could not be encoded, the merged tree could not be decoded into T,
 	// or an unknown key was rejected by WithUnknownFields(UnknownError).
 	// Provider Load failures, including payloads a provider cannot parse,
@@ -40,8 +41,8 @@ var (
 	ErrTooLarge = fcerr.ErrTooLarge
 	// ErrPanic: a transform, secret resolver, typed hook, Defaults method,
 	// validator, policy, provider, generator or other user code running on
-	// the reload writer panicked. The error names the stage and the panic
-	// value; the stack is logged at Error level.
+	// the reload pipeline or initial default validation panicked. The error
+	// names the stage and the panic value; the stack is logged at Error level.
 	ErrPanic = fcerr.ErrPanic
 )
 

@@ -11,7 +11,8 @@ and [upgrading from v1.6.0 to v1.7.0](docs/cookbook/migration-v1.md#upgrading-fr
 
 - `fc:"default=…"` zero-value defaults. A field that still declares the directive,
   including one inside a collection element, now fails `New`, `Load`, `LoadFile` and
-  the `schema` generators with an error naming the field. Use `default:"…"` for
+  the `schema` generators with an error naming the field. `LoadFile` validates
+  declarations before reading the file. Use `default:"…"` for
   absent keys or a `Defaults()` method for computed and zero-value defaults; see
   the migration guide.
 
@@ -41,9 +42,11 @@ and [upgrading from v1.6.0 to v1.7.0](docs/cookbook/migration-v1.md#upgrading-fr
   `Defaults()`, validator, policy, provider, generator, Plan or rollback work) no
   longer crashes the process. It fails that operation with the new `ErrPanic`, which
   names the stage and panic value, keeps the current snapshot and reaches `Errors()`;
-  `New` and `Load` return it. A panicking observer is logged and skipped.
-- Vault metadata polling suppresses duplicate notifications for a version while its load is in flight
-  and retries after a failed read.
+  `New`, `Load` and `LoadFile` return it for initial pipeline and default-tag
+  validation panics. `LoadFile` also recovers from a file decoder panic.
+  A panicking observer is logged and skipped.
+- Vault metadata polling suppresses duplicate notifications for a version while
+  its load is in flight and retries after a failed read or a Watch restart.
 - The Pub/Sub notifier and the GCS and Secret Manager providers now use OpenTelemetry v1.47.0,
   which fixes GO-2026-6974 and GO-2026-6975.
 - All schema generators now reject removed `fc:"default=…"` declarations inside
@@ -53,8 +56,8 @@ and [upgrading from v1.6.0 to v1.7.0](docs/cookbook/migration-v1.md#upgrading-fr
 - The HTTP provider refreshes automatically decoded documents after codec registration or extension remapping.
 - `WithDecodeFormat(YAML)` rejects a reachable `UnmarshalYAML(*Node)` built on a YAML
   library other than `go.yaml.in/yaml/v3`, such as `gopkg.in/yaml.v3`, naming the
-  field. The bridge never called such hooks and decoded those fields one by one
-  without error. YAML hooks from any library now disable the file input shortcut.
+  field, including inline hooks and map keys. Earlier versions silently skipped
+  these hooks. YAML hooks from any library now disable the file input shortcut.
 - A generator that fails with a context error (a `Reload(ctx)` timeout or
   cancellation) now returns that error unwrapped, like providers, instead of
   wrapping `ErrProvider`.

@@ -19,8 +19,20 @@ import (
 // Errors classify as follows: a missing or unreadable file wraps ErrProvider (an
 // oversized file also wraps ErrTooLarge); an unknown extension, a syntax error, a
 // value that does not decode into T or an unknown key wraps ErrDecode; field and
-// validator checks wrap ErrInvalid.
-func LoadFile[T any](path string) (*T, error) {
+// validator checks wrap ErrInvalid. Invalid default declarations fail before
+// reading the file. Decoder and default hook panics return ErrPanic.
+func LoadFile[T any](path string) (_ *T, err error) {
+	ctx := context.Background()
+	m, err := newManager[T](ctx, []Option{
+		func(o *options) { o.SkipDiscovery = true },
+		WithUnknownFields(UnknownError),
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer m.lifetimeCancel()
+	defer recoverPanic(ctx, m.opts.Logger, "assemble", &err)
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrProvider, err)
@@ -45,11 +57,8 @@ func LoadFile[T any](path string) (*T, error) {
 			tree = decoded
 		}
 	}
-	state, err := Load[T](context.Background(),
-		func(o *options) { o.SkipDiscovery = true },
-		WithProvider(decodedFile{name: path, tree: tree}),
-		WithUnknownFields(UnknownError),
-	)
+	m.opts.addProvider(decodedFile{name: path, tree: tree})
+	state, err := m.load(ctx)
 	if err != nil {
 		return nil, err
 	}

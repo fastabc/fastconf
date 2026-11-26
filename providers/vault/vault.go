@@ -40,12 +40,11 @@ type Provider struct {
 	client       Doer
 	onError      func(error)
 
-	// version is the last version Load read successfully; notified is the
-	// version Watch last announced. Load keeps it pending throughout the read
-	// so polls can retry a failed or stale read after the attempt completes.
-	mu       sync.Mutex
-	version  int
-	notified int
+	// version is the last version Load read successfully. Each Watch session
+	// uses completedLoads to retry a notification after a failed or stale read.
+	mu             sync.Mutex
+	version        int
+	completedLoads uint64
 
 	// Pluggable auth + lease renewal: see Auth interface + renewer goroutine.
 	auth        Auth
@@ -134,19 +133,12 @@ func (p *Provider) Describe() contracts.ProviderInfo {
 
 // Load implements contracts.Provider.
 func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
-	p.mu.Lock()
-	announced := p.notified
-	p.mu.Unlock()
-
 	data, version, err := p.readData(ctx)
 	p.mu.Lock()
 	if err == nil {
 		p.version = version
 	}
-	if p.notified == announced {
-		// Leave any newer notification that arrived during the read pending.
-		p.notified = 0
-	}
+	p.completedLoads++
 	p.mu.Unlock()
 	if err != nil {
 		return contracts.Snapshot{}, contracts.SafeError("vault: load failed", err)
@@ -189,6 +181,8 @@ func (p *Provider) watchLoop(ctx context.Context, out chan<- contracts.Event) {
 	tick := time.NewTicker(p.interval)
 	defer tick.Stop()
 	reporter := providerutil.PollReporter{Handler: p.onError}
+	var notified int
+	var notifiedAfterLoad uint64
 	for {
 		select {
 		case <-ctx.Done():
@@ -203,28 +197,21 @@ func (p *Provider) watchLoop(ctx context.Context, out chan<- contracts.Event) {
 		if err != nil || v == 0 {
 			continue
 		}
-		// Only successful Load advances version. Mark notified before sending so
-		// the Load triggered by this event observes the pending version.
+		// Suppress repeats until a Load finishes. A new session has its own
+		// pending version, so cancellation cannot strand a notification.
 		p.mu.Lock()
-		skip := v == p.version || v == p.notified
-		if !skip {
-			p.notified = v
-		}
+		version, completedLoads := p.version, p.completedLoads
 		p.mu.Unlock()
-		if skip {
+		if v == version || (v == notified && completedLoads == notifiedAfterLoad) {
 			continue
 		}
 		select {
 		case <-ctx.Done():
 			return
 		case out <- contracts.Event{Source: p.name, Reason: "vault-version", At: time.Now()}:
+			notified, notifiedAfterLoad = v, completedLoads
 		default:
 			// Consumer back-pressure: retry the send on the next tick.
-			p.mu.Lock()
-			if p.notified == v {
-				p.notified = 0
-			}
-			p.mu.Unlock()
 		}
 	}
 }

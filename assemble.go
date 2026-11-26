@@ -170,7 +170,7 @@ func (m *Manager[T]) resolveDiscovery(ctx context.Context, hostnameOverride stri
 	var metaOut rootMetaSettings
 	metaBytes, err := scan.LoadMeta(m.opts.FS, m.opts.Dir)
 	if err != nil {
-		return scanOpt, metaOut, discoveryError(err)
+		return scanOpt, metaOut, err
 	}
 	metaOut.metaSum = sha256.Sum256(metaBytes)
 	var meta scan.MetaFile

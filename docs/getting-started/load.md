@@ -54,7 +54,8 @@ go run ./examples/single-file
 例如 `default:"8080" fc:"min=1,max=65535"` 只在缺少 `port` 键时填充 8080，
 再执行范围校验，因此显式输入 0 会保留并被 `min=1` 拒绝。需要把零值也替换为
 默认值时，实现 `Defaults()` 方法。`fc:"default=…"` 已在 v1.7.0 移除，残留的声明会
-直接报错；迁移方式见 [`fc` 默认值迁移](../cookbook/processing/field-meta.md#migrating-from-fc-defaults)。
+在读取文件之前报错。迁移方式见 [`fc` 默认值迁移](../cookbook/processing/field-meta.md#migrating-from-fc-defaults)。
+文件解码器或默认值 hook 中的 panic 返回 `ErrPanic`。
 
 ## 需要更多控制时
 

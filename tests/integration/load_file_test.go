@@ -97,3 +97,18 @@ func TestLoadFile_DefaultsAndDefaulter(t *testing.T) {
 		t.Fatalf("explicit values = %+v, %v", value, err)
 	}
 }
+
+func TestLoadFileRejectsRemovedDefaultBeforeParsing(t *testing.T) {
+	type config struct {
+		Port int `json:"port" fc:"default=80"`
+	}
+	path := filepath.Join(t.TempDir(), "cfg.yaml")
+	if err := os.WriteFile(path, []byte("port: [\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	value, err := fastconf.LoadFile[config](path)
+	if value != nil || !errors.Is(err, fastconf.ErrFastConf) ||
+		!strings.Contains(err.Error(), "removed in v1.7.0") || !strings.Contains(err.Error(), "port") {
+		t.Fatalf("LoadFile = %v, %v; want removed default error naming port", value, err)
+	}
+}

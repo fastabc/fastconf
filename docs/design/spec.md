@@ -229,8 +229,9 @@ A panic in user code on the writer (transforms, secret resolvers, typed hooks,
 fails that operation with `ErrPanic`. The error names the stage and panic value;
 the stack is logged at Error level. The snapshot and generation are kept, the
 failure reaches `Errors()`, and the writer goes on serving requests. The
-initial load recovers too, so `New` and `Load` return `ErrPanic` instead of
-crashing. A panicking observer is logged and skipped; it does not fail the
+initial pipeline and default-tag validation also return `ErrPanic` through
+`New`, `Load` and `LoadFile`. `LoadFile` also recovers from a file decoder
+panic. A panicking observer is logged and skipped; it does not fail the
 reload or prevent later observers from receiving the event.
 Subscriber panics also reach `Errors()` with reason `subscriber-panic`, after
 publication; they do not roll back the already-published snapshot. Failures

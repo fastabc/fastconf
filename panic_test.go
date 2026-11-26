@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fastabc/fastconf/codec"
+	"github.com/fastabc/fastconf/internal/testutil"
 	"github.com/fastabc/fastconf/providers/source"
 )
 
@@ -167,4 +169,37 @@ func TestInitialLoadPanicReturnsError(t *testing.T) {
 	if !errors.Is(err, ErrPanic) || !strings.Contains(err.Error(), "initial exploded") {
 		t.Fatalf("New = %v; want ErrPanic", err)
 	}
+}
+
+type panickingDefault string
+
+func (*panickingDefault) UnmarshalJSON([]byte) error { panic("default exploded") }
+
+type panickingFileCodec struct{}
+
+func (panickingFileCodec) Decode([]byte) (map[string]any, error) { panic("file codec exploded") }
+
+func TestLoadFileRecoversInitializationPanics(t *testing.T) {
+	t.Run("default validation", func(t *testing.T) {
+		type config struct {
+			Value panickingDefault `json:"value" default:"test"`
+		}
+		path := filepath.Join(t.TempDir(), "config.json")
+		testutil.WriteFile(t, path, "{}")
+		value, err := LoadFile[config](path)
+		if value != nil || !errors.Is(err, ErrPanic) || !strings.Contains(err.Error(), "default exploded") {
+			t.Fatalf("LoadFile = %v, %v; want ErrPanic from default validation", value, err)
+		}
+	})
+
+	t.Run("file decoder", func(t *testing.T) {
+		codec.Register("panicking-file", panickingFileCodec{})
+		codec.RegisterExt("panicking-file", "panicking-file")
+		path := filepath.Join(t.TempDir(), "config.panicking-file")
+		testutil.WriteFile(t, path, "test")
+		value, err := LoadFile[snapshotConfig](path)
+		if value != nil || !errors.Is(err, ErrPanic) || !strings.Contains(err.Error(), "file codec exploded") {
+			t.Fatalf("LoadFile = %v, %v; want ErrPanic from file decoder", value, err)
+		}
+	})
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"sync"
+	"slices"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -14,36 +14,51 @@ import (
 	"github.com/fastabc/fastconf/transform"
 )
 
-func TestTracer_EmitsAllStages(t *testing.T) {
+func TestPipelineStageObservability(t *testing.T) {
 	tr := &testutil.RecordingTracer{}
-	mfs := fstest.MapFS{
-		"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte("a: 1\nb: 2\n")},
-	}
+	var events []StageFinished
 	mgr, err := New[map[string]any](context.Background(),
-		WithFS(mfs),
-		WithTracer(tr),
-	)
+		WithFS(fstest.MapFS{"conf.d/base/00.yaml": {Data: []byte("a: 1\n")}}), WithTracer(tr),
+		WithObserver(observerFunc(func(_ context.Context, e Event) {
+			if s, ok := e.(StageFinished); ok {
+				events = append(events, s)
+			}
+		})))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	defer func() { _ = mgr.Close() }()
 
-	got := map[string]int{}
-	for _, sp := range tr.Spans() {
-		if !sp.Ended {
-			t.Errorf("span %q not ended", sp.Name)
+	want := []string{"assemble", "merge", "transform", "secret", "defaults", "typed-hooks",
+		"decode", "field-meta", "validate", "policy", "commit"}
+	var stages []string
+	for _, e := range events {
+		stages = append(stages, e.Stage)
+		if e.Err != nil || e.Trigger != TriggerInitial {
+			t.Errorf("stage %q: err=%v trigger=%q", e.Stage, e.Err, e.Trigger)
 		}
-		got[sp.Name]++
+	}
+	if !slices.Equal(stages, want) {
+		t.Errorf("stage order = %v, want %v", stages, want)
 	}
 
-	want := map[string]int{
-		"fastconf.reload": 1, "fastconf.assemble": 1, "fastconf.commit": 1,
-		"fastconf.merge": 1, "fastconf.transform": 1, "fastconf.secret": 1, "fastconf.defaults": 1,
-		"fastconf.typed-hooks": 1, "fastconf.decode": 1, "fastconf.field-meta": 1,
-		"fastconf.validate": 1, "fastconf.policy": 1,
+	spans := tr.Spans()
+	if len(spans) != 1+len(want) {
+		t.Fatalf("recorded %d spans, want %d", len(spans), 1+len(want))
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("spans = %v, want %v", got, want)
+	for _, name := range append([]string{"reload"}, want...) {
+		sp := tr.FindSpan("fastconf." + name)
+		if sp == nil || !sp.Ended || sp.Err != nil {
+			t.Errorf("span %q missing or incomplete: %+v", name, sp)
+			continue
+		}
+		attr := "fastconf.reload.trigger"
+		if name == "reload" {
+			attr = "trigger"
+		}
+		if got := sp.Attrs[attr]; got != string(TriggerInitial) {
+			t.Errorf("span %q attribute %q = %v, want %q", name, attr, got, TriggerInitial)
+		}
 	}
 }
 
@@ -52,53 +67,6 @@ func TestTracer_EmitsAllStages(t *testing.T) {
 type observerFunc func(context.Context, Event)
 
 func (f observerFunc) Observe(ctx context.Context, e Event) { f(ctx, e) }
-
-func TestObserver_PerStage(t *testing.T) {
-	var mu sync.Mutex
-	stages := map[string]int{}
-	rec := observerFunc(func(_ context.Context, e Event) {
-		if s, ok := e.(StageFinished); ok {
-			mu.Lock()
-			defer mu.Unlock()
-			if s.Err == nil {
-				stages[s.Stage]++
-			} else {
-				stages[s.Stage+":err"]++
-			}
-		}
-	})
-	mgr, err := New[map[string]any](context.Background(),
-		WithFS(fstest.MapFS{"conf.d/base/00.yaml": {Data: []byte("a: 1\n")}}),
-		WithObserver(rec),
-	)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	defer func() { _ = mgr.Close() }()
-
-	mu.Lock()
-	defer mu.Unlock()
-	want := map[string]int{
-		"assemble": 1, "merge": 1, "transform": 1, "secret": 1, "defaults": 1, "typed-hooks": 1,
-		"decode": 1, "field-meta": 1, "validate": 1, "policy": 1, "commit": 1,
-	}
-	if !reflect.DeepEqual(stages, want) {
-		t.Errorf("stages = %v, want %v", stages, want)
-	}
-}
-
-func TestPipeline_StageOrder(t *testing.T) {
-	stages := defaultStages[map[string]any]()
-	want := []string{"merge", "transform", "secret", "defaults", "typed-hooks", "decode", "field-meta", "validate", "policy"}
-	if len(stages) != len(want) {
-		t.Fatalf("len(stages) = %d, want %d", len(stages), len(want))
-	}
-	for i, s := range stages {
-		if got := s.name; got != want[i] {
-			t.Fatalf("stage[%d].name = %q, want %q", i, got, want[i])
-		}
-	}
-}
 
 type cfgMigration struct {
 	DSN string `yaml:"dsn"`

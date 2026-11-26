@@ -192,10 +192,11 @@ func (m *Manager[T]) runTimedStage(ctx context.Context, trigger ReloadTrigger, s
 	start := time.Now()
 	stage := strings.TrimPrefix(spanName, "fastconf.")
 	ctx, sp := m.startSpan(ctx, spanName)
+	sp.SetAttribute("fastconf.reload.trigger", string(trigger))
 	err := func() (err error) {
 		// The innermost timed stage names a panic; an enclosing stage then
 		// sees an ordinary error.
-		defer m.recoverPanic(ctx, stage, &err)
+		defer recoverPanic(ctx, m.opts.Logger, stage, &err)
 		return fn(ctx, sp)
 	}()
 	elapsed := time.Since(start)

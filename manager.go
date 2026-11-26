@@ -105,6 +105,10 @@ func Load[T any](ctx context.Context, opts ...Option) (*State[T], error) {
 		return nil, err
 	}
 	defer m.lifetimeCancel()
+	return m.load(ctx)
+}
+
+func (m *Manager[T]) load(ctx context.Context) (*State[T], error) {
 	if err := m.reload(ctx, TriggerInitial, "load", ""); err != nil {
 		return nil, err
 	}
@@ -113,7 +117,7 @@ func Load[T any](ctx context.Context, opts ...Option) (*State[T], error) {
 
 // newManager resolves options and prepares shared state without loading sources
 // or starting workers. New and Load differ only in their lifecycle ownership.
-func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) {
+func newManager[T any](ctx context.Context, opts []Option) (_ *Manager[T], err error) {
 	o, err := resolveOptions(opts)
 	if err != nil {
 		return nil, err
@@ -130,8 +134,9 @@ func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) 
 	}
 	defs, err := typeinfo.TagDefaultsFor(reflect.TypeFor[T](), o.YAMLBridge)
 	if err != nil {
-		return nil, fmt.Errorf("%w: default tag: %w", fcerr.ErrFastConf, err)
+		return nil, fmt.Errorf("%w: %w", fcerr.ErrFastConf, err)
 	}
+	defer recoverPanic(ctx, o.Logger, "defaults", &err)
 	hookPlan := buildTypedHookPlan[T](&o)
 	if len(defs) > 0 {
 		tree := map[string]any{}
@@ -143,9 +148,8 @@ func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) 
 		if err != nil {
 			return nil, fmt.Errorf("%w: default tag: %w", fcerr.ErrFastConf, err)
 		}
-		err = input.decode(new(T), false)
-		input.release()
-		if err != nil {
+		defer input.release()
+		if err := input.decode(new(T), false); err != nil {
 			return nil, fmt.Errorf("%w: default tag: %w", fcerr.ErrFastConf, err)
 		}
 	}

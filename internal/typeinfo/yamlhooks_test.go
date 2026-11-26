@@ -43,9 +43,18 @@ func TestForeignYAMLNodeHook(t *testing.T) {
 		{"collection element", reflect.TypeFor[struct {
 			Hosts map[string][]foreignHook `yaml:"hosts"`
 		}](), "hosts[][]"},
+		{"map key", reflect.TypeFor[struct {
+			Hosts map[foreignHook]string `yaml:"hosts"`
+		}](), "hosts[key]"},
 		{"inline embed", reflect.TypeFor[struct {
 			Embedded `yaml:",inline"`
 		}](), "hook"},
+		{"inline hook", reflect.TypeFor[struct {
+			Host *foreignHook `yaml:",inline"`
+		}](), "host"},
+		{"inline bridge hook stops descent", reflect.TypeFor[struct {
+			Host *bridgeHook `yaml:",inline"`
+		}](), ""},
 		{"untagged name", reflect.TypeFor[struct{ Addr foreignHook }](), "addr"},
 		{"bridge hook stops descent", reflect.TypeFor[struct {
 			B bridgeHook `yaml:"b"`

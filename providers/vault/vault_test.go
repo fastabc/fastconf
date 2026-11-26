@@ -94,21 +94,32 @@ func TestProvider_WatchOnVersionBump(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	defer cancel()
-	ch, err := p.Watch(ctx, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Bump the version after watch starts.
-	version.Store(2)
-	select {
-	case ev := <-ch:
-		if ev.Reason != "vault-version" {
-			t.Fatalf("bad reason %s", ev.Reason)
-		}
-	case <-ctx.Done():
-		t.Fatalf("no event")
+	for _, name := range []string{"initial watch", "restart before loading"} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+			defer cancel()
+			ch, err := p.Watch(ctx, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				cancel()
+				for range ch {
+				}
+			}()
+
+			// The first session observes the new version but never loads it.
+			// The next session should still announce the pending version.
+			version.Store(2)
+			select {
+			case ev := <-ch:
+				if ev.Reason != "vault-version" {
+					t.Fatalf("bad reason %q", ev.Reason)
+				}
+			case <-ctx.Done():
+				t.Fatal("no version event")
+			}
+		})
 	}
 }
 

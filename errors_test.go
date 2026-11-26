@@ -67,19 +67,6 @@ func (failingProvider) Load(context.Context) (contracts.Snapshot, error) {
 	return contracts.Snapshot{}, errFailingProvider
 }
 
-func TestErrProviderClassification(t *testing.T) {
-	_, err := New[map[string]any](context.Background(),
-		WithFS(emptyFS()),
-		WithProvider(failingProvider{}),
-	)
-	if !errors.Is(err, ErrProvider) {
-		t.Fatalf("want ErrProvider, got %v", err)
-	}
-	if errors.Is(err, ErrDecode) {
-		t.Fatalf("provider load failure must not classify as ErrDecode: %v", err)
-	}
-}
-
 var errFailingGenerator = errors.New("generator boom")
 
 type failingGenerator struct{}
@@ -90,16 +77,21 @@ func (failingGenerator) Generate(context.Context) ([]contracts.RawLayer, error) 
 	return nil, errFailingGenerator
 }
 
-func TestGeneratorFailureIsErrProvider(t *testing.T) {
-	_, err := New[map[string]any](context.Background(),
-		WithFS(emptyFS()),
-		WithGenerator(failingGenerator{}),
-	)
-	if !errors.Is(err, ErrProvider) {
-		t.Fatalf("want ErrProvider for a generator failure, got %v", err)
-	}
-	if errors.Is(err, ErrDecode) {
-		t.Fatalf("generator failure must not classify as ErrDecode: %v", err)
+func TestSourceFailureClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		opt   Option
+		cause error
+	}{
+		{"provider", WithProvider(failingProvider{}), errFailingProvider},
+		{"generator", WithGenerator(failingGenerator{}), errFailingGenerator},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := New[map[string]any](context.Background(), WithFS(emptyFS()), tc.opt)
+			if !errors.Is(err, ErrProvider) || !errors.Is(err, tc.cause) || errors.Is(err, ErrDecode) {
+				t.Fatalf("New = %v; want ErrProvider wrapping %v and no ErrDecode", err, tc.cause)
+			}
+		})
 	}
 }
 

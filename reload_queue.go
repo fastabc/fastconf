@@ -160,7 +160,7 @@ func (m *Manager[T]) runReloadRequest(req reloadRequest) {
 // panics; this recovers the rest (Plan assembly, rollback, tracers) so a panic
 // fails the request instead of the process.
 func (m *Manager[T]) execReloadRequest(ctx context.Context, req reloadRequest) (err error) {
-	defer m.recoverPanic(ctx, string(req.trigger)+" request", &err)
+	defer recoverPanic(ctx, m.opts.Logger, string(req.trigger)+" request", &err)
 	if req.run != nil {
 		return req.run(ctx)
 	}

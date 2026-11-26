@@ -59,9 +59,6 @@ func defaultStages[T any]() []stage[T] {
 	}
 }
 
-// Stages execute serially on the reload writer. Failure aborts publication;
-// Plan shares the stages but collects findings without mutating manager state.
-//
 // runStages executes every stage in order, recording metrics and
 // spans per stage. Returns the first error encountered; subsequent
 // stages are skipped.
@@ -76,7 +73,6 @@ func (m *Manager[T]) runStages(ctx context.Context, pipeline *pipelineState[T]) 
 			sp.SetAttribute("fastconf.stage", name)
 			sp.SetAttribute("fastconf.stage.index", int64(i))
 			sp.SetAttribute("fastconf.reload.reason", pipeline.reason)
-			sp.SetAttribute("fastconf.reload.trigger", string(pipeline.trigger))
 			return err
 		})
 		if err != nil {

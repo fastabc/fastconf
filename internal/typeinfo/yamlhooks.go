@@ -32,7 +32,8 @@ func YAMLNodeHookPkg(t reflect.Type) string {
 // ForeignYAMLNodeHook returns the YAML path and Node package of the first type
 // reachable from t, through the YAML bridge's fields, whose UnmarshalYAML takes
 // a Node from a library other than BridgeYAMLPkg. Collection elements append
-// "[]". ok is false when every node hook uses the bridge's library.
+// "[]" and map keys append "[key]". ok is false when every node hook uses the
+// bridge's library.
 func ForeignYAMLNodeHook(t reflect.Type) (path, pkg string, ok bool) {
 	seen := map[reflect.Type]bool{}
 	var visit func(reflect.Type, string) bool
@@ -51,24 +52,37 @@ func ForeignYAMLNodeHook(t reflect.Type) (path, pkg string, ok bool) {
 		switch t.Kind() {
 		case reflect.Pointer:
 			return visit(t.Elem(), at)
-		case reflect.Slice, reflect.Array, reflect.Map:
+		case reflect.Slice, reflect.Array:
 			return visit(t.Elem(), at+"[]")
+		case reflect.Map:
+			return visit(t.Key(), at+"[key]") || visit(t.Elem(), at+"[]")
 		case reflect.Struct:
-			found := false
-			StructFields(t, EmbedYAML, func(f reflect.StructField, _ []int) {
-				if found || f.Tag.Get("yaml") == "-" {
-					return
+			for i := 0; i < t.NumField(); i++ {
+				f := t.Field(i)
+				tag := f.Tag.Get("yaml")
+				if (!f.IsExported() && !f.Anonymous) || tag == "-" {
+					continue
 				}
-				name := stripTag(f.Tag.Get("yaml"))
+				name := stripTag(tag)
 				if name == "" {
 					name = strings.ToLower(f.Name)
 				}
 				if at != "" {
 					name = at + "." + name
 				}
-				found = visit(f.Type, name)
-			})
-			return found
+				ft := f.Type
+				for ft.Kind() == reflect.Pointer {
+					ft = ft.Elem()
+				}
+				// An inline struct without a node hook contributes its
+				// fields directly to the enclosing mapping.
+				if YAMLInline(tag) && ft.Kind() == reflect.Struct && YAMLNodeHookPkg(ft) == "" {
+					name = at
+				}
+				if visit(ft, name) {
+					return true
+				}
+			}
 		}
 		return false
 	}
