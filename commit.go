@@ -20,7 +20,7 @@ func (m *Manager[T]) commit(ctx context.Context, assembly assemblyResult, trigge
 		m.opts.Logger.LogAttrs(ctx, slog.LevelDebug, "fastconf reload skipped: identical inputs", slog.String("reason", reason))
 		return nil
 	}
-	pipeline, hash, err := m.runPipeline(ctx, assembly, reason, false)
+	pipeline, hash, err := m.runPipeline(ctx, assembly, trigger, reason, false)
 	if err != nil {
 		return err
 	}

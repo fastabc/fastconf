@@ -315,6 +315,8 @@ a bounded `ReloadTrigger`: `initial` (New, Load), `manual` (Reload, including
 overrides and custom reasons), `file`, `provider` (including the compensating
 `provider:resync`), `notify`, `resync`, `rollback` and `plan`. Use the trigger
 for metric labels and audit grouping; later minor releases may add values.
+`ReloadStarted`, `ReloadFinished` and `StageFinished` carry the same `Trigger`,
+so failed reloads and Plan stages (`plan`) can be grouped without parsing reasons.
 Subscriber panics are reported under the trigger of the commit they observed.
 The sidecar exposes it as `/version.trigger` and in SSE causes.
 

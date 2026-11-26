@@ -83,11 +83,12 @@ if err != nil {
 defer mgr.Close()
 ```
 
-The root reload span has a `reason` attribute; pipeline-stage spans use
-`fastconf.reload.reason`. Audit lines carry the same reason plus a bounded
-`trigger` (`ReloadCause.Trigger`). Reasons can embed file paths or provider text,
-so label custom metrics with the trigger, not the reason; `ReloadError.Trigger`
-classifies `Errors()` entries the same way. Prometheus reload counters have only
+The root reload span has `reason` and `trigger` attributes; pipeline-stage spans
+use `fastconf.reload.reason` and `fastconf.reload.trigger`. Audit lines carry the
+same reason plus a bounded `trigger` (`ReloadCause.Trigger`). Reasons can embed
+file paths or provider text, so label custom metrics with the trigger, not the
+reason; `ReloadError.Trigger` classifies `Errors()` entries the same way, and
+`ReloadStarted`, `ReloadFinished` and `StageFinished` carry it as `Trigger`. Prometheus reload counters have only
 a `result` label; they do not expose reason, trigger, tenant or trace IDs.
 Correlate an incident by its time window and audit/trace context.
 

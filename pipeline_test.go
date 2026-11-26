@@ -256,8 +256,8 @@ containers:
 func TestObserverEventsCostNothingWithoutObservers(t *testing.T) {
 	m := newRuntimeManager(t)
 	allocs := testing.AllocsPerRun(50, func() {
-		m.emitStage("merge", time.Millisecond, nil)
-		m.emitReload("r", time.Millisecond, nil)
+		m.emitStage("merge", TriggerManual, time.Millisecond, nil)
+		m.emitReload("r", TriggerManual, time.Millisecond, nil)
 	})
 	if allocs != 0 {
 		t.Fatalf("emit helpers allocated %.0f times with no observers", allocs)

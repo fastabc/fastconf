@@ -29,24 +29,30 @@ type Observer interface {
 // and ignore the rest; new event types may be added.
 type Event interface{ event() }
 
-// ReloadStarted is emitted when a reload begins.
-type ReloadStarted struct{ Reason string }
+// ReloadStarted is emitted when a reload begins. Trigger is the bounded
+// classification of Reason (see ReloadTrigger) and is safe as a metric label.
+type ReloadStarted struct {
+	Reason  string
+	Trigger ReloadTrigger
+}
 
 // ReloadFinished is emitted when a reload ends. Err is nil on success,
 // including reloads whose result equals the current snapshot.
 type ReloadFinished struct {
-	Reason string
-	Dur    time.Duration
-	Err    error
+	Reason  string
+	Trigger ReloadTrigger
+	Dur     time.Duration
+	Err     error
 }
 
 // StageFinished reports one pipeline stage: assemble, merge, transform,
 // secret, defaults, typed-hooks, decode, field-meta, validate, policy or commit.
-// Plan dry-runs report their pipeline stages too.
+// Plan dry-runs report their pipeline stages too, with Trigger TriggerPlan.
 type StageFinished struct {
-	Stage string
-	Dur   time.Duration
-	Err   error
+	Stage   string
+	Trigger ReloadTrigger
+	Dur     time.Duration
+	Err     error
 }
 
 // ProviderError reports a provider Watch failure, a Watch channel that closes
@@ -130,15 +136,15 @@ func (m *Manager[T]) hasObservers() bool { return len(m.opts.Observers) > 0 }
 
 // emitStage and emitReload are the hot-path emitters; they build nothing
 // when no observer is registered.
-func (m *Manager[T]) emitStage(stage string, d time.Duration, err error) {
+func (m *Manager[T]) emitStage(stage string, trigger ReloadTrigger, d time.Duration, err error) {
 	if m.hasObservers() {
-		m.emit(StageFinished{Stage: stage, Dur: d, Err: err})
+		m.emit(StageFinished{Stage: stage, Trigger: trigger, Dur: d, Err: err})
 	}
 }
 
-func (m *Manager[T]) emitReload(reason string, d time.Duration, err error) {
+func (m *Manager[T]) emitReload(reason string, trigger ReloadTrigger, d time.Duration, err error) {
 	if m.hasObservers() {
-		m.emit(ReloadFinished{Reason: reason, Dur: d, Err: err})
+		m.emit(ReloadFinished{Reason: reason, Trigger: trigger, Dur: d, Err: err})
 	}
 }
 
@@ -182,7 +188,7 @@ func (m *Manager[T]) startSpan(ctx context.Context, name string) (context.Contex
 }
 
 // runTimedStage completes the span and stage event even when a stage returns an error.
-func (m *Manager[T]) runTimedStage(ctx context.Context, spanName string, fn func(context.Context, Span) error) (time.Duration, error) {
+func (m *Manager[T]) runTimedStage(ctx context.Context, trigger ReloadTrigger, spanName string, fn func(context.Context, Span) error) (time.Duration, error) {
 	start := time.Now()
 	stage := strings.TrimPrefix(spanName, "fastconf.")
 	ctx, sp := m.startSpan(ctx, spanName)
@@ -199,6 +205,6 @@ func (m *Manager[T]) runTimedStage(ctx context.Context, spanName string, fn func
 	sp.SetAttribute("fastconf.stage.elapsed_ms", elapsed.Milliseconds())
 	sp.SetAttribute("fastconf.stage.success", err == nil)
 	sp.End()
-	m.emitStage(stage, elapsed, err)
+	m.emitStage(stage, trigger, elapsed, err)
 	return elapsed, err
 }

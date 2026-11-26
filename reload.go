@@ -104,12 +104,13 @@ func overrideReloadReason(reason string) string {
 func (m *Manager[T]) reload(ctx context.Context, trigger ReloadTrigger, reason, key string, extra ...stagedLayer) error {
 	start := time.Now()
 	if m.hasObservers() {
-		m.emit(ReloadStarted{Reason: reason})
+		m.emit(ReloadStarted{Reason: reason, Trigger: trigger})
 	}
 	m.opts.Logger.LogAttrs(ctx, slog.LevelDebug, "fastconf reload start", slog.String("reason", reason))
 
 	ctx, root := m.startSpan(ctx, "fastconf.reload")
 	root.SetAttribute("reason", reason)
+	root.SetAttribute("trigger", string(trigger))
 	root.SetAttribute("generation", int64(m.gen.Load()))
 	defer root.End()
 
@@ -118,7 +119,7 @@ func (m *Manager[T]) reload(ctx context.Context, trigger ReloadTrigger, reason, 
 	if m.fileWatcher != nil {
 		onDir = func(dir string) { m.watchSourceDir(ctx, dir) }
 	}
-	_, err := m.runTimedStage(ctx, "fastconf.assemble", func(ctx context.Context, sp Span) (err error) {
+	_, err := m.runTimedStage(ctx, trigger, "fastconf.assemble", func(ctx context.Context, sp Span) (err error) {
 		assembly, err = m.assembleSources(ctx, "", onDir, m.publishedFingerprint, extra...)
 		if err == nil {
 			sp.SetAttribute("layers", int64(len(assembly.staged)))
@@ -127,17 +128,17 @@ func (m *Manager[T]) reload(ctx context.Context, trigger ReloadTrigger, reason, 
 	})
 	if err != nil {
 		root.RecordError(err)
-		m.emitReload(reason, time.Since(start), err)
+		m.emitReload(reason, trigger, time.Since(start), err)
 		m.opts.Logger.LogAttrs(ctx, slog.LevelWarn, "fastconf reload assemble_failed", slog.String("reason", reason), slog.Any("err", err))
 		return err
 	}
-	_, err = m.runTimedStage(ctx, "fastconf.commit", func(ctx context.Context, _ Span) error {
+	_, err = m.runTimedStage(ctx, trigger, "fastconf.commit", func(ctx context.Context, _ Span) error {
 		return m.commit(ctx, assembly, trigger, reason, key)
 	})
 	if err != nil {
 		root.RecordError(err)
 		m.opts.Logger.LogAttrs(ctx, slog.LevelWarn, "fastconf reload commit_failed", slog.String("reason", reason), slog.Any("err", err))
 	}
-	m.emitReload(reason, time.Since(start), err)
+	m.emitReload(reason, trigger, time.Since(start), err)
 	return err
 }

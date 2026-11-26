@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
@@ -250,4 +251,91 @@ func TestReloadTriggerOnErrors(t *testing.T) {
 	if re := next("subscriber"); re.Trigger != TriggerManual || re.Reason != "subscriber-panic" {
 		t.Fatalf("subscriber error = reason %q trigger %q; want subscriber-panic/manual", re.Reason, re.Trigger)
 	}
+}
+
+// eventTriggers records the Trigger of every reload and stage event.
+type eventTriggers struct {
+	mu   sync.Mutex
+	seen map[string][]ReloadTrigger
+}
+
+func (r *eventTriggers) Observe(_ context.Context, e Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	switch ev := e.(type) {
+	case ReloadStarted:
+		r.seen["started"] = append(r.seen["started"], ev.Trigger)
+	case ReloadFinished:
+		r.seen["finished"] = append(r.seen["finished"], ev.Trigger)
+	case StageFinished:
+		r.seen["stage"] = append(r.seen["stage"], ev.Trigger)
+	}
+}
+
+// take returns and clears the recorded triggers.
+func (r *eventTriggers) take() map[string][]ReloadTrigger {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := r.seen
+	r.seen = map[string][]ReloadTrigger{}
+	return out
+}
+
+func assertEventTriggers(t *testing.T, got map[string][]ReloadTrigger, want ReloadTrigger, kinds ...string) {
+	t.Helper()
+	for _, kind := range kinds {
+		if len(got[kind]) == 0 {
+			t.Errorf("no %s events", kind)
+		}
+		for _, tr := range got[kind] {
+			if tr != want {
+				t.Errorf("%s trigger = %q; want %q", kind, tr, want)
+			}
+		}
+	}
+}
+
+func TestReloadEventsCarryTrigger(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "base", "00.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("name: a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := &eventTriggers{seen: map[string][]ReloadTrigger{}}
+	causes := make(causeRecorder, 32)
+	m, err := New[snapshotConfig](context.Background(), WithDir(dir),
+		WithWatch(Watch{Quiet: 5 * time.Millisecond, MaxLag: 20 * time.Millisecond}),
+		WithObserver(rec, causes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	assertEventTriggers(t, rec.take(), TriggerInitial, "started", "finished", "stage")
+	awaitTrigger(t, causes, TriggerInitial, reasonIs("initial"))
+
+	if err := m.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertEventTriggers(t, rec.take(), TriggerManual, "started", "finished", "stage")
+
+	if _, err := m.Plan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := rec.take()
+	assertEventTriggers(t, got, TriggerPlan, "stage")
+	if len(got["started"])+len(got["finished"]) != 0 {
+		t.Errorf("Plan emitted reload events: %v", got)
+	}
+
+	if err := os.WriteFile(path, []byte("name: b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	awaitTrigger(t, causes, TriggerFile, reasonPrefix("fs:"))
+	// Committed is emitted inside the commit stage, before its StageFinished
+	// and ReloadFinished; drain the writer so the file reload has finished.
+	drainWriter(t, m)
+	assertEventTriggers(t, rec.take(), TriggerFile, "started", "finished", "stage")
 }

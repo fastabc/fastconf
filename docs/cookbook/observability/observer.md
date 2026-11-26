@@ -15,7 +15,10 @@ and commit events. Use it for audit and telemetry; use
 | `EventDropped` | A provider trigger overflows the manager's reload queue |
 | `Committed` | A snapshot publishes, including initial load and rollback |
 
-Switch on concrete event types and ignore unneeded types. `Committed` carries
+Switch on concrete event types and ignore unneeded types. `ReloadStarted`,
+`ReloadFinished` and `StageFinished` carry the free-form `Reason` (stage events
+omit it) and the bounded `Trigger`; label metrics with `Trigger`. Plan emits only
+`StageFinished`, with `Trigger == TriggerPlan`. `Committed` carries
 previous/next generations, cause, layer count and a lazy redacted `Diff()`.
 Initial publication has `Prev == 0` and no previous snapshot to diff.
 Provider-internal retry errors are not necessarily exposed as `ProviderError`.

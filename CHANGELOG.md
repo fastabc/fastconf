@@ -26,6 +26,10 @@ and [upgrading from v1.6.0 to v1.7.0](docs/cookbook/migration-v1.md#upgrading-fr
   `notify`, `resync`, `rollback`, `plan`), so metrics and audit tooling no longer
   parse free-form reasons. `observe.JSONLines` writes it as `trigger`, and fastconfd
   adds it to `/version` and SSE causes.
+- `ReloadStarted.Trigger`, `ReloadFinished.Trigger` and `StageFinished.Trigger` carry
+  the same classification, so observers can count failed reloads per trigger and tell
+  Plan stages (`plan`) from reload stages. Reload and stage spans gain a `trigger`
+  attribute.
 
 ### Fixed
 

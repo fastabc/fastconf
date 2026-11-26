@@ -12,6 +12,7 @@ import (
 // pipelineState holds assembly inputs and incremental stage outputs.
 // Only commit may publish them; Plan leaves manager state and history unchanged.
 type pipelineState[T any] struct {
+	trigger         ReloadTrigger
 	reason          string
 	staged          []stagedLayer
 	sources         []SourceRef
@@ -70,11 +71,12 @@ func (m *Manager[T]) runStages(ctx context.Context, pipeline *pipelineState[T]) 
 			return err
 		}
 		name := s.name
-		elapsed, err := m.runTimedStage(ctx, "fastconf."+name, func(ctx context.Context, sp Span) error {
+		elapsed, err := m.runTimedStage(ctx, pipeline.trigger, "fastconf."+name, func(ctx context.Context, sp Span) error {
 			err := s.run(ctx, m, pipeline)
 			sp.SetAttribute("fastconf.stage", name)
 			sp.SetAttribute("fastconf.stage.index", int64(i))
 			sp.SetAttribute("fastconf.reload.reason", pipeline.reason)
+			sp.SetAttribute("fastconf.reload.trigger", string(pipeline.trigger))
 			return err
 		})
 		if err != nil {
@@ -87,8 +89,8 @@ func (m *Manager[T]) runStages(ctx context.Context, pipeline *pipelineState[T]) 
 }
 
 // runPipeline executes the shared commit/preview stages and hashes their result.
-func (m *Manager[T]) runPipeline(ctx context.Context, a assemblyResult, reason string, dryRun bool) (*pipelineState[T], [32]byte, error) {
-	p := &pipelineState[T]{reason: reason, staged: a.staged, strict: a.strict, appendSlices: a.appendSlices, mergeKeys: a.mergeKeys, dryRun: dryRun}
+func (m *Manager[T]) runPipeline(ctx context.Context, a assemblyResult, trigger ReloadTrigger, reason string, dryRun bool) (*pipelineState[T], [32]byte, error) {
+	p := &pipelineState[T]{trigger: trigger, reason: reason, staged: a.staged, strict: a.strict, appendSlices: a.appendSlices, mergeKeys: a.mergeKeys, dryRun: dryRun}
 	if err := m.runStages(ctx, p); err != nil {
 		return nil, [32]byte{}, err
 	}

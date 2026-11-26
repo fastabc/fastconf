@@ -111,7 +111,7 @@ func (m *Manager[T]) runPlan(ctx context.Context, hostname string) (*PlanResult[
 	if err != nil {
 		return nil, err
 	}
-	pipeline, hash, err := m.runPipeline(ctx, assembly, "plan", true)
+	pipeline, hash, err := m.runPipeline(ctx, assembly, TriggerPlan, "plan", true)
 	if err != nil {
 		return nil, err
 	}
