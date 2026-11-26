@@ -32,6 +32,7 @@ type Provider struct {
 	interval     time.Duration
 	headers      map[string]string
 	maxBodyBytes int64
+	onError      func(error)
 
 	mu              sync.Mutex
 	etag            string
@@ -70,6 +71,13 @@ func WithHeader(k, v string) Option {
 		pr.headers[k] = v
 	}
 }
+
+// WithErrorHandler observes polling failures. Watch calls fn with the error
+// when polls start failing and with nil on the first successful poll after
+// that; repeated failures and errors caused by canceling the watch are not
+// reported. fn runs on the polling goroutine and must not block or panic.
+// Load errors still reach the caller, and reload errors reach Manager.Errors.
+func WithErrorHandler(fn func(error)) Option { return func(pr *Provider) { pr.onError = fn } }
 
 // New constructs an HTTP-backed Provider. name is surfaced as the "provider://<name>" source path,
 // in reload reasons and in metrics labels; codec decodes the response body. A nil codec selects the
@@ -160,12 +168,15 @@ func (p *Provider) Watch(ctx context.Context, _ string) (<-chan contracts.Event,
 		defer close(out)
 		t := time.NewTicker(p.interval)
 		defer t.Stop()
+		reporter := providerutil.PollReporter{Handler: p.onError}
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				if changed, revision, _ := p.poll(ctx); changed {
+				changed, revision, err := p.poll(ctx)
+				reporter.Report(ctx, err)
+				if changed {
 					providerutil.Offer(out, contracts.Event{
 						Source:   p.name,
 						Reason:   "http-poll-diff",

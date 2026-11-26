@@ -38,6 +38,7 @@ type Provider struct {
 	interval     time.Duration
 	maxBodyBytes int64
 	client       Doer
+	onError      func(error)
 
 	// version is the last version Load read successfully; notified is the
 	// version Watch last announced. Load keeps it pending throughout the read
@@ -81,6 +82,14 @@ func WithMaxBodyBytes(n int64) Option { return func(p *Provider) { p.maxBodyByte
 // WithClient injects an alternate HTTP client. The caller must enforce redirect and credential
 // isolation; the supplied client is never modified.
 func WithClient(c Doer) Option { return func(p *Provider) { p.client = c } }
+
+// WithErrorHandler observes metadata polling failures. Watch calls fn with the
+// error when polls start failing and with nil on the first successful poll
+// after that; repeated failures and errors caused by canceling the watch are
+// not reported. Displayed errors omit response details; errors.Is / errors.As
+// reach the cause. Auth renewal failures are not reported here. fn runs on the
+// polling goroutine and must not block or panic.
+func WithErrorHandler(fn func(error)) Option { return func(p *Provider) { p.onError = fn } }
 
 // New constructs a Vault KV v2 provider rooted at addr+mount+path. addr is a full URL such as
 // "https://vault.example.com:8200"; path is the secret path under data/, e.g. "myapp/config".
@@ -179,6 +188,7 @@ func (p *Provider) Watch(ctx context.Context, _ string) (<-chan contracts.Event,
 func (p *Provider) watchLoop(ctx context.Context, out chan<- contracts.Event) {
 	tick := time.NewTicker(p.interval)
 	defer tick.Stop()
+	reporter := providerutil.PollReporter{Handler: p.onError}
 	for {
 		select {
 		case <-ctx.Done():
@@ -186,6 +196,10 @@ func (p *Provider) watchLoop(ctx context.Context, out chan<- contracts.Event) {
 		case <-tick.C:
 		}
 		v, err := p.readMetadataVersion(ctx)
+		if err != nil {
+			err = contracts.SafeError("vault: metadata poll failed", err)
+		}
+		reporter.Report(ctx, err)
 		if err != nil || v == 0 {
 			continue
 		}

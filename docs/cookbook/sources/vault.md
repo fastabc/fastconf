@@ -45,6 +45,11 @@ failures reject the login; displayed errors omit response values while
 The Vault provider polls the KV-v2 metadata endpoint and emits a reload
 event when `current_version` changes. A version stays pending while its load is
 in flight. If the read fails, a later poll announces that version again.
+Failed metadata polls are retried at the next interval. `WithErrorHandler`
+receives the error when polls start failing and nil when they recover; repeated
+failures and canceled watches are not reported, and displayed errors omit
+response details. Auth renewal failures are retried separately and not reported
+through it. The handler must not block or panic.
 The provider does not currently expose a
 resumable revision cursor; if you need disconnect resume semantics, wrap
 Vault in a custom provider whose `Watch(ctx, from)` honors the revision.

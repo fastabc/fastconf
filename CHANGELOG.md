@@ -30,6 +30,10 @@ and [upgrading from v1.6.0 to v1.7.0](docs/cookbook/migration-v1.md#upgrading-fr
   the same classification, so observers can count failed reloads per trigger and tell
   Plan stages (`plan`) from reload stages. Reload and stage spans gain a `trigger`
   attribute.
+- `providers/http.WithErrorHandler` and `providers/vault.WithErrorHandler` report
+  polling failures, which Watch previously discarded until an explicit reload
+  failed. The handler receives the error when polls start failing and nil when
+  they recover; repeated failures and canceled watches are not reported.
 
 ### Fixed
 

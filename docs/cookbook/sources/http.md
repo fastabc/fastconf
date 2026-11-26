@@ -44,9 +44,27 @@ Body hashes also detect changes. With automatic codec selection, a changed
 `Content-Type` also triggers a reload and redecoding even if the bytes are unchanged;
 a registry update also invalidates the decoded cache and forces a fresh body read.
 An explicit decoder keeps its cache across registry and content-type changes. A changed response triggers a full reload;
-only a successful typed candidate publishes a new manager snapshot. Polling
-transport errors are currently retried at the next interval without emitting a
-`ProviderError`; errors from an actual reload reach `Errors()`.
+only a successful typed candidate publishes a new manager snapshot. A failed
+poll is retried at the next interval without emitting a `ProviderError`;
+errors from an actual reload reach `Errors()`.
+
+To see polling failures, pass `WithErrorHandler`. It receives the error when
+polls start failing and nil on the first successful poll after that, so an
+endpoint that stays down produces one report rather than one per interval.
+Errors caused by canceling the watch are not reported. The handler runs on the
+polling goroutine and must not block or panic:
+
+```go
+p, err := httpprov.New("remote", url, nil,
+    httpprov.WithErrorHandler(func(err error) {
+        if err != nil {
+            logger.Warn("config polling failing", "err", err)
+        } else {
+            logger.Info("config polling recovered")
+        }
+    }),
+)
+```
 
 ## Limits and verification
 
