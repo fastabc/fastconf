@@ -81,10 +81,10 @@ The installed module source was read to verify those signatures. See
 [compare.go](compare.go), [benchmarks](compare_test.go) and
 [sample tool](cmd/sample/main.go) for the complete measured work.
 
-Measured results: [FastConf v1.6.0 / 2026-11-08 (中文)](REPORT.zh.md),
-using source `d0364e0`, six 500 ms runs per case and 100 independent latency samples.
+Measured results: [FastConf v1.7.0 / 2026-11-26 (中文)](REPORT.zh.md),
+using source `c75a3d3`, six 500 ms runs per case and 100 independent latency samples.
 The local `replace` selects that source even though the dependency declaration
-still says v1.5.0. The 2026-10-25 snapshot remains in Git history.
+still says v1.5.0. The 2026-11-08 report (v1.6.0, with Cleanenv) remains in Git history.
 The report describes its recorded source and environment.
 
 Related: [runtime performance contract](../../docs/design/perf.md) and

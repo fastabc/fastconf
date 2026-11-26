@@ -338,8 +338,8 @@ bash tools/bench-guard.sh
 
 本地证据目录为 `/tmp/fastconf-benchmarks-20261108-d0364e0/`，包括环境、正确性结果、
 `root-raw.txt`、`root-summary.txt`、JSON 实验原始数据及摘要、只读路径 guard 结果。
-原始数据不进入发布模块。跨库比较的基准、独立延迟和 RSS 见
-[v1.6.0 比较报告](../../benchmarks/compare/REPORT.zh.md)。
+原始数据不进入发布模块。当时跨库比较的基准、独立延迟和 RSS 保留在 Git 历史中；
+当前结果见[比较报告](../../benchmarks/compare/REPORT.zh.md)。
 
 ## 2026-11-09 Reload 一致性与缓存边界优化
 
