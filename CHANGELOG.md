@@ -49,6 +49,8 @@ and [upgrading from v1.6.0 to v1.7.0](docs/cookbook/migration-v1.md#upgrading-fr
   its load is in flight and retries after a failed read or a Watch restart.
 - The Pub/Sub notifier and the GCS and Secret Manager providers now use OpenTelemetry v1.47.0,
   which fixes GO-2026-6974 and GO-2026-6975.
+- The Azure Blob provider uses LZ4 v4.1.34, which fixes silent data loss
+  in `Reader.WriteTo` after a partial read.
 - All schema generators now reject removed `fc:"default=…"` declarations inside
   collections and skipped fields, consistent with manager construction.
 - `fastconfctl diff` reports an error for `-profile` and directs callers to `-from` and `-to`.
