@@ -213,7 +213,10 @@ typed hash is unchanged. Such commits refresh source/provenance metadata, advanc
 generation/history and emit Committed with an empty value diff. Value subscribers
 are skipped, including custom equality functions. Existing snapshots keep their
 original redaction rules; rollback restores the retained snapshot's rules. If both
-the value and sensitive paths match, the previous snapshot and metadata remain.
+the value and sensitive paths match, the previous snapshot and metadata remain:
+`Sources()`, `Explain()` and `Cause()` (including `At` and provider `Revisions`)
+still describe the last published reload, even when a provider revision has
+since advanced. Use `ReloadFinished` or provider events to see that later reload.
 
 Any pipeline failure preserves the current snapshot and generation. Later
 reload and plan failures also go to `Errors()` (capacity 16, oldest error

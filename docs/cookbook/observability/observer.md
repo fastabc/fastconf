@@ -87,6 +87,8 @@ for bounded business resource changes.
 `Committed` does not fire for rejected candidates or when both the typed hash
 and resolved-secret paths are unchanged. A change to those paths publishes a
 metadata commit even with an equal hash and empty value diff; generation/history
-advance without invoking value subscribers. Handle
+advance without invoking value subscribers. When nothing is published, the
+snapshot's `Cause()` (including provider `Revisions`), `Sources()` and `Explain()`
+keep describing the last published reload. Handle
 `ReloadFinished` for success/failure counts and `Errors()` for failures.
 See [metrics and tracing](observability.md) for instrumentation.
