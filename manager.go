@@ -123,6 +123,10 @@ func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) 
 	}
 	if !o.YAMLBridge {
 		warnIfYAMLOnlyTags[T](ctx, o.Logger)
+	} else if path, pkg, ok := typeinfo.ForeignYAMLNodeHook(reflect.TypeFor[T]()); ok {
+		// The bridge would skip the hook and decode field by field without error.
+		return nil, fmt.Errorf("%w: WithDecodeFormat(YAML): field %q implements UnmarshalYAML(*yaml.Node) from %s; the bridge only calls hooks that import %s",
+			fcerr.ErrFastConf, path, pkg, typeinfo.BridgeYAMLPkg)
 	}
 	defs, err := typeinfo.TagDefaultsFor(reflect.TypeFor[T](), o.YAMLBridge)
 	if err != nil {

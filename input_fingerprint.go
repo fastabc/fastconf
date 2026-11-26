@@ -9,23 +9,31 @@ import (
 
 	"github.com/fastabc/fastconf/codec"
 	"github.com/fastabc/fastconf/internal/typeinfo"
-	"gopkg.in/yaml.v3"
 )
 
 var customEncodingTypes = []reflect.Type{
 	reflect.TypeFor[json.Marshaler](), reflect.TypeFor[json.Unmarshaler](),
 	reflect.TypeFor[encoding.TextMarshaler](), reflect.TypeFor[encoding.TextUnmarshaler](),
-	reflect.TypeFor[yaml.Marshaler](), reflect.TypeFor[yaml.Unmarshaler](),
-	reflect.TypeFor[interface{ UnmarshalYAML(func(any) error) error }](),
 }
+
+// YAML hooks are matched by method name, not interface, so every YAML library
+// (gopkg.in/yaml.v3, go.yaml.in/yaml/v3, v4, ...) counts.
+var customEncodingYAMLMethods = []string{"MarshalYAML", "UnmarshalYAML"}
 
 // Inspect once per manager. Nested hooks can make identical file inputs
 // produce different typed values, so they disable the input shortcut.
 func hasCustomEncoding(t reflect.Type) bool {
 	return typeinfo.Reaches(t, func(t reflect.Type) bool {
-		for _, iface := range customEncodingTypes {
-			if t.Implements(iface) || reflect.PointerTo(t).Implements(iface) {
-				return true
+		for _, typ := range []reflect.Type{t, reflect.PointerTo(t)} {
+			for _, iface := range customEncodingTypes {
+				if typ.Implements(iface) {
+					return true
+				}
+			}
+			for _, name := range customEncodingYAMLMethods {
+				if _, ok := typ.MethodByName(name); ok {
+					return true
+				}
 			}
 		}
 		return false

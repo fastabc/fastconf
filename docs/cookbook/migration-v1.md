@@ -19,7 +19,9 @@ Import paths remain under `github.com/fastabc/fastconf`.
 
 - YAML document parsing now uses `go.yaml.in/yaml/v3`. Application types that
   implement node-based hooks for `WithDecodeFormat(YAML)` should keep importing
-  `gopkg.in/yaml.v3` for their `*yaml.Node` parameter or result.
+  `gopkg.in/yaml.v3` for their `*yaml.Node` parameter or result. A hook that takes
+  a `go.yaml.in` node now fails construction, naming the field, instead of being
+  skipped silently.
 - **`fc:"default=…"` is removed.** A field that still declares it, including one
   inside a collection element or on a field skipped by the decoder, fails `New`, `Load` and `LoadFile` with an error
   naming the field; `schema.JSONSchema`, `ExampleYAML` and `ExampleEnv` fail the

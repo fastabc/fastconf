@@ -88,6 +88,12 @@ YAML field names; JSON aliases and fields tagged `yaml:"-"` are not converted.
 Standalone `codec.BuildTypedHookPlan` retains its legacy exact input aliases;
 pass `codec.WithJSONFields()` to select only JSON decoder fields, as Manager does.
 
+A type's own `UnmarshalYAML(*yaml.Node) error` method runs during the
+`WithDecodeFormat(YAML)` decode, after typed hooks. Import `gopkg.in/yaml.v3` for
+its `*yaml.Node`: the bridge uses that library and skips a hook built on
+`go.yaml.in/yaml/v3` or another YAML module. `New`, `Load` and `LoadFile` reject
+such a hook with an error naming the field instead of decoding it field by field.
+
 ## URL / IP / Regex
 
 `codec.URLHook` is opt-in and fills `url.URL` / `*url.URL` fields: a hook result whose type is the destination type itself is assigned directly after decoding, because `url.URL` has no JSON/YAML string form. `codec.IPHook` validates and canonicalizes IP strings; `codec.RegexHook`

@@ -47,6 +47,10 @@ and [upgrading from v1.6.0 to v1.7.0](docs/cookbook/migration-v1.md#upgrading-fr
 - `fastconfctl diff` reports an error for `-profile` and directs callers to `-from` and `-to`.
 - Plan reports a diagnostic JSON encoding error when it cannot compare snapshots.
 - The HTTP provider refreshes automatically decoded documents after codec registration or extension remapping.
+- `WithDecodeFormat(YAML)` rejects a reachable `UnmarshalYAML(*Node)` built on a YAML
+  library other than `gopkg.in/yaml.v3`, such as `go.yaml.in/yaml/v3`, naming the
+  field. The bridge never called such hooks and decoded those fields one by one
+  without error. YAML hooks from any library now disable the file input shortcut.
 - File events that rearm a pending timer now get their full coalescing window, bounded by MaxLag.
 - Expired file event bursts allow the watcher to keep reading while a reload runs.
 - Graceful shutdown of fastconfd closes idle SSE streams.
