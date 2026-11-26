@@ -362,3 +362,87 @@ func TestProvider_WatchRetriesAfterFailedLoad(t *testing.T) {
 	case <-time.After(60 * time.Millisecond):
 	}
 }
+
+// A Load that started before a notification and read the old version must not
+// lift that notification's suppression; only a Load started afterwards can.
+func TestProvider_WatchIgnoresStaleLoadCompletion(t *testing.T) {
+	var version atomic.Int64
+	version.Store(1)
+	polled := make(chan struct{})
+	var blockNext atomic.Bool
+	entered, gate := make(chan struct{}), make(chan struct{})
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		v := int(version.Load())
+		switch r.URL.Path {
+		case "/v1/secret/data/cfg":
+			if blockNext.CompareAndSwap(true, false) {
+				// The read observed v before the version bump.
+				close(entered)
+				<-gate
+			}
+			_, _ = w.Write(dataResponse(v, map[string]any{"v": v}))
+		case "/v1/secret/metadata/cfg":
+			select {
+			case polled <- struct{}{}:
+			default:
+			}
+			_, _ = w.Write(metadataResponse(v))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	p, err := New(srv.URL, "cfg", "tok", WithInterval(10*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	blockNext.Store(true)
+	staleDone := make(chan error, 1)
+	go func() {
+		_, err := p.Load(context.Background())
+		staleDone <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("stale Load did not start")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	out := make(chan contracts.Event, 1)
+	done := make(chan struct{})
+	go func() { defer close(done); p.watchLoop(ctx, out) }()
+	defer func() { cancel(); <-done }()
+
+	version.Store(2)
+	select {
+	case <-out:
+	case <-time.After(3 * time.Second):
+		t.Fatal("no vault-version event")
+	}
+
+	close(gate)
+	if err := <-staleDone; err != nil {
+		t.Fatal(err)
+	}
+	// Both polls start after the stale Load returned. The watch loop finishes
+	// handling the first one before it issues the second.
+	for range 2 {
+		select {
+		case <-polled:
+		case <-time.After(3 * time.Second):
+			t.Fatal("metadata poll did not run")
+		}
+	}
+	select {
+	case <-out:
+		t.Fatal("stale Load completion re-announced version 2")
+	default:
+	}
+}

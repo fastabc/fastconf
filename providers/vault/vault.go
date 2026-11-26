@@ -38,13 +38,18 @@ type Provider struct {
 	interval     time.Duration
 	maxBodyBytes int64
 	client       Doer
-	onError      *func(error) // Keep Provider comparable.
+	// A pointer keeps Provider comparable, as it was in v1.6.0; a func field
+	// would break == on Provider values.
+	onError *func(error)
 
-	// version is the last version Load read successfully. Each Watch session
-	// uses completedLoads to retry a notification after a failed or stale read.
-	mu             sync.Mutex
-	version        int
-	completedLoads uint64
+	// version is the last version Load read successfully. loadStarts numbers
+	// Load calls; loadedThrough is the highest number that has finished. A
+	// Watch session retries a notification once a Load started after it
+	// finishes, so a failed read is retried and an older read is ignored.
+	mu            sync.Mutex
+	version       int
+	loadStarts    uint64
+	loadedThrough uint64
 
 	// Pluggable auth + lease renewal: see Auth interface + renewer goroutine.
 	auth        Auth
@@ -140,12 +145,17 @@ func (p *Provider) Describe() contracts.ProviderInfo {
 
 // Load implements contracts.Provider.
 func (p *Provider) Load(ctx context.Context) (contracts.Snapshot, error) {
+	p.mu.Lock()
+	p.loadStarts++
+	seq := p.loadStarts
+	p.mu.Unlock()
+
 	data, version, err := p.readData(ctx)
 	p.mu.Lock()
 	if err == nil {
 		p.version = version
 	}
-	p.completedLoads++
+	p.loadedThrough = max(p.loadedThrough, seq)
 	p.mu.Unlock()
 	if err != nil {
 		return contracts.Snapshot{}, contracts.SafeError("vault: load failed", err)
@@ -192,7 +202,7 @@ func (p *Provider) watchLoop(ctx context.Context, out chan<- contracts.Event) {
 		reporter.Handler = *p.onError
 	}
 	var notified int
-	var notifiedAfterLoad uint64
+	var notifiedAt uint64 // loadStarts when notified was sent
 	for {
 		select {
 		case <-ctx.Done():
@@ -207,19 +217,20 @@ func (p *Provider) watchLoop(ctx context.Context, out chan<- contracts.Event) {
 		if err != nil || v == 0 {
 			continue
 		}
-		// Suppress repeats until a Load finishes. A new session has its own
-		// pending version, so cancellation cannot strand a notification.
+		// Suppress repeats until a Load started after the notification
+		// finishes. A new session has its own pending version, so
+		// cancellation cannot strand a notification.
 		p.mu.Lock()
-		version, completedLoads := p.version, p.completedLoads
+		version, loadStarts, loadedThrough := p.version, p.loadStarts, p.loadedThrough
 		p.mu.Unlock()
-		if v == version || (v == notified && completedLoads == notifiedAfterLoad) {
+		if v == version || (v == notified && loadedThrough <= notifiedAt) {
 			continue
 		}
 		select {
 		case <-ctx.Done():
 			return
 		case out <- contracts.Event{Source: p.name, Reason: "vault-version", At: time.Now()}:
-			notified, notifiedAfterLoad = v, completedLoads
+			notified, notifiedAt = v, loadStarts
 		default:
 			// Consumer back-pressure: retry the send on the next tick.
 		}
