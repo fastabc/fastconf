@@ -25,6 +25,9 @@ func (b *eventBus) Observe(_ context.Context, e fastconf.Event) {
 	}
 }
 
+// publish disconnects a subscriber whose buffer is full rather than dropping
+// the cause silently: closing its channel ends the SSE stream, and the client
+// reconnects and reads the current state.
 func (b *eventBus) publish(cause fastconf.ReloadCause) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -32,6 +35,8 @@ func (b *eventBus) publish(cause fastconf.ReloadCause) {
 		select {
 		case c <- cause:
 		default:
+			delete(b.subs, c)
+			close(c)
 		}
 	}
 }
@@ -44,9 +49,12 @@ func (b *eventBus) subscribe() chan fastconf.ReloadCause {
 	return c
 }
 
+// unsubscribe closes c unless publish already disconnected it.
 func (b *eventBus) unsubscribe(c chan fastconf.ReloadCause) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	delete(b.subs, c)
-	close(c)
+	if _, ok := b.subs[c]; ok {
+		delete(b.subs, c)
+		close(c)
+	}
 }

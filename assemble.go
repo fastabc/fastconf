@@ -284,7 +284,7 @@ func (m *Manager[T]) assembleGeneratorLayers(ctx context.Context) ([]stagedLayer
 	for _, g := range m.opts.Generators {
 		srcs, err := g.Generate(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("%w: generator %q: %w", fcerr.ErrProvider, g.Name(), err)
+			return nil, sourceError("generator", g.Name(), err)
 		}
 		for _, gs := range srcs {
 			dec, derr := codec.For(gs.Codec)
@@ -320,24 +320,18 @@ func (m *Manager[T]) assembleProviderLayers(ctx context.Context) ([]stagedLayer,
 		p := e.Provider
 		snap, err := p.Load(ctx)
 		if err != nil {
-			// Return cancellation unwrapped so a Reload(ctx) timeout is not
-			// classified as a provider failure: errors.Is(err, ErrProvider)
-			// stays false, while errors.Is(err, context.Canceled /
-			// DeadlineExceeded) works either way. Generators do not have
-			// this special case.
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return nil, err
-			}
-			return nil, fmt.Errorf("%w: provider %q: %w", fcerr.ErrProvider, p.Name(), err)
-		}
-		if snap.Map == nil {
-			continue
+			return nil, sourceError("provider", p.Name(), err)
 		}
 		// The provider keeps ownership of its map (contracts.Provider.Load),
 		// but merge aliases subtrees into the merged tree and later stages
 		// mutate it in place. Without the clone those writes (including
 		// resolved secret plaintext) would reach provider-owned state.
+		// A nil map still stages an empty layer so Sources and
+		// Cause().Revisions keep the provider and its revision.
 		snap.Map = confmap.DeepClone(snap.Map)
+		if snap.Map == nil {
+			snap.Map = map[string]any{}
+		}
 		if snap.Stale {
 			m.opts.Logger.LogAttrs(ctx, slog.LevelWarn, "fastconf provider snapshot stale", slog.String("provider", p.Name()), slog.String("revision", snap.Revision))
 		}
@@ -355,6 +349,17 @@ func (m *Manager[T]) assembleProviderLayers(ctx context.Context) ([]stagedLayer,
 		})
 	}
 	return staged, nil
+}
+
+// sourceError classifies a provider or generator failure. Cancellation is
+// returned unwrapped so a Reload(ctx) timeout is not classified as a source
+// failure: errors.Is(err, ErrProvider) stays false, while errors.Is(err,
+// context.Canceled / DeadlineExceeded) works either way.
+func sourceError(kind, name string, err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return fmt.Errorf("%w: %s %q: %w", fcerr.ErrProvider, kind, name, err)
 }
 
 // discoveryError classifies file discovery failures without replacing existing sentinels.

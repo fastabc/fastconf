@@ -114,7 +114,7 @@ func Load[T any](ctx context.Context, opts ...Option) (*State[T], error) {
 // newManager resolves options and prepares shared state without loading sources
 // or starting workers. New and Load differ only in their lifecycle ownership.
 func newManager[T any](ctx context.Context, opts []Option) (*Manager[T], error) {
-	o, err := resolveOptions(ctx, opts)
+	o, err := resolveOptions(opts)
 	if err != nil {
 		return nil, err
 	}

@@ -41,7 +41,7 @@ fastconfd ... -secret-path 'db.dsn' -secret-path '**.credentials'
 | Method | Path                          | Notes                              |
 |--------|-------------------------------|------------------------------------|
 | GET    | `/healthz`                    | 200 once first reload OK           |
-| GET    | `/version`                    | `{version, generation, hash, loaded_at, reason, trigger}`; `loaded_at` is an RFC 3339 timestamp string; `trigger` is the bounded `ReloadCause.Trigger` |
+| GET    | `/version`                    | `{version, generation, hash, loaded_at, trigger, reason}`; no token required, but `reason` (free-form, may name file paths) is included only with `X-Config-Token` when a read token is set; `loaded_at` is an RFC 3339 timestamp string; `trigger` is the bounded `ReloadCause.Trigger` |
 | GET    | `/config`                     | Full snapshot (JSON), secrets masked, `X-Config-Token` required |
 | GET    | `/config?path=db.host`        | Dotted-path lookup (masked)        |
 | GET    | `/config?unredacted=true`     | Plaintext; also needs `X-Unredacted-Token` (`-unredacted-token`) |
@@ -142,9 +142,9 @@ require TLS and rotate the token through the Secret.
 
 SSE events carry a reload cause, not the configuration or a durable cursor.
 Fetch `/config` at startup and after notifications/reconnects; account for
-changes between fetching and subscribing. The event bus is bounded and may
-drop notifications, so periodic generation checks/refetches are appropriate
-when eventual synchronization is required. `/healthz` indicates an available
+changes between fetching and subscribing. Each subscriber has a small buffer;
+a client that falls behind is disconnected rather than silently missing
+events, so treat the end of a stream like a reconnect and refetch `/config`. `/healthz` indicates an available
 snapshot; it does not mean the latest reload succeeded.
 
 ## Examples

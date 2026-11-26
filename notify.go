@@ -56,7 +56,7 @@ func (m *Manager[T]) startNotifiers(ctx context.Context) {
 }
 func (m *Manager[T]) runNotifier(ctx context.Context, n contracts.Notifier, name string) {
 	defer m.bgWG.Done()
-	backoff := providerutil.Backoff{Min: 250 * time.Millisecond, Max: 30 * time.Second}
+	backoff := providerutil.Backoff{Min: providerWatchMinDelay, Max: providerWatchMaxDelay}
 	refresh := func(work context.Context) error {
 		if m.Paused() {
 			return ErrPaused
@@ -74,10 +74,7 @@ func (m *Manager[T]) runNotifier(ctx context.Context, n contracts.Notifier, name
 		}
 		m.emit(ProviderError{Provider: name, Err: err})
 		m.opts.Logger.LogAttrs(ctx, slog.LevelWarn, "fastconf notifier stopped", slog.String("provider", name), slog.Any("err", err))
-		if time.Since(started) >= 30*time.Second {
-			backoff.Reset()
-		}
-		if !sleepCtx(ctx, jitter(backoff.Next())) {
+		if !sleepCtx(ctx, jitter(watchRetryDelay(&backoff, time.Since(started)))) {
 			return
 		}
 	}

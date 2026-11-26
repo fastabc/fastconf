@@ -1,9 +1,11 @@
 package fastconf
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"reflect"
 	"strings"
@@ -105,6 +107,23 @@ func TestEnumOptions_RejectInvalidValuesBeforeLoading(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+// Option errors are returned, not logged: the caller already handles the
+// returned error, so a log line would report it twice.
+func TestOptionErrorsAreReturnedNotLogged(t *testing.T) {
+	var logs bytes.Buffer
+	_, err := New[struct{}](context.Background(), WithFS(fstest.MapFS{}),
+		WithLogger(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))),
+		WithUnknownFields(UnknownFields(9)), WithProvenance(ProvenanceLevel(9)))
+	for _, want := range []string{"WithUnknownFields", "WithProvenance"} {
+		if !strings.Contains(fmt.Sprint(err), want) {
+			t.Fatalf("New = %v; want an error naming %s", err, want)
+		}
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("option errors were logged:\n%s", logs.String())
 	}
 }
 

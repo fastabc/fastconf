@@ -3,6 +3,7 @@ package fastconf
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -264,5 +265,60 @@ func TestProfile_GlobalProfileExpr(t *testing.T) {
 	defer func() { _ = mgr.Close() }()
 	if got := mgr.Get().Name; got != "prod" {
 		t.Fatalf("global expr should suppress canary, got %q", got)
+	}
+}
+
+// revisionOnlyProvider reports a revision with no document.
+type revisionOnlyProvider struct{}
+
+func (revisionOnlyProvider) Name() string { return "empty" }
+func (revisionOnlyProvider) Load(context.Context) (contracts.Snapshot, error) {
+	return contracts.Snapshot{Revision: "r7"}, nil
+}
+
+// A nil Map contributes no keys but keeps the provider in Sources and its
+// revision in Cause().Revisions.
+func TestAssemble_NilMapKeepsRevision(t *testing.T) {
+	m, err := New[map[string]any](context.Background(),
+		WithFS(fstest.MapFS{"conf.d/base/00.yaml": {Data: []byte("x: 1\n")}}),
+		WithProvider(revisionOnlyProvider{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.Close() }()
+	s := m.Snapshot()
+	if got := s.Cause().Revisions["empty"]; got != "r7" {
+		t.Fatalf("Cause().Revisions = %v; want empty=r7", s.Cause().Revisions)
+	}
+	if !slices.ContainsFunc(s.Sources(), func(r SourceRef) bool { return r.Path == "provider://empty" && r.Revision == "r7" }) {
+		t.Fatalf("Sources() = %+v; want provider://empty", s.Sources())
+	}
+	if got := *s.Value(); len(got) != 1 || fmt.Sprint(got["x"]) != "1" {
+		t.Fatalf("value = %v; want only x", got)
+	}
+}
+
+type ctxErrGenerator struct{}
+
+func (ctxErrGenerator) Name() string { return "slow" }
+func (ctxErrGenerator) Generate(ctx context.Context) ([]contracts.RawLayer, error) {
+	<-ctx.Done()
+	return nil, fmt.Errorf("generate: %w", ctx.Err())
+}
+
+// A reload that times out in a generator is a context error, not a source
+// failure, matching providers.
+func TestAssemble_GeneratorCtxErrorIsNotErrProvider(t *testing.T) {
+	m, err := newManager[map[string]any](context.Background(),
+		[]Option{WithFS(emptyFS()), WithGenerator(ctxErrGenerator{})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.lifetimeCancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = m.assembleGeneratorLayers(ctx)
+	if !errors.Is(err, context.Canceled) || errors.Is(err, ErrProvider) {
+		t.Fatalf("err = %v; want context.Canceled without ErrProvider", err)
 	}
 }

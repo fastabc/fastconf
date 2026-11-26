@@ -22,13 +22,13 @@ func jitter(d time.Duration) time.Duration {
 	return d + time.Duration(rand.Int64N(int64(d/2)+1))
 }
 
-// Provider watch retry timing. These are variables only so tests can shorten
-// them; production code never changes them.
+// Retry timing shared by provider watches and notifier restarts. These are
+// variables only so tests can shorten them; production code never changes them.
 var (
 	providerWatchMinDelay = 250 * time.Millisecond
 	providerWatchMaxDelay = 30 * time.Second
-	// providerWatchHealthy is how long a subscription must stay open before
-	// its end resets the backoff. It matches the notifier restart policy.
+	// providerWatchHealthy is how long a subscription or notifier run must
+	// last before its end resets the backoff.
 	providerWatchHealthy = 30 * time.Second
 )
 

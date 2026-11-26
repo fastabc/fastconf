@@ -37,3 +37,34 @@ func TestEventBusPublishUnsubscribeRace(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// A subscriber whose buffer is full is disconnected instead of silently
+// missing commits; its client reconnects and reads the current state.
+func TestEventBusDisconnectsLaggingSubscriber(t *testing.T) {
+	b := newEventBus()
+	slow := b.subscribe()
+	for i := 0; i < cap(slow)+1; i++ {
+		b.publish(fastconf.ReloadCause{Reason: "r"})
+	}
+	for i := 0; i < cap(slow); i++ {
+		if _, ok := <-slow; !ok {
+			t.Fatalf("buffered cause %d lost", i)
+		}
+	}
+	select {
+	case _, ok := <-slow:
+		if ok {
+			t.Fatal("lagging subscriber got an extra cause; want closed")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("lagging subscriber still open; want closed after an overflow")
+	}
+	b.unsubscribe(slow) // the handler still unsubscribes; must not double-close
+
+	fresh := b.subscribe()
+	defer b.unsubscribe(fresh)
+	b.publish(fastconf.ReloadCause{Reason: "next"})
+	if c := <-fresh; c.Reason != "next" {
+		t.Fatalf("new subscriber got %+v", c)
+	}
+}

@@ -74,6 +74,8 @@ Keep credentials and payloads out of that message; printing an unwrapped SDK
 error can expose them again.
 
 The provider owns its returned map; the manager clones it before merging.
+A nil `Map` contributes no keys but still appears in `Sources()`, and a
+non-empty `Revision` still reaches `Cause().Revisions`.
 Configure providers before registration and implement `Watcher` only for native
 notifications. See [ownership](../../design/spec.md#configuration-and-ownership)
 and [timeouts](../runtime/provider-timeouts.md).

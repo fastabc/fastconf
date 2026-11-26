@@ -40,20 +40,25 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok"))
 }
 
-func (s *server) handleVersion(w http.ResponseWriter, _ *http.Request) {
+// handleVersion needs no token so probes can use it. The free-form reason can
+// name file paths or WithReason text, so it requires the read token.
+func (s *server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	st := s.mgr.Snapshot()
 	if st == nil {
 		http.Error(w, "no state", http.StatusServiceUnavailable)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"version":    version,
 		"generation": st.Generation(),
 		"hash":       st.Hash(),
 		"loaded_at":  st.Cause().At,
-		"reason":     st.Cause().Reason,
 		"trigger":    st.Cause().Trigger,
-	})
+	}
+	if s.authorizedRead(r) {
+		out["reason"] = st.Cause().Reason
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *server) handleConfig(w http.ResponseWriter, r *http.Request) {

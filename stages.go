@@ -18,7 +18,7 @@ import (
 
 // --- merge ---
 
-func runMerge[T any](_ context.Context, m *Manager[T], pipeline *pipelineState[T]) error {
+func runMerge[T any](ctx context.Context, m *Manager[T], pipeline *pipelineState[T]) error {
 	pipeline.merged = map[string]any{}
 	pipeline.sources = make([]SourceRef, 0, len(pipeline.staged))
 	pipeline.origins = provenance.NewIndex(m.opts.Provenance)
@@ -35,11 +35,14 @@ func runMerge[T any](_ context.Context, m *Manager[T], pipeline *pipelineState[T
 			// patch-written, corrupting Explain for untouched
 			// keys. Guard on origins to keep Off-level reloads walk-free.
 			if pipeline.origins != nil {
-				if paths, perr := confmap.PatchPaths(l.bytes); perr == nil {
-					for _, p := range paths {
-						if p != "" {
-							pipeline.origins.Record(p, l.src)
-						}
+				paths, perr := confmap.PatchPaths(l.bytes)
+				if perr != nil {
+					m.opts.Logger.LogAttrs(ctx, slog.LevelDebug, "fastconf patch provenance skipped",
+						slog.String("source", l.src.Path), slog.Any("err", perr))
+				}
+				for _, p := range paths {
+					if p != "" {
+						pipeline.origins.Record(p, l.src)
 					}
 				}
 			}
@@ -76,21 +79,33 @@ func runSecretResolve[T any](ctx context.Context, m *Manager[T], pipeline *pipel
 	if len(m.opts.SecretResolvers) == 0 {
 		return nil
 	}
+	// One Resolve per reference per reload, keyed by resolver so two
+	// resolvers that recognize the same Ref stay independent.
+	type cacheKey struct {
+		resolver int
+		ref      secret.Ref
+	}
+	resolved := map[cacheKey]string{}
 	var firstErr error
 	secret.WalkLeafSegments(pipeline.merged, func(segs []string, v string) (string, bool) {
 		if firstErr != nil {
 			return v, false
 		}
-		for _, r := range m.opts.SecretResolvers {
+		for i, r := range m.opts.SecretResolvers {
 			ref, ok := r.Recognize(v)
 			if !ok {
 				continue
 			}
 			path := strings.Join(segs, ".")
-			plain, err := r.Resolve(ctx, ref)
-			if err != nil {
-				firstErr = fmt.Errorf("%w: secret %s@%s: %w", fcerr.ErrTransform, ref.Scheme, path, err)
-				return v, false
+			key := cacheKey{i, ref}
+			plain, ok := resolved[key]
+			if !ok {
+				var err error
+				if plain, err = r.Resolve(ctx, ref); err != nil {
+					firstErr = fmt.Errorf("%w: secret %s@%s: %w", fcerr.ErrTransform, ref.Scheme, path, err)
+					return v, false
+				}
+				resolved[key] = plain
 			}
 			pipeline.resolvedSecrets = append(pipeline.resolvedSecrets, append([]string(nil), segs...))
 			if pipeline.origins != nil {

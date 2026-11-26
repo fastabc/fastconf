@@ -110,3 +110,43 @@ func TestProviderWatchEarlyCloseBacksOff(t *testing.T) {
 		t.Fatalf("early-close ProviderError events = %d; want at least %d", got, n-1)
 	}
 }
+
+// failingNotifier returns an error immediately and records each start.
+type failingNotifier struct{ closingWatcher }
+
+func (n *failingNotifier) Run(context.Context, func(context.Context) error) error {
+	n.mu.Lock()
+	n.calls = append(n.calls, time.Now())
+	n.mu.Unlock()
+	return errors.New("notifier down")
+}
+
+// Notifiers restart on the same schedule as provider watches, so shortening
+// the shared timing shortens both.
+func TestNotifierRestartUsesProviderWatchBackoff(t *testing.T) {
+	oldMin, oldMax, oldHealthy := providerWatchMinDelay, providerWatchMaxDelay, providerWatchHealthy
+	providerWatchMinDelay, providerWatchMaxDelay, providerWatchHealthy = 2*time.Millisecond, 8*time.Millisecond, time.Hour
+	t.Cleanup(func() {
+		providerWatchMinDelay, providerWatchMaxDelay, providerWatchHealthy = oldMin, oldMax, oldHealthy
+	})
+	n := &failingNotifier{}
+	m, err := New[map[string]any](context.Background(),
+		WithFS(fstest.MapFS{"conf.d/base/00.json": &fstest.MapFile{Data: []byte(`{}`)}}),
+		WithNotifier(n))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Registered after the timing restore, so it runs first.
+	t.Cleanup(func() { _ = m.Close() })
+
+	// With the 250ms production minimum, five restarts take over 7s.
+	testutil.WaitFor(t, func() bool { return len(n.times()) >= 6 }, 2*time.Second, "notifier restarts on the shared backoff")
+	calls := n.times()
+	want := providerWatchMinDelay
+	for i := 1; i < 6; i++ {
+		if gap := calls[i].Sub(calls[i-1]); gap < want {
+			t.Fatalf("restart #%d after %v; want at least %v", i, gap, want)
+		}
+		want = min(2*want, providerWatchMaxDelay)
+	}
+}

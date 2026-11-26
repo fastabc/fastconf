@@ -1,7 +1,6 @@
 package fastconf
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -101,7 +100,7 @@ func defaultOptions() options {
 	}
 }
 
-func resolveOptions(ctx context.Context, opts []Option) (options, error) {
+func resolveOptions(opts []Option) (options, error) {
 	o := defaultOptions()
 	for _, fn := range opts {
 		if fn == nil {
@@ -113,12 +112,9 @@ func resolveOptions(ctx context.Context, opts []Option) (options, error) {
 		o.ObserverTimeout = DefaultObserverTimeout
 	}
 	if len(o.OptionErrs) > 0 {
-		// Surface every deferred error from Option closures (e.g. a nil
-		// logger) before allocating any state. Each error is emitted individually so operators
-		// don't have to read the join chain to spot subsequent failures.
-		for _, e := range o.OptionErrs {
-			o.Logger.LogAttrs(ctx, slog.LevelError, "fastconf: deferred option error", slog.Any("err", e))
-		}
+		// Return every deferred error from Option closures (e.g. a nil
+		// logger) before allocating any state. They are not logged: the
+		// caller handles the returned error.
 		return o, errors.Join(o.OptionErrs...)
 	}
 	// Validate user-supplied profile expression at startup so syntax

@@ -496,3 +496,38 @@ func TestInterfaceResolvedSecretsStayRedacted(t *testing.T) {
 		})
 	}
 }
+
+// A reference shared by several paths is resolved once per reload; every path
+// still gets the plaintext and its own secret origin.
+func TestSecretResolver_ResolvesSharedRefOncePerReload(t *testing.T) {
+	r := &fakeResolver{}
+	m, err := New[map[string]any](context.Background(),
+		WithFS(fstest.MapFS{"conf.d/base/00.yaml": &fstest.MapFile{Data: []byte(
+			"a: {dsn: enc:shared}\nb: {dsn: enc:shared}\nc: enc:other\n")}}),
+		WithSecretResolver(r), WithProvenance(ProvenanceFull))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.Close() }()
+	if r.calls != 2 {
+		t.Fatalf("resolver calls = %d; want 2 (one per distinct ref)", r.calls)
+	}
+	for _, path := range []string{"a.dsn", "b.dsn"} {
+		o := m.Snapshot().Explain(path)
+		if len(o) == 0 || o[len(o)-1].Source.Path != "secret://fake" {
+			t.Fatalf("%s origins = %+v; want secret://fake last", path, o)
+		}
+	}
+	got := *m.Get()
+	if got["a"].(map[string]any)["dsn"] != "shared" || got["b"].(map[string]any)["dsn"] != "shared" {
+		t.Fatalf("resolved values = %v", got)
+	}
+
+	// The cache does not outlive the reload.
+	if err := m.Reload(context.Background(), WithOverride(map[string]any{"c": "enc:third"})); err != nil {
+		t.Fatal(err)
+	}
+	if r.calls != 4 {
+		t.Fatalf("resolver calls after reload = %d; want 4", r.calls)
+	}
+}

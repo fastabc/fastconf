@@ -96,6 +96,44 @@ func TestServer_HealthVersionConfig(t *testing.T) {
 	}
 }
 
+// /version stays open for probes, but the free-form reason (file paths,
+// WithReason text) needs the read token when one is configured.
+func TestServer_VersionReasonNeedsReadToken(t *testing.T) {
+	s, done := newTestServer(t)
+	defer done()
+	s.readToken = "read-secret"
+	mux := s.routes()
+	version := func(token string) map[string]any {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/version", nil)
+		if token != "" {
+			req.Header.Set("X-Config-Token", token)
+		}
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("version: %d", rr.Code)
+		}
+		var v map[string]any
+		if err := json.NewDecoder(rr.Body).Decode(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	for _, token := range []string{"", "wrong"} {
+		v := version(token)
+		if _, ok := v["reason"]; ok {
+			t.Fatalf("token %q: reason exposed: %v", token, v)
+		}
+		if v["trigger"] == "" || v["trigger"] == nil {
+			t.Fatalf("token %q: trigger missing: %v", token, v)
+		}
+	}
+	if v := version("read-secret"); v["reason"] != s.mgr.Snapshot().Cause().Reason {
+		t.Fatalf("authorized reason = %v; want %q", v["reason"], s.mgr.Snapshot().Cause().Reason)
+	}
+}
+
 func TestServer_ReloadAuth(t *testing.T) {
 	s, done := newTestServer(t)
 	defer done()

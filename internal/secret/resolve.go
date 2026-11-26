@@ -16,7 +16,8 @@ type Ref struct {
 
 // Resolver decrypts opaque secret references that appear in the merged map.
 // Recognize is called on every leaf string; Resolve runs once per recognised
-// reference per reload, on the single reload goroutine.
+// reference per reload, on the single reload goroutine, and its result is
+// reused for every path that holds the same reference.
 type Resolver interface {
 	Recognize(v string) (Ref, bool)
 	Resolve(ctx context.Context, ref Ref) (string, error)

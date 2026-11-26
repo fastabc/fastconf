@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/fastabc/fastconf/codec"
@@ -161,10 +162,7 @@ func collectProviderRevisions(sources []SourceRef) map[string]string {
 			out = map[string]string{}
 		}
 		// Strip the "provider://" prefix for readability.
-		name := s.Path
-		if len(name) > len(providerPathPrefix) && name[:len(providerPathPrefix)] == providerPathPrefix {
-			name = name[len(providerPathPrefix):]
-		}
+		name, _ := strings.CutPrefix(s.Path, providerPathPrefix)
 		out[name] = s.Revision
 	}
 	return out

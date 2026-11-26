@@ -55,9 +55,20 @@ and [upgrading from v1.6.0 to v1.7.0](docs/cookbook/migration-v1.md#upgrading-fr
   library other than `gopkg.in/yaml.v3`, such as `go.yaml.in/yaml/v3`, naming the
   field. The bridge never called such hooks and decoded those fields one by one
   without error. YAML hooks from any library now disable the file input shortcut.
+- A generator that fails with a context error (a `Reload(ctx)` timeout or
+  cancellation) now returns that error unwrapped, like providers, instead of
+  wrapping `ErrProvider`.
+- A provider snapshot with a nil `Map` now keeps the provider in `Sources()` and
+  its revision in `Cause().Revisions` instead of being dropped.
+- A secret reference that appears at several paths is resolved once per reload,
+  as the `SecretResolver` contract states, instead of once per path.
 - File events that rearm a pending timer now get their full coalescing window, bounded by MaxLag.
 - Expired file event bursts allow the watcher to keep reading while a reload runs.
 - Graceful shutdown of fastconfd closes idle SSE streams.
+- fastconfd disconnects an SSE subscriber whose buffer is full instead of silently
+  dropping events, so the client reconnects and refetches.
+- fastconfd `/version` includes `reason`, which can name file paths, only for
+  requests with the read token when one is configured; `trigger` stays public.
 - A provider Watch channel that closes before cancellation now emits `ProviderError`
   and resubscribes with exponential backoff. The backoff resets only after 30 seconds
   of uptime, so a provider whose stream closes immediately no longer reconnects
