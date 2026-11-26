@@ -141,11 +141,7 @@ func (m *Manager[T]) runReloadRequest(req reloadRequest) {
 	// closed, before the writer reached it.
 	started := err == nil
 	if started {
-		if req.run != nil {
-			err = req.run(pipeCtx)
-		} else {
-			err = m.reload(pipeCtx, req.trigger, req.reason, req.key)
-		}
+		err = m.execReloadRequest(pipeCtx, req)
 	}
 	stop()
 	cancel()
@@ -158,6 +154,17 @@ func (m *Manager[T]) runReloadRequest(req reloadRequest) {
 	if req.doneCh != nil {
 		req.doneCh <- err
 	}
+}
+
+// execReloadRequest runs one started request. Pipeline stages name their own
+// panics; this recovers the rest (Plan assembly, rollback, tracers) so a panic
+// fails the request instead of the process.
+func (m *Manager[T]) execReloadRequest(ctx context.Context, req reloadRequest) (err error) {
+	defer m.recoverPanic(ctx, string(req.trigger)+" request", &err)
+	if req.run != nil {
+		return req.run(ctx)
+	}
+	return m.reload(ctx, req.trigger, req.reason, req.key)
 }
 
 // Errors reports failed reloads, plans and rollbacks that the writer ran,

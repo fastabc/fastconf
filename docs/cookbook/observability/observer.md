@@ -29,7 +29,8 @@ Plan, rollback or shutdown from a synchronous callback.
 
 `WithObserverTimeout` cancels the callback context after 2 seconds by default;
 a negative value disables the deadline. It cannot interrupt code that ignores
-cancellation. Slow callbacks delay the writer.
+cancellation. Slow callbacks delay the writer. A panicking observer is logged at
+Error level and skipped; the reload and later observers are unaffected.
 
 | Helper in `observe` | Purpose |
 |---|---|

@@ -3,6 +3,8 @@ package fastconf
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -143,10 +145,22 @@ func (m *Manager[T]) emitReload(reason string, d time.Duration, err error) {
 // emit delivers e to every observer on the calling goroutine.
 func (m *Manager[T]) emit(e Event) {
 	for _, ob := range m.opts.Observers {
-		ctx, cancel := obs.ObserverContext(m.lifetime, m.opts.ObserverTimeout)
-		ob.Observe(ctx, e)
-		cancel()
+		m.observe(ob, e)
 	}
+}
+
+// observe isolates one observer: observers do not take part in publication, so
+// a panic is logged and neither reaches the reload nor skips later observers.
+func (m *Manager[T]) observe(ob Observer, e Event) {
+	ctx, cancel := obs.ObserverContext(m.lifetime, m.opts.ObserverTimeout)
+	defer cancel()
+	defer func() {
+		if v := recover(); v != nil {
+			m.opts.Logger.LogAttrs(ctx, slog.LevelError, "fastconf observer panic recovered",
+				slog.String("event", fmt.Sprintf("%T", e)), slog.Any("panic", v), slog.String("stack", string(debug.Stack())))
+		}
+	}()
+	ob.Observe(ctx, e)
 }
 
 // lazyDiff memoizes the diagnostic diff for Committed.Diff.
@@ -170,8 +184,14 @@ func (m *Manager[T]) startSpan(ctx context.Context, name string) (context.Contex
 // runTimedStage completes the span and stage event even when a stage returns an error.
 func (m *Manager[T]) runTimedStage(ctx context.Context, spanName string, fn func(context.Context, Span) error) (time.Duration, error) {
 	start := time.Now()
+	stage := strings.TrimPrefix(spanName, "fastconf.")
 	ctx, sp := m.startSpan(ctx, spanName)
-	err := fn(ctx, sp)
+	err := func() (err error) {
+		// The innermost timed stage names a panic; an enclosing stage then
+		// sees an ordinary error.
+		defer m.recoverPanic(ctx, stage, &err)
+		return fn(ctx, sp)
+	}()
 	elapsed := time.Since(start)
 	if err != nil {
 		sp.RecordError(err)
@@ -179,6 +199,6 @@ func (m *Manager[T]) runTimedStage(ctx context.Context, spanName string, fn func
 	sp.SetAttribute("fastconf.stage.elapsed_ms", elapsed.Milliseconds())
 	sp.SetAttribute("fastconf.stage.success", err == nil)
 	sp.End()
-	m.emitStage(strings.TrimPrefix(spanName, "fastconf."), elapsed, err)
+	m.emitStage(stage, elapsed, err)
 	return elapsed, err
 }

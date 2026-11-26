@@ -20,9 +20,9 @@ func newFCErr(msg string) *fcErr { return &fcErr{s: msg} }
 // exported FastConf sentinel is built with it.
 func New(msg string) error { return newFCErr(msg) }
 
-// The eight reload sentinels, split by what the caller does next: fix a
-// file (ErrDecode), fix an overlay (ErrMerge), fix code (ErrTransform),
-// retry (ErrProvider), fix a value (ErrInvalid).
+// The reload sentinels, split by what the caller does next: fix a
+// file (ErrDecode), fix an overlay (ErrMerge), fix code (ErrTransform,
+// ErrPanic), retry (ErrProvider), fix a value (ErrInvalid).
 var (
 	// ErrNoSources: no file, provider or generator produced a layer.
 	ErrNoSources = newFCErr("fastconf: no configuration sources discovered")
@@ -46,6 +46,8 @@ var (
 	ErrClosed = newFCErr("fastconf: manager closed")
 	// ErrTooLarge: a source body exceeded its size limit.
 	ErrTooLarge = newFCErr("fastconf: configuration body too large")
+	// ErrPanic: user code running on the reload writer panicked.
+	ErrPanic = newFCErr("fastconf: panic")
 )
 
 // Trigger classifies what started a reload, plan or rollback. The root

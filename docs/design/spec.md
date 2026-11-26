@@ -214,9 +214,17 @@ the value and sensitive paths match, the previous snapshot and metadata remain.
 Any pipeline failure preserves the current snapshot and generation. Later
 reload and plan failures also go to `Errors()` (capacity 16, oldest error
 dropped on overflow); initialization failures are returned by `New`/`Load`.
-Context cancellation remains recognizable with `errors.Is`. The eight main
+Context cancellation remains recognizable with `errors.Is`. The main
 pipeline error categories are available in the root API reference; history has
 additional `ErrHistoryDisabled` and `ErrUnknownGeneration` errors.
+A panic in user code on the writer (transforms, secret resolvers, typed hooks,
+`Defaults()`, validators, policies, providers, generators, Plan and rollback work)
+fails that operation with `ErrPanic`. The error names the stage and panic value;
+the stack is logged at Error level. The snapshot and generation are kept, the
+failure reaches `Errors()`, and the writer goes on serving requests. The
+initial load recovers too, so `New` and `Load` return `ErrPanic` instead of
+crashing. A panicking observer is logged and skipped; it does not fail the
+reload or prevent later observers from receiving the event.
 Subscriber panics also reach `Errors()` with reason `subscriber-panic`, after
 publication; they do not roll back the already-published snapshot. Failures
 before an operation enters the writer (such as a closed manager) may return

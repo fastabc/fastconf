@@ -38,6 +38,11 @@ var (
 	ErrPaused = fcerr.New("fastconf: manager paused")
 	// ErrTooLarge: a source body exceeded its size limit.
 	ErrTooLarge = fcerr.ErrTooLarge
+	// ErrPanic: a transform, secret resolver, typed hook, Defaults method,
+	// validator, policy, provider, generator or other user code running on
+	// the reload writer panicked. The error names the stage and the panic
+	// value; the stack is logged at Error level.
+	ErrPanic = fcerr.ErrPanic
 )
 
 // ReloadError is one entry on Manager.Errors: the failure, the free-form reload

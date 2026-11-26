@@ -29,6 +29,11 @@ and [upgrading from v1.6.0 to v1.7.0](docs/cookbook/migration-v1.md#upgrading-fr
 
 ### Fixed
 
+- A panic in user code on the reload writer (transform, secret resolver, typed hook,
+  `Defaults()`, validator, policy, provider, generator, Plan or rollback work) no
+  longer crashes the process. It fails that operation with the new `ErrPanic`, which
+  names the stage and panic value, keeps the current snapshot and reaches `Errors()`;
+  `New` and `Load` return it. A panicking observer is logged and skipped.
 - Vault metadata polling suppresses duplicate notifications for a version while its load is in flight
   and retries after a failed read.
 - The Pub/Sub notifier and the GCS and Secret Manager providers now use OpenTelemetry v1.47.0,

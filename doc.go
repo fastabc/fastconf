@@ -3,8 +3,8 @@
 // New starts a Manager with serialized reloads and lock-free, zero-allocation Get.
 //
 // Every failed pipeline preserves the published snapshot. Errors wrap ErrNoSources,
-// ErrDecode, ErrMerge, ErrTransform, ErrProvider, ErrInvalid, ErrClosed or ErrTooLarge;
-// context cancellation remains recognizable. Map, Dump, Diff and Explain mask secrets;
+// ErrDecode, ErrMerge, ErrTransform, ErrProvider, ErrInvalid, ErrClosed, ErrTooLarge
+// or ErrPanic; context cancellation remains recognizable. Map, Dump, Diff and Explain mask secrets;
 // Unredacted is the explicit plaintext path.
 //
 // Use Subscribe for commits, Manager.Errors for failures, Plan for previews and
