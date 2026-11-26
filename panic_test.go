@@ -187,8 +187,8 @@ func TestLoadFileRecoversInitializationPanics(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "config.json")
 		testutil.WriteFile(t, path, "{}")
 		value, err := LoadFile[config](path)
-		if value != nil || !errors.Is(err, ErrPanic) || !strings.Contains(err.Error(), "default exploded") {
-			t.Fatalf("LoadFile = %v, %v; want ErrPanic from default validation", value, err)
+		if value != nil || !errors.Is(err, ErrPanic) || !strings.Contains(err.Error(), "in default-tag: default exploded") {
+			t.Fatalf("LoadFile = %v, %v; want ErrPanic from default-tag validation", value, err)
 		}
 	})
 

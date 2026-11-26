@@ -41,8 +41,9 @@ var (
 	ErrTooLarge = fcerr.ErrTooLarge
 	// ErrPanic: a transform, secret resolver, typed hook, Defaults method,
 	// validator, policy, provider, generator or other user code running on
-	// the reload pipeline or initial default validation panicked. The error
-	// names the stage and the panic value; the stack is logged at Error level.
+	// the reload pipeline or initial default-tag validation panicked, or a
+	// codec panicked while LoadFile decoded its file. The error names the
+	// stage and the panic value; the stack is logged at Error level.
 	ErrPanic = fcerr.ErrPanic
 )
 

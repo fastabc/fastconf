@@ -136,7 +136,7 @@ func newManager[T any](ctx context.Context, opts []Option) (_ *Manager[T], err e
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", fcerr.ErrFastConf, err)
 	}
-	defer recoverPanic(ctx, o.Logger, "defaults", &err)
+	defer recoverPanic(ctx, o.Logger, "default-tag", &err)
 	hookPlan := buildTypedHookPlan[T](&o)
 	if len(defs) > 0 {
 		tree := map[string]any{}

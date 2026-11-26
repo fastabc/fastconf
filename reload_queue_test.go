@@ -76,6 +76,12 @@ func TestErrorsKeepsFailuresAfterSkippedRequests(t *testing.T) {
 	}); !errors.Is(err, failure) {
 		t.Fatalf("failing request = %v; want %v", err, failure)
 	}
+	// Filling the queue only proves no eviction while it can hold more
+	// skipped requests than Errors can buffer.
+	if cap(m.reloadCh) < cap(m.errorsCh) {
+		t.Fatalf("reload queue cap %d < Errors cap %d; the test cannot overflow Errors",
+			cap(m.reloadCh), cap(m.errorsCh))
+	}
 	release := blockWriter(t, m)
 	expired, expire := context.WithCancel(context.Background())
 	for range cap(m.reloadCh) {
