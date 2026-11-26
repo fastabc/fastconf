@@ -1,7 +1,6 @@
 # Reproducible configuration comparison
 
-This standalone module compares FastConf with Viper, Koanf, Cleanenv and
-Envconfig. [go.mod](go.mod) pins the comparison dependencies; these are fixed
+This standalone module compares FastConf with Viper, Koanf and Envconfig. [go.mod](go.mod) pins the comparison dependencies; these are fixed
 comparison versions, not a claim that each is the latest release. Its `replace` selects the local FastConf
 source. It is excluded from release module discovery, tags and candidate archives;
 competitor dependencies do not enter the root go.mod.
@@ -42,7 +41,7 @@ local and are not committed to Git.
 | HotRead | Direct struct, atomic.Pointer, FastConf Get, and Viper/Koanf decoded struct + atomic adapters |
 | ConcurrentRead | Parallel readers, one writer with a 1 ms ticker, 4 KiB input; readers check Counter=Mirror |
 | FileStartup | A shared os.ReadFile + the same startup adapter; warm OS cache, no fsnotify or remote network |
-| EnvStartup | The same two environment variables into FastConf, Cleanenv and Envconfig, with equivalent validation |
+| EnvStartup | The same two environment variables into FastConf and Envconfig, with equivalent validation |
 | FastConfDiagnostics | Warm Map, and valid Reload with history=8 plus cold Map; no cross-library comparison |
 
 Fixtures are generated deterministically by `Fixture`: exactly 4 KiB / 64 KiB /
@@ -58,7 +57,7 @@ fingerprint shortcut here. Viper/Koanf adapters create a fresh parser instance
 for each candidate to avoid leftover keys, then implement application-level
 validation, hash deduplication and atomic publication. Their setup and hash costs
 are included. Their hot reads operate on those published structs, not string-key
-lookups. The direct-struct baseline also represents static Cleanenv/Envconfig
+lookups. The direct-struct baseline also represents static Envconfig
 reads. These libraries do not participate in dynamic snapshots they do not
 implement; Kustomize is outside the application-runtime workload.
 
@@ -68,9 +67,7 @@ updates; actual completed update rate depends on workload and scheduling.
 The standalone sample tool records individual latencies and nearest-rank
 p50/p95/p99 after an initial load and GC. With 100 samples p99 is only the 99th
 sample, unsuitable for a service SLO. No race instrumentation is used for timing.
-The startup Cleanenv case uses ParseYAML (no implicit env override); env parsing
-is measured separately. FastConf/Viper/Koanf check unknown fields; Cleanenv's YAML
-parser does not, and fixtures contain no unknown keys.
+FastConf, Viper and Koanf all check unknown fields; fixtures contain no unknown keys.
 
 ## API sources
 
@@ -78,7 +75,6 @@ Adapters follow the pinned projects' own APIs and source:
 
 - [Viper 1.21.0](https://github.com/spf13/viper/blob/v1.21.0/viper.go): New, ReadConfig, UnmarshalExact.
 - [Koanf 2.3.0](https://github.com/knadh/koanf/blob/v2.3.0/koanf.go): Load with a map Provider, UnmarshalWithConf and ErrorUnused.
-- [Cleanenv 1.5.0](https://github.com/ilyakaznacheev/cleanenv/blob/v1.5.0/cleanenv.go): ParseYAML and ReadEnv.
 - [Envconfig 1.4.0](https://github.com/kelseyhightower/envconfig/blob/v1.4.0/envconfig.go): Process.
 
 The installed module source was read to verify those signatures. See

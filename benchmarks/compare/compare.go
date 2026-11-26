@@ -14,7 +14,6 @@ import (
 	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/contracts"
 	"github.com/go-viper/mapstructure/v2"
-	"github.com/ilyakaznacheev/cleanenv"
 	"github.com/knadh/koanf/v2"
 	"github.com/spf13/viper"
 	"go.yaml.in/yaml/v3"
@@ -95,8 +94,6 @@ func Decode(name string, data []byte) (*Config, error) {
 		if err = k.Load(&document{data}, nil); err == nil {
 			err = k.UnmarshalWithConf("", c, koanf.UnmarshalConf{Tag: "mapstructure", DecoderConfig: &mapstructure.DecoderConfig{ErrorUnused: true}})
 		}
-	case "Cleanenv":
-		err = cleanenv.ParseYAML(bytes.NewReader(data), c)
 	default:
 		return nil, fmt.Errorf("unknown adapter %s", name)
 	}

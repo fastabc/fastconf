@@ -15,7 +15,6 @@ import (
 
 	"github.com/fastabc/fastconf"
 	"github.com/fastabc/fastconf/providers/env"
-	"github.com/ilyakaznacheev/cleanenv"
 	"github.com/kelseyhightower/envconfig"
 )
 
@@ -31,7 +30,7 @@ func TestAdapters(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Logf("size=%d entries=%d sha256=%x", size, len(want.Entries), sha256.Sum256(data))
-		for _, name := range []string{"FastConf", "Viper", "Koanf", "Cleanenv"} {
+		for _, name := range []string{"FastConf", "Viper", "Koanf"} {
 			got, err := Decode(name, data)
 			if err != nil || !reflect.DeepEqual(got, want) {
 				t.Fatalf("%s size=%d decode: %v", name, size, err)
@@ -104,7 +103,7 @@ func BenchmarkCompare(b *testing.B) {
 	for _, size := range sizes {
 		b.Run(fmt.Sprintf("%dKiB", size>>10), func(b *testing.B) {
 			data, next, invalid := Fixture(size, 1), Fixture(size, 2), Fixture(size, 0)
-			for _, name := range []string{"FastConf", "Viper", "Koanf", "Cleanenv"} {
+			for _, name := range []string{"FastConf", "Viper", "Koanf"} {
 				b.Run("Startup/"+name, func(b *testing.B) {
 					b.ReportAllocs()
 					b.SetBytes(int64(size))
@@ -252,7 +251,7 @@ func BenchmarkFileStartup(b *testing.B) {
 		if err := os.WriteFile(path, Fixture(size, 1), 0o600); err != nil {
 			b.Fatal(err)
 		}
-		for _, name := range []string{"FastConf", "Viper", "Koanf", "Cleanenv"} {
+		for _, name := range []string{"FastConf", "Viper", "Koanf"} {
 			b.Run(fmt.Sprintf("%dKiB/%s", size>>10, name), func(b *testing.B) {
 				b.ReportAllocs()
 				for i := 0; i < b.N; i++ {
@@ -272,8 +271,8 @@ func BenchmarkFileStartup(b *testing.B) {
 }
 
 type envConfig struct {
-	Port    int  `json:"port" env:"FC_COMPARE_PORT" envconfig:"PORT"`
-	Enabled bool `json:"enabled" env:"FC_COMPARE_ENABLED" envconfig:"ENABLED"`
+	Port    int  `json:"port" envconfig:"PORT"`
+	Enabled bool `json:"enabled" envconfig:"ENABLED"`
 }
 
 func readEnv(name string) (*envConfig, error) {
@@ -286,8 +285,6 @@ func readEnv(name string) (*envConfig, error) {
 		if err == nil {
 			c = s.Value()
 		}
-	case "Cleanenv":
-		err = cleanenv.ReadEnv(c)
 	case "Envconfig":
 		err = envconfig.Process("FC_COMPARE", c)
 	}
@@ -299,7 +296,7 @@ func readEnv(name string) (*envConfig, error) {
 func BenchmarkEnvStartup(b *testing.B) {
 	b.Setenv("FC_COMPARE_PORT", "8080")
 	b.Setenv("FC_COMPARE_ENABLED", "true")
-	for _, name := range []string{"FastConf", "Cleanenv", "Envconfig"} {
+	for _, name := range []string{"FastConf", "Envconfig"} {
 		b.Run(name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
@@ -315,7 +312,7 @@ func BenchmarkEnvStartup(b *testing.B) {
 func TestEnvAdapters(t *testing.T) {
 	t.Setenv("FC_COMPARE_PORT", "8080")
 	t.Setenv("FC_COMPARE_ENABLED", "true")
-	for _, name := range []string{"FastConf", "Cleanenv", "Envconfig"} {
+	for _, name := range []string{"FastConf", "Envconfig"} {
 		c, err := readEnv(name)
 		if err != nil || *c != (envConfig{8080, true}) {
 			t.Fatalf("%s: %v %v", name, c, err)
